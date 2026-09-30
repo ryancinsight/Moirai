@@ -135,21 +135,32 @@ impl NativeWindow {
         if region.is_empty() {
             return Ok(());
         }
-        let frame = self.state.frame.get_or_insert_with(|| PresentedFrame {
-            width,
-            height,
-            pixels: Vec::new(),
-        });
         if !retained {
-            frame.pixels.clear();
-            frame
-                .pixels
+            // Recycle the old allocation, but leave no frame behind while it is
+            // resized: a frame whose dimensions disagree with its buffer would
+            // reach `StretchDIBits` in the next paint and read past the pixels.
+            let mut pixels = self
+                .state
+                .frame
+                .take()
+                .map(|frame| frame.pixels)
+                .unwrap_or_default();
+            pixels.clear();
+            pixels
                 .try_reserve_exact(count)
                 .map_err(|_| allocation_error())?;
-            frame.width = width;
-            frame.height = height;
-            frame.pixels.resize(count, 0);
+            pixels.resize(count, 0);
+            self.state.frame = Some(PresentedFrame {
+                width,
+                height,
+                pixels,
+            });
         }
+        let frame = self
+            .state
+            .frame
+            .as_mut()
+            .expect("invariant: a matching frame was retained or installed above");
         let stride = usize::try_from(width).map_err(|_| allocation_error())?;
         let fits = "invariant: a validated frame coordinate fits usize";
         let (left, right) = (

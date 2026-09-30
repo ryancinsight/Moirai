@@ -566,6 +566,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the client area and is visible, and a capture of a controller hidden
   through `set_visible(false)` fails at once with `InvalidInput` instead of
   waiting out the deadline.
+- **A failed Windows frame allocation no longer leaves a frame that outruns its
+  buffer.** `present_argb8888_region` stored the new frame's dimensions before
+  reserving its pixels, so an allocation failure left a frame with dimensions
+  and an empty buffer, and the next `WM_PAINT` passed it to `StretchDIBits`,
+  which reads `width * height * 4` bytes. The old allocation is now taken out,
+  resized, and reinstalled only once it holds the whole frame.
+
 - **Async file operations no longer block the polling thread.** Every
   `moirai_async::fs` operation ran its file syscall inside `poll`, so a slow
   disk or network mount stalled the executor thread and a dropped future could
