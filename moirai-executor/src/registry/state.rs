@@ -14,6 +14,7 @@ use std::{
 use moirai_core::Priority;
 
 use super::super::task::TaskMetadata;
+use super::fan_out;
 
 /// Inverse of [`Priority::index`]: `PRIORITY_FROM_INDEX[p.index()] == p` for
 /// every variant (asserted by `priority_index_round_trips` in the registry tests).
@@ -198,6 +199,30 @@ impl TaskState {
             started_after_ns
         };
         self.mark_completed_since(started_after_ns);
+    }
+
+    /// Register a waker to be notified when the task completes.
+    ///
+    /// Wakers that would not wake the same target accumulate in the slot
+    /// ([`fan_out`]), so every waiter is woken by completion.
+    pub(super) fn register_waker(&self, waker: &std::task::Waker) {
+        fan_out::register(&mut self.waker.lock().unwrap(), waker);
+        // Store first, then re-check completion, mirroring the ordering
+        // `mark_completed_since` publishes: it stores the completion offset
+        // before taking the waker. A task that completed before this store
+        // has already taken the absent waker and will never take again, so
+        // the one just stored would be held for the life of the slot —
+        // along with whatever it owns, typically an `Arc` to async task
+        // state. Reclaiming it here is race-free in both directions: if
+        // completion lands after the store, it takes and wakes; if it
+        // landed before, this take wins and wakes instead. Only one take
+        // can succeed, and a spurious wake is always permitted.
+        if self.is_completed() {
+            let stranded = self.waker.lock().unwrap().take();
+            if let Some(stranded) = stranded {
+                stranded.wake();
+            }
+        }
     }
 
     pub(super) fn is_completed(&self) -> bool {
