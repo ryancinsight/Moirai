@@ -327,3 +327,47 @@ fn indexed_operations_use_every_available_lane_above_cap() {
         2 * u64::try_from(WORKERS).expect("worker count must fit scheduler metrics")
     );
 }
+
+#[test]
+fn indexed_fan_out_refused_by_shutdown_after_admission_visits_each_item_once() {
+    // A shutdown that lands between two chunk admissions used to surface as
+    // `ShuttingDown` after earlier chunks had run, which callers read as
+    // "nothing ran" and answered with a full re-run. Now `ShuttingDown` means no
+    // item was visited, and any other outcome is `Ok` with every item visited
+    // exactly once. The delay sweeps the shutdown across the admission loop.
+    const COUNT: usize = 64;
+    for delay in 0..96usize {
+        let scheduler = ThreadScheduler::new(4, "test-indexed-shutdown").unwrap();
+        let visits: [AtomicUsize; COUNT] = std::array::from_fn(|_| AtomicUsize::new(0));
+        let barrier = std::sync::Barrier::new(2);
+
+        let result = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                barrier.wait();
+                for _ in 0..delay * 16 {
+                    std::hint::spin_loop();
+                }
+                scheduler.shutdown();
+            });
+            barrier.wait();
+            scheduler.for_each_indexed::<SyncTask, _>(Priority::Normal, None, COUNT, |index| {
+                visits[index].fetch_add(1, Ordering::Relaxed);
+            })
+        });
+
+        let counts = visits.each_ref().map(|count| count.load(Ordering::Relaxed));
+        match result {
+            Ok(()) => assert_eq!(
+                counts, [1; COUNT],
+                "delay {delay}: Ok must visit every item once"
+            ),
+            Err(ExecutorError::ShuttingDown) => {
+                assert_eq!(
+                    counts, [0; COUNT],
+                    "delay {delay}: ShuttingDown must mean nothing ran"
+                );
+            }
+            Err(other) => panic!("delay {delay}: unexpected failure {other}"),
+        }
+    }
+}
