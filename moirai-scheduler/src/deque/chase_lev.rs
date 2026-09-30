@@ -58,6 +58,10 @@
 //! is in-flight (epoch reclamation via the `ReclaimPolicy`), closing the
 //! use-after-free window a thief's `Acquire` array load would open.
 //!
+//! `ChaseLevDeque::shrink_to` is the reverse resize: the owner claims the same
+//! gate, and because the drain leaves no thief holding any buffer it frees the
+//! displaced and retired buffers immediately instead of retiring them.
+//!
 //! Storage-generation claims and resize-owner draining use bounded cooperative
 //! waits: 64 processor spin hints are followed by a thread yield, then the
 //! sequence repeats. A thief that observes an active resize yields immediately
@@ -616,6 +620,77 @@ where
     }
 }
 
+impl<T, P> ChaseLevInner<T, P>
+where
+    P: DequeReclaimPolicy,
+{
+    /// Replaces a grown buffer with one of `capacity` slots once the deque is
+    /// small enough to fit, freeing the old buffer and every retired one.
+    ///
+    /// Owner-only, reached through the `&mut` owner endpoint, so no `push` or
+    /// `pop` runs concurrently. Claiming the resize gate drains every thief:
+    /// each steal and each `capacity` read holds an admission for the whole
+    /// span in which it can load the array pointer or a retired buffer, so once
+    /// the claim is held no thread other than the owner can reach any buffer,
+    /// and the old ones are freed here rather than retired. A thief admitted
+    /// after the claim drops loads the replacement. The gate protocol is the
+    /// one `tests/loom_chase_lev_resize_gate.rs` model-checks for `resize`.
+    ///
+    /// Returns whether storage was replaced. The deque keeps one slot of
+    /// headroom beyond its live length (`push` grows at `capacity - 1`), so the
+    /// replacement never grows again on the next push.
+    fn shrink_to(&self, capacity: DequeCapacity<T>) -> bool {
+        let target = capacity.get();
+        // SAFETY: only the owner replaces the array and the caller is the
+        // owner, so the pointer is live and stable until this call replaces it.
+        if unsafe { &*self.array.load(Ordering::Relaxed) }.capacity() <= target {
+            return false;
+        }
+
+        let _resize_gate = self.resize_gate.claim(|| {});
+
+        let old_array_ptr = self.array.load(Ordering::Relaxed);
+        let b = self.bottom.load(Ordering::Relaxed);
+        let t = self.top.load(Ordering::Relaxed);
+        let len = b.wrapping_sub(t);
+        let fits = usize::try_from(len).is_ok_and(|len| len < target - 1);
+        if !fits {
+            return false;
+        }
+
+        let new_array = Box::new(Array::new(target, b));
+        // SAFETY: non-null and owner-replaced only; the gate claim excludes
+        // every other reader.
+        let old_array = unsafe { &*old_array_ptr };
+        for i in 0..len {
+            // SAFETY: `i < len = bottom - top`, so slot `t + i` is an initialized,
+            // live element relocated into the fresh (distinct) buffer; the
+            // bitwise copy moves ownership without running a destructor.
+            unsafe {
+                old_array.copy_slot_to(&new_array, t.wrapping_add(i));
+            }
+        }
+        self.array
+            .store(Box::into_raw(new_array), Ordering::Release);
+
+        let mut retired_arrays = self
+            .retired_arrays
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        retired_arrays.push(old_array_ptr);
+        for array_ptr in retired_arrays.drain(..) {
+            // SAFETY: each pointer is a `Box::into_raw` origin, retired exactly
+            // once; the gate claim proves no thread holds a reference into it,
+            // and element ownership moved with the bitwise copies, so dropping
+            // the `Array` releases only storage.
+            unsafe {
+                drop(Box::from_raw(array_ptr));
+            }
+        }
+        true
+    }
+}
+
 impl<T> ChaseLevInner<T, SharedEpochReclaim> {
     fn try_reclaim_shared(&self) -> bool {
         if !self.reclaim.can_reclaim_shared() {
@@ -766,6 +841,19 @@ where
     #[must_use]
     pub fn capacity(&self) -> usize {
         self.inner.capacity()
+    }
+
+    /// Replaces a grown buffer with one of `capacity` slots and frees every
+    /// displaced buffer, returning whether storage was replaced.
+    ///
+    /// A deque that grew for a one-off burst otherwise keeps the grown buffer
+    /// and, under [`DeferredReclaim`], every earlier one until the last
+    /// endpoint drops. The call is a no-op when the current buffer is already
+    /// no larger than `capacity`, or when the live items do not fit with one
+    /// slot of headroom. It waits for in-flight steals, so the owner calls it
+    /// where it has no work, such as before parking.
+    pub fn shrink_to(&mut self, capacity: DequeCapacity<T>) -> bool {
+        self.inner.shrink_to(capacity)
     }
 
     #[cfg(test)]
