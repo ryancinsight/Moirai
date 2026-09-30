@@ -202,8 +202,12 @@ impl<T> FutexMutex<T> {
     fn try_lock_immediate(&self) -> bool {
         #[cfg(target_os = "linux")]
         {
+            // Strong, not weak: `try_lock` reports contention, and a weak
+            // exchange may fail on an unlocked mutex (load-linked/store-
+            // conditional targets, and Miri's injected failures), which would
+            // report a lock nobody holds.
             self.state
-                .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
         }
         #[cfg(not(target_os = "linux"))]
