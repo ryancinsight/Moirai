@@ -178,6 +178,16 @@ belong in [gap_audit.md](gap_audit.md).
 - re-open trigger: A controlled multi-socket host is available for the paired run.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-ASYNC-STABLE-TASK-WAKER"></a>
+## MOI-ASYNC-STABLE-TASK-WAKER — Give each async task one stable waker
+- status: todo
+- priority: tightening
+- outcome: `moirai-async`'s executor presents the same `will_wake`-equal waker on every poll of a task, so a task awaiting `wait_for_task` leaves one member in the task-registry waker slot and stops paying an allocation plus three `Arc` clones per poll.
+- acceptance: A test polling one task N times while it awaits `wait_for_task` leaves the slot with 1 member (N = 1,000, versus 1,000 members today); the waker holds a `Weak` or the cache lives outside the task, so no `Arc` cycle keeps a finished task alive.
+- scope: `moirai-async/src/executor/{core.rs,waker.rs}` (`create_executor_waker`, `ExecutorWaker`), `AsyncTask`; `moirai-executor/src/registry/fan_out.rs` only for the acceptance test.
+- next step: Build the waker once at task creation from a `Weak<AsyncTask>` plus the run queue and reactor handles, hand out clones per poll, and add the slot-member test.
+- basis: `3c78f661f2b38c3e6ec0229fd5ac4c762e1fde2f`
+
 <a id="MOI-WASM-DOM-FILE-SAFARI-2026-09-14"></a>
 ## MOI-WASM-DOM-FILE-SAFARI-2026-09-14 — Recover bounded WebKit file reads
 - status: blocked

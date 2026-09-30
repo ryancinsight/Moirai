@@ -4,6 +4,7 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use super::super::HybridExecutor;
+    use crate::counting_wake::CountingWake;
     use crate::{AsyncTask, BlockingTask, SyncTask, WorkClass};
     use moirai_core::{
         Priority,
@@ -388,18 +389,6 @@ mod tests {
         executor.shutdown();
     }
 
-    /// Waker that counts how many times it is woken.
-    struct CountingWake(std::sync::atomic::AtomicUsize);
-
-    impl std::task::Wake for CountingWake {
-        fn wake(self: std::sync::Arc<Self>) {
-            self.wake_by_ref();
-        }
-        fn wake_by_ref(self: &std::sync::Arc<Self>) {
-            self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        }
-    }
-
     /// Occupy the single worker with a job gated on a channel; returns the
     /// release sender and blocks until the gate job has started.
     fn gate_single_worker<C: WorkClass>(
@@ -602,6 +591,60 @@ mod tests {
         }
         assert_eq!(wake.0.load(Ordering::Acquire), 1);
         assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+
+        gate_handle.join().unwrap().unwrap();
+        executor.shutdown();
+    }
+
+    #[test]
+    fn concurrent_waits_on_one_task_are_all_woken_by_completion() {
+        use std::future::Future;
+        use std::sync::Arc;
+        use std::sync::atomic::Ordering;
+        use std::task::{Context, Poll, Waker};
+
+        let executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 1,
+            ..ExecutorConfig::default()
+        })
+        .unwrap();
+
+        let (release, gate_handle) = gate_single_worker::<BlockingTask>(&executor);
+        let handle = executor.spawn_blocking(|| 9usize).unwrap();
+        let id = handle.id();
+
+        let first_wake = Arc::new(CountingWake(std::sync::atomic::AtomicUsize::new(0)));
+        let second_wake = Arc::new(CountingWake(std::sync::atomic::AtomicUsize::new(0)));
+        let first_waker = Waker::from(Arc::clone(&first_wake));
+        let second_waker = Waker::from(Arc::clone(&second_wake));
+        let mut first_context = Context::from_waker(&first_waker);
+        let mut second_context = Context::from_waker(&second_waker);
+        let mut first = std::pin::pin!(executor.wait_for_task(id, None));
+        let mut second = std::pin::pin!(executor.wait_for_task(id, None));
+
+        // Both futures register while the task is still queued behind the gate.
+        assert!(first.as_mut().poll(&mut first_context).is_pending());
+        assert!(second.as_mut().poll(&mut second_context).is_pending());
+
+        release.send(()).unwrap();
+        assert_eq!(handle.join().unwrap().unwrap(), 9);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        for (name, wake) in [("first", &first_wake), ("second", &second_wake)] {
+            while wake.0.load(Ordering::Acquire) == 0 {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "completion must wake the {name} waiter"
+                );
+                std::thread::yield_now();
+            }
+            assert_eq!(wake.0.load(Ordering::Acquire), 1, "{name} waiter");
+        }
+        assert_eq!(first.as_mut().poll(&mut first_context), Poll::Ready(Ok(())));
+        assert_eq!(
+            second.as_mut().poll(&mut second_context),
+            Poll::Ready(Ok(()))
+        );
 
         gate_handle.join().unwrap().unwrap();
         executor.shutdown();
