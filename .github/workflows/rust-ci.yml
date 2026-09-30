@@ -364,3 +364,32 @@ jobs:
             fi
           done
           exit "$status"
+
+  # The one job the branch protection requires. A job that fails in this
+  # workflow, or is cancelled, fails this one; a job skipped by its own
+  # condition passes, so a draft pull request is failed here on purpose and
+  # cannot leave a stale green result once it is marked ready. Requiring the
+  # individual jobs by name instead let a red `Fuzz parsers` run merge, because
+  # only the two jobs named in the protection were checked. The informational
+  # SemVer job is not part of the result.
+  verdict:
+    name: Verification result
+    if: ${{ always() }}
+    needs: [adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every job to have passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [ "$DRAFT" = "true" ]; then
+            echo "A draft pull request is not verified: mark it ready to run the gate." >&2
+            exit 1
+          fi
+          if ! jq -e '[.[].result] | all(. != "failure" and . != "cancelled")' <<<"$NEEDS" >/dev/null; then
+            jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | "\(.key): \(.value.result)"' <<<"$NEEDS" >&2
+            exit 1
+          fi
