@@ -82,8 +82,13 @@ impl TrayIconImage {
     /// Returns `InvalidInput` for an edge outside [`TRAY_ICON_SIZES`] or a
     /// pixel count other than `size * size`.
     pub fn new(size: u32, pixels: &[u32]) -> io::Result<Self> {
+        // The edge is checked before it is squared: an arbitrary `u32` squared
+        // overflows.
+        if !TRAY_ICON_SIZES.contains(&size) {
+            return Err(invalid("tray icon must be a 16 or 32 pixel square"));
+        }
         let expected = usize::try_from(size * size).map_err(|_| allocation_error())?;
-        if !TRAY_ICON_SIZES.contains(&size) || pixels.len() != expected {
+        if pixels.len() != expected {
             return Err(invalid("tray icon must be a 16 or 32 pixel square"));
         }
         let mut owned = Vec::new();
