@@ -62,3 +62,9 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 - risk: On wasm32-with-atomics, armv7, and i686 the packed free-list head keeps a 16-bit generation, so 65,536 successful CASes inside one thread's load-to-CAS window can reinstall an occupied slot as the free-list head (ABA); 64-bit targets need 2^32.
 - evidence: Read of `moirai-core/src/pool/slab.rs` packing and the `insert`/`remove` CAS sites; the interleaving is derived, not reproduced.
 - re-open trigger: A 32-bit target becomes a supported deployment for `SlabAllocator`, or a pause-hook test on `i686-unknown-linux-gnu` reproduces the reinstall; the remedy is a `u32` index plus `u32` generation in an `AtomicU64`, as `LockFreeStack` does.
+
+<a id="MOI-GAP-CHASE-LEV-EXACTLY-ONCE-001"></a>
+## MOI-GAP-CHASE-LEV-EXACTLY-ONCE-001 — One unreproduced exactly-once failure predates the slot-claim fix
+- risk: `chase_lev_exactly_once_high_thief_contention` failed once on 2026-07-27 in a full workspace run under about 11 concurrent compiles, assertion text not captured; the test has no timing dependence, so the failure was a lost, duplicated, or out-of-range consume.
+- evidence: Commit 12abfacbc5a7f0aa34a953c8983cb4abaa51c65a re-reads `bottom` after the steal claim, and `moirai-scheduler/tests/loom_chase_lev_slot_claim.rs` shows the fence-free pop without that re-read takes an item twice; about 75 reruns of the test family at 5-way concurrency and a full run on main did not reproduce the failure, so the link to that defect is unproven.
+- re-open trigger: Any `chase_lev_exactly_once_*` failure; capture the assertion text first, which separates a duplicated consume from a lost one.
