@@ -3,9 +3,23 @@
 //! `AsyncTask` is one spawned future as the executor sees it: the future itself
 //! type-erased into `ErasedTaskFuture`, plus the flags that decide when it may
 //! be polled. Tasks are shared as `Arc<AsyncTask>` between the run queue, the
-//! `ExecutorWaker` handed to the future, and any thread running
+//! wakers handed to the future, and any thread running
 //! `AsyncExecutor::process_pending_tasks`, so both the erasure and the flags
 //! carry cross-thread contracts.
+//!
+//! # Wakers
+//!
+//! The task is its own waker: `impl Wake for AsyncTask` (`waker.rs`) makes every
+//! `Waker::from(Arc<AsyncTask>)` a clone of the task's `Arc`, so a poll mints
+//! its waker without allocating and every waker of one task has the same data
+//! pointer and vtable, which is what `Waker::will_wake` compares. A waker
+//! strongly owns its task, so a pending task lives exactly as long as its run
+//! queue entry or a registered waker does. The task in turn holds only `Weak`
+//! handles to the run queue and the reactor it re-enqueues into: a strong
+//! handle would close the cycle run queue -> task -> run queue whenever the
+//! executor is dropped with a task still queued, and a stored waker would
+//! close task -> waker -> task. A wake after the executor is gone finds the
+//! handles dead and does nothing.
 //!
 //! # Type erasure
 //!
@@ -57,10 +71,13 @@
 //! `completed` check taken in the same critical section.
 
 use moirai_core::{Priority, TaskId};
+use moirai_pal::reactor::IoReactor;
+use moirai_utils::queue::LockFreeQueue;
 use std::future::Future;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Weak};
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -73,6 +90,12 @@ pub(super) struct AsyncTask {
     /// `UnsafeCell`); mutation is serialized by `future_lock`.
     pub(super) future: std::cell::UnsafeCell<ErasedTaskFuture>,
     pub(super) future_lock: std::sync::Mutex<()>,
+    /// The owning executor's run queue, weak so a queued task does not keep
+    /// the queue that holds it alive (see the module docs on wakers).
+    pub(super) run_queue: Weak<LockFreeQueue<Arc<AsyncTask>>>,
+    /// The owning executor's reactor, woken after a re-enqueue; weak for the
+    /// same reason as `run_queue`.
+    pub(super) reactor: Weak<IoReactor>,
     pub(super) is_queued: AtomicBool,
     /// Set once the future returns `Poll::Ready`. Polling a completed
     /// `async` block again panics ("resumed after completion"), so every

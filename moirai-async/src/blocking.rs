@@ -22,6 +22,17 @@
 //! panic in a caller's waker, which the reply runs inline. The worker keeps
 //! serving and the slot returns through the unwind. Under `panic = "abort"`,
 //! which the workspace release profile sets, such a panic ends the process.
+//!
+//! # Worker lifetime
+//!
+//! A pool lives in a `static` (the file-system and resolver pools each own
+//! one), and a `static` is never dropped, so nothing closes its queue and its workers
+//! are detached threads that run for the rest of the process. That is the
+//! design, not a leak: the pools are bounded (`workers_bound` threads, started
+//! on first use) and there is no owner whose drop could join them. Under Miri
+//! the detached workers fail a test run with "the main thread terminated
+//! without waiting for all remaining threads"; `-Zmiri-ignore-leaks` disables
+//! that check.
 
 use std::future::Future;
 use std::io;

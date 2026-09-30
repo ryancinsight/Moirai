@@ -1,70 +1,13 @@
-use super::{
+use super::super::{
     Chain, Chunks, Cloned, Copied, Enumerate, Filter, FilterMap, FlatMap, Flatten, FoldConsumer,
     Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse, Positions,
     ReduceConsumer, Reduction, Rev, SequentialAdapter, ShortCircuitConsumer, Skip, SkipAnyWhile,
     Take, TakeAnyWhile, Update, WhileSome, Zip, ZipEq,
 };
-use super::{TryStreamItem, fallible, split};
+use super::super::{TryStreamItem, fallible, split};
+use super::consumer::{Consumer, ParallelExtend};
+use super::folds::{reassociated_fold, seq_mutate_state, seq_try_mutate_state};
 use std::ops::ControlFlow;
-
-#[inline]
-fn seq_mutate_state<I, Init, T, F>(iter: I, init: Init, mut op: F) -> T
-where
-    I: ParallelIterator,
-    Init: FnOnce() -> T,
-    F: FnMut(&mut T, I::Item),
-{
-    iter.seq_fold(init(), |mut state, item| {
-        op(&mut state, item);
-        state
-    })
-}
-
-#[inline]
-fn seq_try_mutate_state<I, Init, T, F, E>(iter: I, init: Init, mut op: F) -> Result<(), E>
-where
-    I: ParallelIterator,
-    Init: FnOnce() -> T,
-    F: FnMut(&mut T, I::Item) -> Result<(), E>,
-{
-    let folded = iter.seq_try_fold((init(), Ok(())), |(mut state, _), item| {
-        match op(&mut state, item) {
-            Ok(()) => ControlFlow::Continue((state, Ok(()))),
-            Err(error) => ControlFlow::Break((state, Err(error))),
-        }
-    });
-    let (_, outcome) = match folded {
-        ControlFlow::Continue(state) | ControlFlow::Break(state) => state,
-    };
-
-    outcome
-}
-
-#[inline]
-fn reassociated_fold<I, O, Empty, Single, Combine>(
-    iter: I,
-    empty: Empty,
-    single: Single,
-    combine: Combine,
-) -> O
-where
-    I: ParallelIterator,
-    O: Send,
-    Empty: Fn() -> O + Send + Sync + Clone,
-    Single: Fn(I::Item) -> O + Send + Sync + Clone,
-    Combine: Fn(O, O) -> O + Send + Sync + Clone,
-{
-    iter.drive(FoldConsumer::new(
-        empty,
-        {
-            let single = single.clone();
-            let combine_step = combine.clone();
-            move |accumulator: O, item: I::Item| combine_step(accumulator, single(item))
-        },
-        combine,
-    ))
-    .into_value()
-}
 
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
 pub trait ParallelIterator: Sized + Send {
@@ -1081,53 +1024,4 @@ pub trait ParallelIterator: Sized + Send {
         ))
         .into_value()
     }
-}
-
-/// Consumer trait for parallel iterator operations.
-pub trait Consumer<T>: Send + Sync {
-    /// Result type produced by consuming an iterator.
-    type Result: Send;
-
-    /// Consume items from a parallel iterator.
-    fn consume<I>(self, iter: I) -> Self::Result
-    where
-        I: ParallelIterator<Item = T>;
-
-    /// Split the consumer for parallel processing.
-    fn split_at(self, index: usize) -> (Self, Self)
-    where
-        Self: Sized;
-
-    /// Combine results from split consumers.
-    fn combine(left: Self::Result, right: Self::Result) -> Self::Result;
-}
-
-/// Trait for collections that can be extended in parallel.
-pub trait ParallelExtend<T>: Send {
-    /// Extend the collection with items from a parallel iterator.
-    fn par_extend<I>(&mut self, par_iter: I)
-    where
-        I: ParallelIterator<Item = T>;
-}
-
-/// Extension trait for collections to create parallel iterators.
-pub trait IntoParallelIterator {
-    /// Element type yielded by the iterator.
-    type Item: Send;
-    /// Parallel iterator produced by conversion.
-    type Iter: ParallelIterator<Item = Self::Item>;
-
-    /// Convert `self` into a parallel iterator.
-    fn into_par_iter(self) -> Self::Iter;
-}
-
-/// Extension trait for collection references to create parallel iterators.
-pub trait IntoParallelRefIterator<'data> {
-    /// Element type yielded by the iterator.
-    type Item: Send + Sync + 'data;
-    /// Parallel iterator produced by conversion.
-    type Iter: ParallelIterator<Item = Self::Item>;
-
-    /// Create a parallel iterator over references to `self`.
-    fn par_iter(&'data self) -> Self::Iter;
 }
