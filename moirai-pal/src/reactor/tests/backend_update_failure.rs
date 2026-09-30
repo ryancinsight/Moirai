@@ -4,7 +4,7 @@
 use super::super::core::{FdKey, IoReactor};
 use super::super::registration::PlatformUpdateFailure;
 use super::harness::{LockObservingWake, WakeCount, socket_to_raw};
-use crate::{Event, Interest};
+use crate::{Event, Interest, Reactor};
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
