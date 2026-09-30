@@ -379,3 +379,38 @@ fn test_chase_lev_deque_index_wrapping() {
     assert_eq!(stealer.steal(), StealResult::Empty);
     assert!(deque.is_empty());
 }
+
+#[test]
+fn chase_lev_stealer_capacity_is_monotone_while_owner_grows_and_reclaim_runs() {
+    const PUSHES: usize = 4096;
+    let mut deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(capacity(2));
+    let stealer = deque.stealer();
+    let owner_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    let reader = {
+        let (stealer, owner_done) = (stealer.clone(), Arc::clone(&owner_done));
+        std::thread::spawn(move || {
+            let mut last = 0;
+            while !owner_done.load(Ordering::Acquire) {
+                let now = stealer.capacity();
+                assert!(
+                    now.is_power_of_two(),
+                    "capacity {now} is not a power of two"
+                );
+                assert!(now >= last, "capacity shrank from {last} to {now}");
+                last = now;
+            }
+            last
+        })
+    };
+
+    for value in 0..PUSHES {
+        deque.push(value);
+        deque.try_reclaim_shared(SharedEpochReclaim);
+    }
+    owner_done.store(true, Ordering::Release);
+
+    let last_seen = reader.join().expect("capacity reader must not panic");
+    assert!(last_seen <= deque.capacity());
+    assert!(deque.capacity() >= PUSHES);
+}
