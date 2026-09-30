@@ -21,7 +21,7 @@ let result: Result<T, TaskError> = handle.await;
 | `Pending` | Queued, not yet started |
 | `Running` | Currently executing on a worker |
 | `Completed` | Finished with a result |
-| `Cancelled` | Explicitly cancelled |
+| `Cancelled` | Cancelled on request, or discarded before it finished (for example at shutdown) |
 | `Failed` | Completed with a `TaskError` |
 
 ## Task Cancellation

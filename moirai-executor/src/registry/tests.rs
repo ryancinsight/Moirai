@@ -87,8 +87,11 @@ mod tests {
         );
     }
 
+    /// A token dropped before `start` means the job was discarded unrun, and
+    /// its result sender drops with it, so the handle resolves to `Cancelled`.
+    /// The registry records the same outcome rather than a completion.
     #[test]
-    fn unstarted_lifecycle_token_drop_publishes_rejection_completion() {
+    fn unstarted_lifecycle_token_drop_records_the_task_cancelled() {
         let before = Instant::now();
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
@@ -99,7 +102,7 @@ mod tests {
             .get_metadata(task_id)
             .expect("registered task metadata must remain readable");
         assert_eq!(metadata.started_at, None);
-        assert!(!metadata.cancelled);
+        assert!(metadata.cancelled);
         // Dropping an unstarted token still closes the task out.
         assert!(
             metadata.completed_at >= Some(before),
@@ -110,13 +113,44 @@ mod tests {
     }
 
     #[test]
-    fn running_lifecycle_token_completes_on_drop() {
+    fn running_lifecycle_token_dropped_unfinished_records_the_task_cancelled() {
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
         drop(lifecycle.start(1));
 
+        let metadata = registry.get_metadata(task_id).unwrap();
         assert!(registry.is_completed(task_id));
+        assert!(metadata.cancelled);
+        assert_eq!(metadata.worker_id, Some(1));
+    }
+
+    #[test]
+    fn running_lifecycle_token_cancel_records_cancelled_and_completed() {
+        let registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+
+        lifecycle.start(2).cancel();
+
+        let metadata = registry.get_metadata(task_id).unwrap();
+        assert!(metadata.cancelled);
+        assert!(registry.is_completed(task_id));
+        let started_at = metadata.started_at.expect("start() stamps started_at");
+        let completed_at = metadata.completed_at.expect("cancel stamps completed_at");
+        assert!(completed_at >= started_at);
+        assert_eq!(metadata.worker_id, Some(2));
+    }
+
+    #[test]
+    fn completed_lifecycle_token_is_not_recorded_cancelled() {
+        let registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+
+        lifecycle.start(0).complete();
+
+        let metadata = registry.get_metadata(task_id).unwrap();
+        assert!(registry.is_completed(task_id));
+        assert!(!metadata.cancelled);
     }
 
     #[test]

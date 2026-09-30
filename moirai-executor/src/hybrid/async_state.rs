@@ -12,8 +12,8 @@
 //! IDLE ──schedule──▶ QUEUED ──poll claims──▶ POLLING ──Pending, no wake──▶ IDLE
 //!                       │                      │  │
 //!     rejected wake ────┴──▶ COMPLETED        │  └── Ready / panic / cancel ─▶ COMPLETED
-//!     shutdown/spawn rejection ─▶ IDLE        └── wake during poll ─▶ NOTIFIED
-//!                                                    (inline repoll or reschedule)
+//!     shutdown on wake ─────────▶ COMPLETED   └── wake during poll ─▶ NOTIFIED
+//!     spawn rejection ──────────▶ IDLE               (inline repoll or reschedule)
 //! ```
 //!
 //! # Exclusivity invariant
@@ -58,10 +58,12 @@
 //! budget exits `QUEUED` through `complete_resource_exhausted` as typed task
 //! exhaustion. Only scheduler
 //! shutdown — after which no job of any kind can ever be admitted or run —
-//! releases the obligation, by reverting `QUEUED → IDLE`.
+//! releases the obligation, by completing the task as cancelled
+//! (`complete_cancelled`): the wake can never be honored, and a task left idle
+//! would leave its waiters pending until the last waker clone drops.
 //! The spawn-time `schedule` instead propagates admission failure to the
-//! spawner (the spawn-backpressure contract) after the same revert, which is
-//! race-free there because wakers are minted only inside `poll`.
+//! spawner (the spawn-backpressure contract) after reverting `QUEUED → IDLE`,
+//! which is race-free there because wakers are minted only inside `poll`.
 
 use std::{
     cell::{Cell, UnsafeCell},
@@ -293,8 +295,9 @@ where
     /// The claimed `QUEUED` epoch is discharged by exactly one of:
     /// - a successful enqueue (a worker will poll),
     /// - the inline poll below (this thread polls; no queue slot needed), or
-    /// - the shutdown revert (no job can ever be admitted or run again, so the
-    ///   wake is unfulfillable rather than lost to backpressure).
+    /// - the shutdown completion (no job can ever be admitted or run again, so
+    ///   the wake is unfulfillable rather than lost to backpressure, and the
+    ///   task ends cancelled).
     ///
     /// On admission rejection the waking thread polls the future itself —
     /// mirroring how `SchedulerScope::flush` runs admission-refused jobs on the
@@ -321,9 +324,10 @@ where
             }
             Err(_) => {
                 // ShuttingDown: the scheduler admits and runs nothing from
-                // here on, so no poll of this task can ever be admitted —
-                // reverting keeps the state honest for `Drop`.
-                self.revert_queued_to_idle();
+                // here on, so no poll of this task can ever be admitted.
+                // Completing it now resolves its waiters and handle; leaving
+                // it idle would hold them until the last waker clone drops.
+                self.complete_cancelled();
             }
         }
     }
@@ -355,12 +359,7 @@ where
             // Cooperative cancellation observed before the first poll: the
             // future body never runs. Mirrors the sync-path cancel handling in
             // `TaskLifecycleToken::start_unless_cancelled`.
-            self.store_completed();
-            self.cancel_lifecycle();
-            // Record before publishing the result so a joiner observes the
-            // cancelled counter as soon as the handle resolves.
-            self.metrics.record_task_cancelled();
-            self.publish_result(Err(TaskError::Cancelled));
+            self.complete_cancelled();
             return;
         }
 
@@ -409,15 +408,16 @@ where
         matches!(lifecycle, AsyncLifecycle::Registered(token) if token.cancel_requested())
     }
 
-    /// Consume the registered lifecycle token as cancelled.
+    /// Consume the lifecycle token, registered or running, as cancelled.
     fn cancel_lifecycle(&self) {
-        // Safety: only the poll owner selected by the async state machine calls
-        // this method, so lifecycle mutation is single-threaded.
+        // Safety: only the poll owner or the rejected-queue completion owner
+        // calls this method. Their POLLING/QUEUED states exclude every other
+        // accessor, so lifecycle mutation is single-threaded.
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
-        if let AsyncLifecycle::Registered(token) =
-            std::mem::replace(lifecycle, AsyncLifecycle::Completed)
-        {
-            token.cancel();
+        match std::mem::replace(lifecycle, AsyncLifecycle::Completed) {
+            AsyncLifecycle::Registered(token) => token.cancel(),
+            AsyncLifecycle::Running(token) => token.cancel(),
+            AsyncLifecycle::Completed => {}
         }
     }
 
@@ -550,7 +550,7 @@ where
                 self.complete_resource_exhausted();
             }
             Err(_) => {
-                self.revert_queued_to_idle();
+                self.complete_cancelled();
             }
         }
     }
@@ -564,6 +564,22 @@ where
     fn complete_failed(&self, error: TaskError) {
         self.complete_with_result(Err(error));
         self.metrics.record_task_failed();
+    }
+
+    /// Complete the task as cancelled: its future is dropped unfinished, the
+    /// lifecycle records `cancelled`, and the handle resolves to
+    /// `TaskError::Cancelled`.
+    ///
+    /// The caller is the poll owner, which observed a cancel request before the
+    /// first poll, or the rejected-queue completion owner of a `QUEUED` epoch
+    /// that scheduler shutdown refused.
+    fn complete_cancelled(&self) {
+        self.store_completed();
+        self.cancel_lifecycle();
+        // Record before publishing the result so a joiner observes the
+        // cancelled counter as soon as the handle resolves.
+        self.metrics.record_task_cancelled();
+        self.publish_result(Err(TaskError::Cancelled));
     }
 
     /// Complete a rejected `QUEUED` epoch without polling its future.
@@ -619,10 +635,10 @@ mod tests {
         pin::Pin,
         sync::{
             Arc, Mutex,
-            atomic::{AtomicUsize, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
             mpsc,
         },
-        task::{Context, Poll, Waker},
+        task::{Context, Poll, Wake, Waker},
         time::Duration,
     };
 
@@ -834,10 +850,13 @@ mod tests {
     /// Seam-substitute injector whose admission refuses a preset number of
     /// attempts before accepting, so each ladder rung is exercised
     /// deterministically on one thread. Stored jobs run for real via `drain`.
+    /// Once `shutting_down` is set it refuses every admission the way a
+    /// stopped scheduler does.
     struct GatedInjector {
         jobs: Mutex<Vec<QueuedJob>>,
         refuse_next: AtomicUsize,
         rejections: AtomicUsize,
+        shutting_down: AtomicBool,
     }
 
     impl GatedInjector {
@@ -846,6 +865,7 @@ mod tests {
                 jobs: Mutex::new(Vec::new()),
                 refuse_next: AtomicUsize::new(0),
                 rejections: AtomicUsize::new(0),
+                shutting_down: AtomicBool::new(false),
             })
         }
 
@@ -868,6 +888,9 @@ mod tests {
             C: WorkClass,
             F: FnOnce(usize) + Send + 'static,
         {
+            if self.shutting_down.load(Ordering::SeqCst) {
+                return Err(ExecutorError::ShuttingDown);
+            }
             let refusals = self.refuse_next.load(Ordering::SeqCst);
             if refusals > 0 {
                 self.refuse_next.store(refusals - 1, Ordering::SeqCst);
@@ -947,6 +970,115 @@ mod tests {
         assert_eq!(injector.rejections.load(Ordering::SeqCst), 1);
         assert!(handle.is_finished());
         assert_eq!(handle.join(), Some(Err(TaskError::ResourceExhausted)));
+    }
+
+    /// Waker standing in for a `wait_for_task` future parked on the task.
+    struct CompletionWaiter(AtomicUsize);
+
+    impl Wake for CompletionWaiter {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// A wake that scheduler shutdown refuses can never be honored, so the task
+    /// ends there: its waiters wake, its handle resolves to `Cancelled`, and the
+    /// registry records it cancelled. Leaving it idle would hold all three until
+    /// every waker clone dropped, which for a task parked on an external event
+    /// may be never.
+    #[test]
+    fn wake_refused_by_shutdown_completes_the_task_as_cancelled() {
+        let injector = GatedInjector::new();
+        let registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+        let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let waker = Arc::new(Mutex::new(None));
+        let metrics = Arc::new(ExecutorMetrics::new());
+        let state = AsyncFutureState::new(
+            Arc::clone(&injector),
+            WakeThenReady {
+                output: 5,
+                polls: Arc::clone(&polls),
+                waker: Arc::clone(&waker),
+                first_poll_sender: None,
+            },
+            lifecycle,
+            result_sender,
+            Arc::clone(&metrics),
+        );
+
+        Arc::clone(&state).schedule().expect("first poll admits");
+        injector.drain();
+        let waker = waker
+            .lock()
+            .unwrap()
+            .take()
+            .expect("first poll published its waker");
+        let waiter = Arc::new(CompletionWaiter(AtomicUsize::new(0)));
+        assert!(registry.register_waker(task_id, &Waker::from(Arc::clone(&waiter))));
+        assert!(!registry.is_completed(task_id));
+
+        injector.shutting_down.store(true, Ordering::SeqCst);
+        waker.wake();
+
+        assert_eq!(
+            waiter.0.load(Ordering::SeqCst),
+            1,
+            "the refused wake must complete the task and wake its waiter"
+        );
+        let metadata = registry.get_metadata(task_id).unwrap();
+        assert!(metadata.cancelled);
+        assert!(registry.is_completed(task_id));
+        assert_eq!(handle.join(), Some(Err(TaskError::Cancelled)));
+        assert_eq!(metrics.tasks_cancelled.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            polls.load(Ordering::SeqCst),
+            1,
+            "the body never polls again"
+        );
+    }
+
+    /// The reschedule that follows an exhausted inline-repoll budget meets the
+    /// same refusal with the lifecycle already `Running`, and ends the same way.
+    #[test]
+    fn reschedule_refused_by_shutdown_completes_the_running_task_as_cancelled() {
+        let injector = GatedInjector::new();
+        let registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+        let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let metrics = Arc::new(ExecutorMetrics::new());
+        let state = AsyncFutureState::new(
+            Arc::clone(&injector),
+            AlwaysSelfWake {
+                polls: Arc::clone(&polls),
+            },
+            lifecycle,
+            result_sender,
+            Arc::clone(&metrics),
+        );
+
+        Arc::clone(&state).schedule().expect("first poll admits");
+        injector.shutting_down.store(true, Ordering::SeqCst);
+        injector.drain();
+
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
+        let metadata = registry.get_metadata(task_id).unwrap();
+        assert!(metadata.cancelled);
+        let started_at = metadata
+            .started_at
+            .expect("the first poll started the task");
+        let completed_at = metadata
+            .completed_at
+            .expect("the refused reschedule completes the task");
+        assert!(completed_at >= started_at);
+        assert_eq!(handle.join(), Some(Err(TaskError::Cancelled)));
+        assert_eq!(metrics.tasks_cancelled.load(Ordering::Relaxed), 1);
     }
 
     #[test]
