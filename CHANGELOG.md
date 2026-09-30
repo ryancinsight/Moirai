@@ -620,6 +620,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   likewise contained. The containment does not apply under `panic = "abort"`,
   which the workspace release profile sets: there any such panic ends the
   process.
+- **`ResultCell` hand-off is `unsafe` at its single-consumer edges.** `register`
+  wrote the waiter cell with no exclusion, so two safe callers could race on it,
+  and `StateWord` was a safe trait whose implementor could report `READY` before
+  the result existed. `register` is now an `unsafe fn` whose caller vouches for
+  the one consumer, `StateWord` is an `unsafe trait`, and the blocking and async
+  handles carry the `SAFETY` argument at their call sites.
+
 - Shut down and join compute workers already started when a later worker thread
   fails to spawn. Failed `ThreadScheduler` construction no longer leaves a
   partial worker set parked with retained scheduler state.

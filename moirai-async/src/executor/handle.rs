@@ -27,7 +27,10 @@ impl<T> Future for AsyncHandle<T> {
             return Poll::Ready(value);
         }
 
-        self.result_slot.register_waker(cx.waker());
+        // SAFETY: `poll` holds `Pin<&mut Self>`, and the handle is the slot's only
+        // consumer (the executor side only completes), so no other registration
+        // can run.
+        unsafe { self.result_slot.register_waker(cx.waker()) };
 
         // Re-check is mandatory, not defensive: a `complete` that raced in on the
         // slot's PENDING->WRITING path does not wake (no waker was registered when

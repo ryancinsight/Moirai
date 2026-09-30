@@ -37,7 +37,12 @@ impl<T> AsyncResultSlot<T> {
         self.cell.try_take_ready()
     }
 
-    pub(super) fn register_waker(&self, waker: &Waker) {
-        self.cell.register(waker);
+    /// # Safety
+    ///
+    /// The caller is the slot's only consumer: nothing else registers on it while
+    /// this call runs.
+    pub(super) unsafe fn register_waker(&self, waker: &Waker) {
+        // SAFETY: forwarded from this method's contract.
+        unsafe { self.cell.register(waker) };
     }
 }

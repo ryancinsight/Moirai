@@ -37,7 +37,8 @@ fn complete_before_register_does_not_wake_and_the_recheck_finds_it() {
     cell.complete(1);
     assert_eq!(cell.try_take_ready(), Some(1));
 
-    cell.register(&Waker::from(Arc::clone(&wake)));
+    // SAFETY: this test thread is the cell's only consumer.
+    unsafe { cell.register(&Waker::from(Arc::clone(&wake))) };
     assert_eq!(
         wake.0.load(Ordering::SeqCst),
         0,
@@ -50,7 +51,8 @@ fn complete_wakes_a_registered_waker_once() {
     let wake = Arc::new(CountingWake(AtomicUsize::new(0)));
     let cell = ResultCell::<u32, Waker>::new();
 
-    cell.register(&Waker::from(Arc::clone(&wake)));
+    // SAFETY: this test thread is the cell's only consumer.
+    unsafe { cell.register(&Waker::from(Arc::clone(&wake))) };
     cell.complete(2);
 
     assert_eq!(wake.0.load(Ordering::SeqCst), 1);
@@ -66,8 +68,10 @@ fn a_waker_may_be_replaced_but_a_thread_registration_is_once() {
     let second = Arc::new(CountingWake(AtomicUsize::new(0)));
     let cell = ResultCell::<u32, Waker>::new();
 
-    cell.register(&Waker::from(Arc::clone(&first)));
-    cell.register(&Waker::from(Arc::clone(&second)));
+    // SAFETY: this test thread is the cell's only consumer.
+    unsafe { cell.register(&Waker::from(Arc::clone(&first))) };
+    // SAFETY: this test thread is the cell's only consumer.
+    unsafe { cell.register(&Waker::from(Arc::clone(&second))) };
     cell.complete(3);
 
     assert_eq!(first.0.load(Ordering::SeqCst), 0, "stale waker was woken");
@@ -77,7 +81,8 @@ fn a_waker_may_be_replaced_but_a_thread_registration_is_once() {
 #[test]
 fn a_thread_waiter_is_unparked_across_the_hand_off() {
     let cell = ResultCell::<u32, thread::Thread>::new();
-    cell.register(&thread::current());
+    // SAFETY: this test thread is the cell's only consumer.
+    unsafe { cell.register(&thread::current()) };
     cell.complete(4);
 
     // `unpark` leaves a token, so a park here returns immediately. The
@@ -105,7 +110,8 @@ fn drop_releases_the_untaken_result_and_the_parked_waiter() {
     }
 
     let cell = ResultCell::<Tracked, Waker>::new();
-    cell.register(&Waker::noop().clone());
+    // SAFETY: this test thread is the cell's only consumer.
+    unsafe { cell.register(&Waker::noop().clone()) };
     cell.complete(Tracked(Arc::clone(&dropped)));
     drop(cell);
 
