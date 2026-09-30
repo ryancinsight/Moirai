@@ -15,7 +15,7 @@ concurrency library, organized by domain:
 
 ```toml
 [dependencies]
-moirai-utils = "0.5"
+moirai-utils = "0.7"
 ```
 
 ```rust

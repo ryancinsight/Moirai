@@ -20,7 +20,7 @@ data-parallel domain in `moirai-parallel`.
 
 ```toml
 [dependencies]
-moirai-async = "0.5"
+moirai-async = "0.7"
 ```
 
 ```rust

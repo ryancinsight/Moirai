@@ -25,7 +25,7 @@ under `--cfg loom`).
 
 ```toml
 [dependencies]
-moirai-scheduler = "0.5"
+moirai-scheduler = "0.7"
 ```
 
 ```rust

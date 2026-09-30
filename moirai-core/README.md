@@ -13,7 +13,7 @@ Modules: `task`, `executor`, `scheduler`, `error`, `channel`, `communication`,
 
 ```toml
 [dependencies]
-moirai-core = "0.5"
+moirai-core = "0.7"
 ```
 
 ```rust

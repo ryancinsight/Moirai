@@ -17,7 +17,7 @@ or above `ADAPTIVE_PARALLEL_THRESHOLD` and run sequentially below it.
 
 ```toml
 [dependencies]
-moirai-parallel = "0.5"
+moirai-parallel = "0.7"
 ```
 
 ```rust

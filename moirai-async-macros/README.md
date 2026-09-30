@@ -18,7 +18,7 @@ rather than on this one directly.
 
 ```toml
 [dependencies]
-moirai-async = "0.5"
+moirai-async = "0.7"
 ```
 
 ```rust

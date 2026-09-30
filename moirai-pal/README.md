@@ -103,7 +103,7 @@ drops its child future, releasing a pending PAL receive or timer.
 
 ```toml
 [dependencies]
-moirai-pal = "0.6"
+moirai-pal = "0.7"
 ```
 
 ```rust

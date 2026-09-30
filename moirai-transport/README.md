@@ -22,7 +22,7 @@ boundaries, so the same addressing works for local and remote communication.
 
 ```toml
 [dependencies]
-moirai-transport = "0.5"
+moirai-transport = "0.7"
 ```
 
 ```rust

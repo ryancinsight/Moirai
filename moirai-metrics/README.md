@@ -13,7 +13,7 @@ Types: `Counter`, `Gauge`, `Histogram` (with `HistogramStats`), `Metrics` /
 
 ```toml
 [dependencies]
-moirai-metrics = "0.5"
+moirai-metrics = "0.7"
 ```
 
 ```rust

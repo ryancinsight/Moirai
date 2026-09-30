@@ -16,7 +16,7 @@ RustCrypto provider, so no C toolchain is required.
 
 ```toml
 [dependencies]
-moirai-tls = "0.5"
+moirai-tls = "0.7"
 ```
 
 ```rust

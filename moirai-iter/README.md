@@ -16,7 +16,7 @@ are `async` and must be awaited. Async-closure variants (`map_async`,
 
 ```toml
 [dependencies]
-moirai-iter = "0.5"
+moirai-iter = "0.7"
 ```
 
 ```rust

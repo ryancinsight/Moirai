@@ -16,7 +16,7 @@ built by callers on top of this — the crate knows HTTP, not S3.
 
 ```toml
 [dependencies]
-moirai-http = "0.6"
+moirai-http = "0.7"
 ```
 
 ```rust

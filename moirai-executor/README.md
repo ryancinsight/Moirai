@@ -15,7 +15,7 @@ bounded lane isolated from that pool.
 
 ```toml
 [dependencies]
-moirai-executor = "0.5"
+moirai-executor = "0.7"
 ```
 
 ```rust

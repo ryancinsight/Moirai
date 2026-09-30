@@ -1,11 +1,11 @@
 //! Thread-local reactor ownership and test-only reactor suppression.
 //!
-//! The shared Melinoe 0.9.0 macro owns the stable `thread_local!` initializer;
+//! The shared Melinoe 0.10.0 macro owns the stable `thread_local!` initializer;
 //! this module keeps the scoped allowance until Moirai advances that provider
 //! pin to the const-initializer revision.
 #![allow(
     clippy::missing_const_for_thread_local,
-    reason = "Melinoe 0.9.0's pinned thread_cached! expansion owns this initializer"
+    reason = "Melinoe 0.10.0's pinned thread_cached! expansion owns this initializer"
 )]
 
 use super::core::IoReactor;

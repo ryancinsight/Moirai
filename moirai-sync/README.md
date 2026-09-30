@@ -18,7 +18,7 @@ does not provide:
 
 ```toml
 [dependencies]
-moirai-sync = "0.5"
+moirai-sync = "0.7"
 ```
 
 ```rust

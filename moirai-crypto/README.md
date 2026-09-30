@@ -33,7 +33,7 @@ SHA-256 and HMAC-SHA256 implementation without compiling the TLS dependency:
 
 ```toml
 [dependencies]
-moirai-crypto = { version = "0.6", default-features = false }
+moirai-crypto = { version = "0.7", default-features = false }
 ```
 
 ```rust
@@ -97,7 +97,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-moirai-crypto = "0.6"
+moirai-crypto = "0.7"
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 ```
 

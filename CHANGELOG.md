@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-30
+
 ### Added
 
 - **Worker pinning** (`WorkerPlacement::{Unbound, Pinned}`,
@@ -168,7 +170,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the field (`WorkerPlacement::Unbound` keeps current behaviour) and handle or
   forward the variant.
 
+- `moirai_gpu::resident_blocks` and the other planner entry points take
+  `themis::GpuTopology`, and that type is now the one from `themis-topology`
+  0.11. A caller on `themis-topology` 0.10 must move to 0.11 to build a
+  topology the planner accepts.
+
 ### Changed
+
+- **Provider requirements.** The workspace requires `melinoe` 0.10.0 and
+  `themis-topology` 0.11.0. `moirai-executor` already registers its Melinoe
+  partition bridge through the 0.10 `ParallelExecutor` trait, so no call site
+  changed. The workspace versions as one unit, so every crate advances to
+  0.7.0 and every in-workspace requirement moves with it.
 
 - **The executor releases finished-task state.** `HybridExecutor` now derives a
   `RetentionPolicy` from `CleanupConfig` and releases the task registry in whole

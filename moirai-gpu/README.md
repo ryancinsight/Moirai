@@ -19,7 +19,7 @@ an ordinary task.
 
 ```toml
 [dependencies]
-moirai-gpu = "0.6"
+moirai-gpu = "0.7"
 ```
 
 ```rust
