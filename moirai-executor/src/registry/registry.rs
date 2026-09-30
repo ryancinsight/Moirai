@@ -199,10 +199,21 @@ impl TaskRegistry {
     /// A task whose block was released under the retention policy is completed.
     #[must_use]
     pub fn is_completed(&self, task_id: u64) -> bool {
+        self.completion(task_id) == Some(true)
+    }
+
+    /// Report whether a task completed, from one observation of the registry.
+    ///
+    /// `None` is an id that was never registered. A task whose block was
+    /// released under the retention policy is `Some(true)`. A caller that must
+    /// tell an unknown id from a finished one reads this once: two separate
+    /// lookups can straddle the release of the task's block.
+    #[must_use]
+    pub fn completion(&self, task_id: u64) -> Option<bool> {
         match self.observe(task_id, TaskState::is_completed) {
-            Observation::Retired => true,
-            Observation::Unregistered => false,
-            Observation::Registered(completed) => completed,
+            Observation::Retired => Some(true),
+            Observation::Unregistered => None,
+            Observation::Registered(completed) => Some(completed),
         }
     }
 
