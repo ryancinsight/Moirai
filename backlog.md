@@ -229,16 +229,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Get mnemosyne building under Miri, then write the one-job scope reproducer.
 - basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
 
-<a id="MOI-PAL-IGNORED-SUITE-SHARED-EXE-2026-09-29"></a>
-## MOI-PAL-IGNORED-SUITE-SHARED-EXE-2026-09-29 — Stop the ignored webview2 run from pinning the shared test executable
-- status: todo
-- priority: verification
-- outcome: A long `moirai-pal --features webview2 --run-ignored all` run never blocks another branch's gate from replacing `moirai_pal-*.exe` in the shared target directory.
-- acceptance: While that suite runs, clippy and nextest for `moirai-pal` from any other tree succeed without `failed to remove file`; the suite runs from a copied `cargo nextest archive` extraction or an equivalent private location.
-- scope: the committed script or documented command that runs the ignored suite; no per-tree `target/` fork.
-- next step: Run the suite with `--archive-file` extracted to a run-output directory and confirm a concurrent build replaces the shared exe.
-- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
-
 <a id="MOI-RESCUE-RING-BRANCHES-2026-09-29"></a>
 ## MOI-RESCUE-RING-BRANCHES-2026-09-29 — Complete or drop the parked ring-unification branches
 - status: todo
