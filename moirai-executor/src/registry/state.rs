@@ -77,7 +77,9 @@ pub(crate) struct TaskState {
     pub(super) priority: AtomicU8,
     /// Set by `cancel_task`; observed cooperatively at job start.
     pub(super) cancel_requested: AtomicBool,
-    /// Set when a cancel request was honored (the job body never ran).
+    /// Set when the task ended without a result: a cancel request was honored,
+    /// or its lifecycle token was dropped before completing. The task's handle
+    /// reports `TaskError::Cancelled` in both cases.
     pub(super) cancelled: AtomicBool,
 }
 

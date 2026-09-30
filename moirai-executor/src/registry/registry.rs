@@ -108,10 +108,15 @@ impl TaskRegistry {
     }
 
     /// Register a new task and return its ID.
+    ///
+    /// The task stays queued until the caller drives it by id:
+    /// [`TaskRegistry::mark_started`], then [`TaskRegistry::mark_completed`].
+    /// Until it completes, its block is never retired, so both calls reach the
+    /// task. Executor code that owns the task's lifecycle uses a token instead.
     pub fn register_task(&self) -> u64 {
         let id = self.issue_id();
         let task_id = id.get();
-        self.register_owned(id);
+        self.register_owned(id).release();
         task_id
     }
 

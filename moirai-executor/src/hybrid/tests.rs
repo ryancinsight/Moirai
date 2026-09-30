@@ -652,6 +652,76 @@ mod tests {
         executor.shutdown();
     }
 
+    /// An async task parked on an external event is woken after shutdown: the
+    /// scheduler refuses the poll, so the task ends cancelled at once. A waiter
+    /// on it resolves rather than pending until the event source drops its
+    /// last waker clone, and status agrees with what the handle reports.
+    #[test]
+    fn waking_an_async_task_after_shutdown_resolves_its_waiter_as_cancelled() {
+        use std::future::Future;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Mutex};
+        use std::task::{Context, Poll, Waker};
+
+        let executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 1,
+            ..ExecutorConfig::default()
+        })
+        .unwrap();
+
+        let waker_slot = Arc::new(Mutex::new(None::<Waker>));
+        let (published_tx, published_rx) = mpsc::sync_channel(1);
+        let waker_for_future = Arc::clone(&waker_slot);
+        let handle = executor
+            .spawn_async(async move {
+                let mut publish = Some(published_tx);
+                std::future::poll_fn(move |cx| {
+                    *waker_for_future.lock().unwrap() = Some(cx.waker().clone());
+                    if let Some(publish) = publish.take() {
+                        publish.send(()).expect("waker observer is alive");
+                    }
+                    Poll::<usize>::Pending
+                })
+                .await
+            })
+            .unwrap();
+        published_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("async future must publish a waker before the deadline");
+        let event_source_waker = waker_slot
+            .lock()
+            .unwrap()
+            .take()
+            .expect("waker publication stores the waker");
+        let id = handle.id();
+
+        let wake = Arc::new(CountingWake(AtomicUsize::new(0)));
+        let waiter = Waker::from(Arc::clone(&wake));
+        let mut context = Context::from_waker(&waiter);
+        let mut wait = std::pin::pin!(executor.wait_for_task(id, None));
+        assert!(wait.as_mut().poll(&mut context).is_pending());
+        assert_eq!(executor.task_status(id), Some(TaskStatus::Running));
+
+        // The event source keeps a waker clone, so the task state stays
+        // reachable after the wake below and cannot resolve by being dropped.
+        let event_source_clone = event_source_waker.clone();
+        executor.shutdown();
+        event_source_waker.wake();
+
+        assert_eq!(
+            wake.0.load(Ordering::Acquire),
+            1,
+            "the refused wake must complete the task and wake its waiter"
+        );
+        assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+        assert_eq!(executor.task_status(id), Some(TaskStatus::Cancelled));
+        assert_eq!(
+            handle.join(),
+            Some(Err(moirai_core::error::TaskError::Cancelled))
+        );
+        drop(event_source_clone);
+    }
+
     #[test]
     fn task_stats_reports_recorded_spawn_priority() {
         let executor = HybridExecutor::new(ExecutorConfig {

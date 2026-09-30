@@ -170,6 +170,16 @@ impl<L: StateLease> TaskLifecycleToken<L> {
             .state()
     }
 
+    /// Give up lifecycle authority without recording an outcome.
+    ///
+    /// The task stays queued for whoever holds its id to drive through the
+    /// registry; dropping the token would instead record it cancelled.
+    pub(super) fn release(mut self) {
+        if let Some(lease) = self.lease.take() {
+            lease.retire();
+        }
+    }
+
     /// Record the spawn priority on the task state.
     #[inline]
     pub(crate) fn set_priority(&self, priority: Priority) {
@@ -224,42 +234,57 @@ impl<L: StateLease> Drop for TaskLifecycleToken<L> {
     fn drop(&mut self) {
         if let Some(lease) = self.lease.take() {
             // A token reaches Drop only when admission or queued execution ends
-            // before `start`; publish terminal completion before retiring its
-            // lease so block retirement cannot reclaim the slot during publication.
-            lease.state().mark_completed();
+            // before `start`: the body never ran and its result sender drops
+            // with it, so the handle resolves to `TaskError::Cancelled` and the
+            // task is recorded the same way. Publish that terminal state before
+            // retiring the lease so block retirement cannot reclaim the slot
+            // during publication.
+            lease.state().mark_cancelled();
             lease.retire();
         }
     }
 }
 
 impl<L: StateLease> RunningTaskToken<L> {
+    /// Abandon a started task whose body will not finish: record it cancelled
+    /// and completed (waking any registered waiter), as its handle reports.
+    #[inline]
+    pub(crate) fn cancel(mut self) {
+        self.abandon();
+    }
+
     /// Mark the task as completed exactly once.
     #[inline]
     pub(crate) fn complete(mut self) -> Duration {
-        self.complete_once()
-            .expect("invariant: consuming completion runs exactly once")
+        let execution_time = self
+            .lease
+            .as_ref()
+            .expect("invariant: running token retains its state lease")
+            .state()
+            .mark_completed_since(self.started_after_ns);
+        self.completed = true;
+        execution_time
     }
 
-    #[inline]
-    pub(super) fn complete_once(&mut self) -> Option<Duration> {
+    /// Record a task that never reported completion as cancelled.
+    fn abandon(&mut self) {
         if !self.completed {
-            let execution_time = self
-                .lease
+            self.lease
                 .as_ref()
                 .expect("invariant: running token retains its state lease")
                 .state()
-                .mark_completed_since(self.started_after_ns);
+                .mark_cancelled();
             self.completed = true;
-            Some(execution_time)
-        } else {
-            None
         }
     }
 }
 
 impl<L: StateLease> Drop for RunningTaskToken<L> {
     fn drop(&mut self) {
-        self.complete_once();
+        // Every path that finishes the body calls `complete`; reaching Drop
+        // without it means the task was discarded mid-run, and its result
+        // sender drops with it.
+        self.abandon();
         if let Some(lease) = self.lease.take() {
             lease.retire();
         }
