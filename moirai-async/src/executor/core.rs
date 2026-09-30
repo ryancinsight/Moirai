@@ -15,7 +15,6 @@ use crate::executor::handle::AsyncHandle;
 use crate::executor::result_slot::AsyncResultSlot;
 use crate::executor::stats::{AsyncExecutorStats, ExecutorStats};
 use crate::executor::task::{AsyncTask, ErasedTaskFuture};
-use crate::executor::waker::ExecutorWaker;
 
 /// Native async executor with access to the PAL I/O reactor.
 pub struct AsyncExecutor {
@@ -73,6 +72,8 @@ impl AsyncExecutor {
             task_id,
             future: std::cell::UnsafeCell::new(ErasedTaskFuture::new(wrapped_future)),
             future_lock: std::sync::Mutex::new(()),
+            run_queue: Arc::downgrade(&self.run_queue),
+            reactor: Arc::downgrade(&self.reactor),
             is_queued: AtomicBool::new(true),
             completed: AtomicBool::new(false),
             priority,
@@ -158,7 +159,7 @@ impl AsyncExecutor {
             // ordering edge.
             task.is_queued.store(false, Ordering::Relaxed);
 
-            let waker = self.create_executor_waker(Arc::clone(&task));
+            let waker = Waker::from(Arc::clone(&task));
             let mut context = Context::from_waker(&waker);
             let task_start = Instant::now();
 
@@ -198,16 +199,6 @@ impl AsyncExecutor {
                 std::task::Poll::Pending => {}
             }
         }
-    }
-
-    /// Create an executor-local waker for polling queued futures.
-    fn create_executor_waker(&self, task: Arc<AsyncTask>) -> Waker {
-        let waker = Arc::new(ExecutorWaker {
-            task,
-            run_queue: Arc::clone(&self.run_queue),
-            reactor: Arc::clone(&self.reactor),
-        });
-        Waker::from(waker)
     }
 
     /// Get current executor statistics.
