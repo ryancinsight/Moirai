@@ -1473,7 +1473,7 @@ dependencies = [
 [[package]]
 name = "themis-topology"
 version = "0.10.1"
-source = "git+https://github.com/ryancinsight/themis#fa0ddd7602d6ddc7b887bf1704b2d9467549d985"
+source = "git+https://github.com/ryancinsight/themis#c62762b1cdd1c0483dd5937a5d4d164c8a9f80b8"
 dependencies = [
  "melinoe",
 ]
