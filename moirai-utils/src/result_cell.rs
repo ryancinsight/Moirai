@@ -16,10 +16,12 @@
 //!   [`register`](ResultCell::register) from its own poll or park loop.
 //!
 //! Because those are the only two owners, the `result` and `waiter` cells need
-//! no lock: the producer runs once; the consumer is serialized with itself
-//! (`poll` takes `Pin<&mut Self>` on the async side, and the blocking side
-//! registers once per wait); and `Drop` runs only after the last `Arc`, so it
-//! has exclusive access and races neither side.
+//! no lock. The type does not enforce that, so [`register`](ResultCell::register)
+//! is `unsafe` and its caller vouches for the single consumer. The producer runs
+//! once; the consumer is serialized with itself (`poll` takes `Pin<&mut Self>`
+//! on the async side, and the blocking side registers once per wait); and `Drop`
+//! runs only after the last `Arc`, so it has exclusive access and races neither
+//! side.
 //!
 //! # State machine
 //!
@@ -96,6 +98,10 @@ use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicU8, Ordering};
 
+mod state_word;
+
+pub use state_word::StateWord;
+
 const RESULT_PENDING: u8 = 0;
 const RESULT_WAITING: u8 = 1;
 const RESULT_UPDATING_WAITER: u8 = 2;
@@ -135,104 +141,6 @@ impl Waiter for core::task::Waker {
 
     fn wake(self) {
         core::task::Waker::wake(self);
-    }
-}
-
-/// The one word the state machine synchronizes through.
-///
-/// The machine only ever loads, stores, and transitions a `u8`, which is all it
-/// needs; naming that as a trait keeps *where the word lives* a decision of the
-/// caller, not of the protocol. The async handle keeps it packed beside the
-/// result, because it allocates one cell per spawned task and refuses to pad
-/// each of them; the blocking handle puts it in an interference sector of its
-/// own, so the producer's publish does not invalidate the result's line. Both
-/// run the identical machine — see [the layout note](self#layout).
-pub trait StateWord: Send + Sync {
-    /// The word every cell starts at.
-    fn pending() -> Self;
-
-    /// Load the current state.
-    fn load(&self, order: Ordering) -> u8;
-
-    /// Store a new state.
-    fn store(&self, value: u8, order: Ordering);
-
-    /// Transition the state, returning the observed value on failure.
-    fn compare_exchange(
-        &self,
-        current: u8,
-        new: u8,
-        success: Ordering,
-        failure: Ordering,
-    ) -> Result<u8, u8>;
-
-    /// Exclusive access for `Drop`, which needs no atomicity.
-    fn get_mut(&mut self) -> &mut u8;
-}
-
-impl StateWord for AtomicU8 {
-    #[inline]
-    fn pending() -> Self {
-        Self::new(RESULT_PENDING)
-    }
-
-    #[inline]
-    fn load(&self, order: Ordering) -> u8 {
-        Self::load(self, order)
-    }
-
-    #[inline]
-    fn store(&self, value: u8, order: Ordering) {
-        Self::store(self, value, order);
-    }
-
-    #[inline]
-    fn compare_exchange(
-        &self,
-        current: u8,
-        new: u8,
-        success: Ordering,
-        failure: Ordering,
-    ) -> Result<u8, u8> {
-        Self::compare_exchange(self, current, new, success, failure)
-    }
-
-    #[inline]
-    fn get_mut(&mut self) -> &mut u8 {
-        Self::get_mut(self)
-    }
-}
-
-impl StateWord for crate::cache::CacheAligned<AtomicU8> {
-    #[inline]
-    fn pending() -> Self {
-        Self::new(AtomicU8::new(RESULT_PENDING))
-    }
-
-    #[inline]
-    fn load(&self, order: Ordering) -> u8 {
-        self.0.load(order)
-    }
-
-    #[inline]
-    fn store(&self, value: u8, order: Ordering) {
-        self.0.store(value, order);
-    }
-
-    #[inline]
-    fn compare_exchange(
-        &self,
-        current: u8,
-        new: u8,
-        success: Ordering,
-        failure: Ordering,
-    ) -> Result<u8, u8> {
-        self.0.compare_exchange(current, new, success, failure)
-    }
-
-    #[inline]
-    fn get_mut(&mut self) -> &mut u8 {
-        self.0.get_mut()
     }
 }
 
@@ -348,12 +256,21 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
     /// returns: a `complete` that raced in before the registration does not wake,
     /// because it saw no waiter. See the
     /// [module docs](self#cell-access-invariants).
-    pub fn register(&self, waiter: &W) {
+    ///
+    /// # Safety
+    ///
+    /// The waiter cell has one writer at a time, so no other call to `register`
+    /// may run on this cell concurrently, and `waiter.clone()` must not reach
+    /// back into this cell. The cell has one consumer by construction (a blocking
+    /// join takes the handle by value; an async poll takes `Pin<&mut Self>`), and
+    /// the caller is that consumer.
+    pub unsafe fn register(&self, waiter: &W) {
         loop {
             match self.state.load(Ordering::Acquire) {
                 RESULT_PENDING => {
-                    // Safety: there is one consumer. If the publish transition
-                    // fails, this clone is dropped before retry.
+                    // Safety: the caller of `register` is the only consumer
+                    // registering. If the publish transition fails, this clone is
+                    // dropped before retry.
                     unsafe {
                         (*self.waiter.get()).write(waiter.clone());
                     }

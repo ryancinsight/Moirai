@@ -91,7 +91,13 @@ impl<T> TaskResultSlot<T> {
         self.cell.complete(result);
     }
 
-    fn wait<P>(&self) -> Result<T, TaskError>
+    /// Block until the result is ready and take it.
+    ///
+    /// # Safety
+    ///
+    /// The caller is the slot's only consumer: no other thread waits on, polls, or
+    /// takes from this slot while this call runs.
+    unsafe fn wait<P>(&self) -> Result<T, TaskError>
     where
         P: ResultWaitPolicy,
     {
@@ -106,7 +112,8 @@ impl<T> TaskResultSlot<T> {
             core::hint::spin_loop();
         }
 
-        self.register_waiter();
+        // SAFETY: `wait`'s caller is the slot's only consumer.
+        unsafe { self.register_waiter() };
 
         loop {
             if let Some(result) = self.try_take_observed_ready() {
@@ -129,8 +136,12 @@ impl<T> TaskResultSlot<T> {
         self.cell.try_take_observed_ready()
     }
 
-    fn register_waiter(&self) {
-        self.cell.register(&thread::current());
+    /// # Safety
+    ///
+    /// The caller is the slot's only consumer.
+    unsafe fn register_waiter(&self) {
+        // SAFETY: forwarded from this method's contract.
+        unsafe { self.cell.register(&thread::current()) };
     }
 
     #[cfg(feature = "result-diagnostics")]
@@ -175,7 +186,8 @@ pub fn diagnostic_result_slot_spin_miss() -> usize {
 #[doc(hidden)]
 pub fn diagnostic_result_slot_register_waiter() -> usize {
     let slot = TaskResultSlot::<usize>::new();
-    slot.register_waiter();
+    // SAFETY: `slot` is local, so this call is its only consumer.
+    unsafe { slot.register_waiter() };
     usize::from(slot.has_registered_waiter())
 }
 
@@ -184,7 +196,8 @@ pub fn diagnostic_result_slot_register_waiter() -> usize {
 #[doc(hidden)]
 pub fn diagnostic_result_slot_complete_waiting() -> usize {
     let slot = TaskResultSlot::new();
-    slot.register_waiter();
+    // SAFETY: `slot` is local, so this call is its only consumer.
+    unsafe { slot.register_waiter() };
     slot.complete(Ok(DIAGNOSTIC_READY_VALUE));
     match slot.try_take_ready() {
         Some(Ok(value)) => value,
@@ -262,7 +275,9 @@ impl<T> TaskHandle<T> {
     pub fn join(mut self) -> Option<Result<T, TaskError>> {
         self.result_slot
             .take()
-            .map(|slot| slot.wait::<BlockingResultWait>())
+            // SAFETY: `join` consumes the only handle, and the completion sender
+            // never waits, so this call is the slot's only consumer.
+            .map(|slot| unsafe { slot.wait::<BlockingResultWait>() })
     }
 
     /// Checks if the task has finished execution.
