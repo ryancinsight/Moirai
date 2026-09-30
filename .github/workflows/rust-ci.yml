@@ -383,8 +383,15 @@ jobs:
   #     total_cap (over 400 s): over the per-test budget of about 60 s.
   #   moirai-core ipc:: and moirai-async net::: shm_open and socket options
   #     are unsupported operations under Miri.
-  #   moirai-async executor:: and timer::: the tests pass, then Miri fails the
-  #     run because worker threads outlive the main thread.
+  #   moirai-async fs::tests::blocking and net::resolve: the blocking-pool
+  #     workers are detached process-wide threads with no owner to join them
+  #     (docs on `blocking`), so Miri fails the run after the tests pass; not
+  #     re-run for this comment, because the fs tests need a Linux host
+  #     temporary directory and the measuring host is Windows.
+  #   moirai-async executor:: starts no thread and passes both borrow models,
+  #     so it runs in the foundation suite. timer:: has the same exit failure
+  #     from its detached driver thread (docs on `timer_driver`); its step
+  #     disables the leak check, which is the check that reports it.
   #   moirai-iter parallel::sorting: nested_sorts_complete_from_scheduler_
   #     workers reports undefined behavior at the merge `ptr::copy`
   #     (sorting.rs:335, a shared-derived pointer invalidated by the mutable
@@ -505,6 +512,28 @@ jobs:
           cargo miri test --locked -p moirai-async --lib --
           sync::
           -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the async executor tests
+        if: matrix.suite == 'foundation'
+        # 138 s stacked-borrows (11 tests) on a Windows host with these flags,
+        # about 10 s per test for the executor and reactor it builds; the
+        # tree-borrows run took 201 s before the three waker tests. The
+        # executor starts no thread, so the run ends cleanly.
+        run: >-
+          cargo miri test --locked -p moirai-async --lib --
+          executor:: -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the async timer tests
+        if: matrix.suite == 'foundation'
+        # 2 s / 4 s in all (13 tests). The process-wide driver thread outlives
+        # the main thread by design, and Miri reports that at exit as a leak.
+        # This step therefore does not check for memory leaks; it still checks
+        # undefined behavior and data races, like every other step.
+        env:
+          MIRIFLAGS: -Zmiri-seed=1 -Zmiri-disable-isolation -Zmiri-ignore-leaks ${{ matrix.borrow_model == 'tree-borrows' && '-Zmiri-tree-borrows' || '' }}
+        run: >-
+          cargo miri test --locked -p moirai-async --lib --
+          timer:: -Zunstable-options --report-time --test-threads=1
 
   # The one job the branch protection requires. A job that fails in this
   # workflow, or is cancelled, fails this one; a job skipped by its own
