@@ -106,3 +106,24 @@ fn rejects_root_and_directory_as_files() {
 
     remove_tree(&root);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_refused_without_waiting_for_a_writer() {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = test_root("fifo");
+    fs::create_dir_all(&root).expect("test directory creation must succeed");
+    let fifo = root.join("pipe");
+    let name = CString::new(fifo.as_os_str().as_bytes()).expect("the path has no NUL");
+    // SAFETY: `name` is a NUL-terminated path in a directory this test owns.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+
+    // No writer exists. A blocking open would never return; the non-blocking
+    // open returns and the file-type check refuses the FIFO.
+    let error = open_file_within_root(&fifo, &root).expect_err("a FIFO is not a regular file");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+
+    remove_tree(&root);
+}

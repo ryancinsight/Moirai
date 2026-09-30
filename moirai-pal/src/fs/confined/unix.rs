@@ -28,7 +28,12 @@ pub(super) fn open(root: &Path, relative: &Path) -> io::Result<File> {
                 ),
             )
         })?;
-        let flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+        // `O_NONBLOCK` keeps a FIFO from parking the caller until a writer
+        // appears: the open returns at once and the type check below refuses
+        // it. It has no effect on the regular files and directories that pass.
+        // `O_NOCTTY` keeps a terminal device from becoming the controlling one.
+        let flags =
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_NOCTTY;
         // SAFETY: directory is an open directory descriptor owned by
         // this function, name is NUL-terminated, and the flags request
         // neither creation nor mutation. A successful descriptor is
