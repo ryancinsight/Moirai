@@ -103,6 +103,13 @@ jobs:
       - name: Run workspace tests
         run: cargo nextest run --locked --workspace --all-features
 
+      # Criterion runs each benchmark once when its binary is not given
+      # `--bench`; nextest lists them as tests, so every one runs under the
+      # committed per-test budget. This proves the benches build and complete,
+      # never how fast they are.
+      - name: Smoke-run every benchmark once
+        run: cargo nextest run --locked -p moirai-benchmarks --all-features --benches
+
       - name: Check workspace doctests
         run: cargo test --locked --workspace --all-features --doc
 

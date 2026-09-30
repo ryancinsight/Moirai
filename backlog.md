@@ -133,11 +133,11 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-AUDIT-VER-011 — Enforce benchmark runtime budgets
 - status: todo
 - priority: verification
-- outcome: Every benchmark executable has a finite smoke budget and the full local suite has an enforced total budget.
-- acceptance: Bench binaries smoke-run one iteration under the standard test budget, full local timing stays within a committed 300-second suite budget, and a budget breach fails with the offending target named.
-- scope: benchmark runners, benchmark metadata, and CI smoke wiring; no benchmark input reduction that changes measured regimes.
-- next step: Inventory registered benches and their existing timing models, then add the missing bounded runner at the repository-owned gate.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+- outcome: The full local benchmark suite has an enforced total wall-clock budget; every benchmark already smoke-runs once in the CI gate.
+- acceptance: Full local timing stays within a committed 300-second suite budget, apportioned per binary, and a breach fails with the offending target named.
+- scope: the benchmark runner and per-binary time model; no benchmark input reduction that changes measured regimes.
+- next step: Add `scripts/bench_suite.py`: run each `moirai-benchmarks` bench binary in turn with the remaining budget as its timeout, name the offender on a breach, and record the current total to apportion budgets.
+- basis: `b802c17c2ce1c70370ae5afaf659ae838fa81a11`
 
 <a id="MOI-SPAWN-GLOBAL-MUTEX-REVIEW-001"></a>
 ## MOI-SPAWN-GLOBAL-MUTEX-REVIEW-001 — Review the sharded task registry decision
