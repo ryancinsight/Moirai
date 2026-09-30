@@ -34,7 +34,6 @@
 | [0024](0024-spscchannel-is-reached-only-through-its-halves.md) | SpscChannel is reached only through its halves | Accepted |
 | [0025](0025-producer-and-consumer-roles-and-a-cached-opposite-index.md) | Producer and Consumer roles, and a cached opposite index | Accepted |
 | [0026](0026-a-borrowed-spsc-half-pair-beside-the-arc-backed-one.md) | A borrowed SPSC half pair beside the `Arc`-backed one | Accepted |
-| [0027](0027-facade-numa-policy-reaches-scheduler-construction.md) | Facade NUMA policy reaches scheduler construction | Accepted |
 | [0028](0028-pyo3-python-comparison-harness-boundary.md) | PyO3 Python Comparison Harness Boundary | Accepted |
 | [0029](0029-typed-iterator-channel-fusion-boundary.md) | Typed Iterator Channel Fusion Boundary | Accepted |
 | [0030](0030-iterator-base-and-streaming-monomorphization.md) | Iterator Base And Streaming Monomorphization | Accepted |
