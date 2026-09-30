@@ -70,7 +70,8 @@ pub(crate) struct TaskState {
     pub(super) completed_after_ns: AtomicU64,
     pub(super) worker_id: AtomicUsize,
     pub(super) waker: std::sync::Mutex<Option<std::task::Waker>>,
-    /// True while a lifecycle token can still access this slot.
+    /// True while a lifecycle token can still access this slot; clearing it is
+    /// the token's last access ([`TaskState::retire_token`]).
     token_active: AtomicBool,
     /// Spawn priority stored as its [`Priority::index`] discriminant.
     pub(super) priority: AtomicU8,
@@ -147,9 +148,27 @@ impl TaskState {
         self.token_active.load(Ordering::Acquire)
     }
 
+    /// Clear the token-active flag, releasing a lease's claim on the state.
+    ///
+    /// This is a lease's last access. Once the flag is clear a retention sweep
+    /// may free the whole block, and it does not wait for the store to return.
+    /// A `&TaskState` passed to a method stays valid until that method returns,
+    /// so retiring through one lets the block be freed under a live reference;
+    /// this takes the state by pointer, projects the flag by address, and
+    /// borrows only the one-byte atomic.
+    ///
+    /// # Safety
+    ///
+    /// `state` points to a live `TaskState` whose flag the calling lease has
+    /// not yet cleared, and the caller makes no further access to it.
     #[inline]
-    pub(super) fn retire_token(&self) {
-        self.token_active.store(false, Ordering::Release);
+    pub(super) unsafe fn retire_token(state: NonNull<Self>) {
+        // SAFETY: the caller guarantees `state` is live; `&raw const` projects
+        // the field address without creating a reference to the `TaskState`.
+        let flag = unsafe { &raw const (*state.as_ptr()).token_active };
+        // SAFETY: the flag is a live `AtomicBool` for the same reason. The
+        // borrow covers this one byte and ends with the store.
+        unsafe { (*flag).store(false, Ordering::Release) };
     }
 
     /// Publish that a cancel request was honored: the task completes without
