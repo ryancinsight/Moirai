@@ -149,6 +149,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The executor releases finished-task state.** `HybridExecutor` now derives a
+  `RetentionPolicy` from `CleanupConfig` and releases the task registry in whole
+  blocks of 1,024 tasks as it registers new ones, once every task in a block has
+  finished and either its newest completion is older than
+  `task_retention_duration` or more than `max_retained_tasks` finished tasks are
+  retained. Before this, completed state stayed resident for the executor's
+  lifetime (about 73 bytes per task spawned) because nothing called the cleanup.
+  `wait_for_task` on a released task still resolves and `cancel_task` is still a
+  no-op; `task_status` and `task_stats` now return `None` for it. Set
+  `enable_automatic_cleanup` to `false` to keep every task's metadata. The
+  registry's `cleanup_completed` returns the number of blocks it released and no
+  longer holds the directory write lock across its scan, and registration into
+  an already-registered id now always panics.
+
 - **The unified channel reports its configured capacity.** `UnifiedChannel` now
   runs on the workspace's one bounded MPMC queue core (ADR-0016) instead of a
   per-channel copy of the same ring that serialized each side behind its own
@@ -202,6 +216,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are new. ADR 0035 carries the dated revision.
 
 ### Removed
+
+- **`CleanupConfig::cleanup_interval`.** Nothing ever read it: reclamation is
+  proportional to task registration rather than to elapsed time, so there is no
+  interval to configure. Migration: delete the field from struct literals.
 
 - **`moirai_core::memory::UnifiedRingBuffer`** (ADR-0016). It was a third copy of
   the bounded ring in the crate, serialized per side by a mutex, and

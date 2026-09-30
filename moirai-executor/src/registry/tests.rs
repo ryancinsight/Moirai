@@ -3,28 +3,29 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
-    use std::{sync::Arc, time::Duration, time::Instant};
+    use std::{sync::Arc, time::Instant};
 
     use moirai_core::Priority;
 
+    use super::super::directory::BlockLookup;
     use super::super::registry::{CancelOutcome, TaskRegistry};
-    use super::super::state::{PRIORITY_FROM_INDEX, TASK_STATE_BLOCK_SIZE, task_location};
+    use super::super::state::{PRIORITY_FROM_INDEX, task_location};
 
     #[test]
     fn lifecycle_token_records_started_and_completed_metadata() {
         let registry = TaskRegistry::new();
-        let lifecycle = registry.register_task_with_id(7);
+        let (task_id, lifecycle) = registry.register_next_task();
 
         let running = lifecycle.start(3);
-        let started = registry.get_metadata(7).unwrap();
-        assert_eq!(started.id, 7);
+        let started = registry.get_metadata(task_id).unwrap();
+        assert_eq!(started.id, task_id);
         assert_eq!(started.worker_id, Some(3));
         let started_at = started.started_at.expect("start() must stamp started_at");
         assert!(started.completed_at.is_none());
 
         let execution_time = running.complete();
 
-        let completed = registry.get_metadata(7).unwrap();
+        let completed = registry.get_metadata(task_id).unwrap();
         let completed_at = completed
             .completed_at
             .expect("complete() must stamp completed_at");
@@ -34,7 +35,7 @@ mod tests {
         );
         assert_eq!(completed.started_at, Some(started_at));
         assert_eq!(completed.execution_duration(), Some(execution_time));
-        assert!(registry.is_completed(7));
+        assert!(registry.is_completed(task_id));
     }
 
     #[test]
@@ -65,8 +66,15 @@ mod tests {
             let registry = TaskRegistry::new();
             let (task_id, lifecycle) = registry.register_next_task();
             let (block_index, _) = task_location(task_id);
-            let block =
-                Arc::downgrade(&registry.blocks.read().expect("test registry lock")[block_index]);
+            let block = match registry
+                .blocks
+                .read()
+                .expect("test registry lock")
+                .lookup(block_index)
+            {
+                BlockLookup::Live(block) => Arc::downgrade(block),
+                _ => panic!("the registered task block must be resident"),
+            };
             assert_eq!(block.strong_count(), 2);
             (lifecycle, block)
         };
@@ -77,23 +85,6 @@ mod tests {
             block.upgrade().is_none(),
             "the token must release its sole block owner after completion"
         );
-    }
-
-    #[test]
-    fn cleanup_retains_completed_state_until_running_token_retires() {
-        let registry = TaskRegistry::new();
-        let (task_id, lifecycle) = registry.register_next_task();
-        let running = lifecycle.start(3);
-
-        // A registry observer can publish completion independently, but the
-        // running token still owns lifecycle access until it is consumed.
-        registry.mark_completed(task_id);
-        registry.cleanup_completed(Duration::ZERO);
-        assert!(registry.get_metadata(task_id).is_some());
-
-        running.complete();
-        registry.cleanup_completed(Duration::ZERO);
-        assert!(registry.get_metadata(task_id).is_none());
     }
 
     #[test]
@@ -121,62 +112,11 @@ mod tests {
     #[test]
     fn running_lifecycle_token_completes_on_drop() {
         let registry = TaskRegistry::new();
-        let lifecycle = registry.register_task_with_id(8);
+        let (task_id, lifecycle) = registry.register_next_task();
 
         drop(lifecycle.start(1));
 
-        assert!(registry.is_completed(8));
-    }
-
-    #[test]
-    fn lifecycle_blocks_preserve_sparse_metadata_and_cleanup_completed_slots() {
-        let registry = TaskRegistry::new();
-        let first_id = (TASK_STATE_BLOCK_SIZE - 1) as u64;
-        let second_id = TASK_STATE_BLOCK_SIZE as u64;
-
-        let first = registry.register_task_with_id(first_id).start(0);
-        first.complete();
-
-        let second = registry.register_task_with_id(second_id).start(1);
-
-        assert!(registry.is_completed(first_id));
-        assert_eq!(registry.get_metadata(second_id).unwrap().worker_id, Some(1));
-        assert_eq!(registry.active_count(), 1);
-        assert_eq!(registry.completed_count(), 1);
-
-        registry.cleanup_completed(Duration::ZERO);
-
-        assert!(registry.get_metadata(first_id).is_none());
-        assert!(registry.get_metadata(second_id).is_some());
-
-        second.complete();
-        assert!(registry.is_completed(second_id));
-    }
-
-    #[test]
-    fn cleanup_completed_releases_empty_trailing_blocks() {
-        let registry = TaskRegistry::new();
-        let first_id = (TASK_STATE_BLOCK_SIZE - 1) as u64;
-        let second_id = TASK_STATE_BLOCK_SIZE as u64;
-
-        registry.register_task_with_id(first_id).start(0).complete();
-        registry
-            .register_task_with_id(second_id)
-            .start(0)
-            .complete();
-        assert_eq!(registry.blocks.read().expect("test registry lock").len(), 2);
-
-        registry.cleanup_completed(Duration::ZERO);
-
-        assert!(
-            registry
-                .blocks
-                .read()
-                .expect("test registry lock")
-                .is_empty()
-        );
-        assert!(registry.get_metadata(first_id).is_none());
-        assert!(registry.get_metadata(second_id).is_none());
+        assert!(registry.is_completed(task_id));
     }
 
     #[test]
@@ -362,14 +302,5 @@ mod tests {
             1,
             "a waker registered after completion is still held by the registry slot;              nothing will ever take it, so it leaks for the life of the slot"
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "task ID must not be re-registered while active")]
-    fn lifecycle_registry_rejects_active_id_reuse() {
-        let registry = TaskRegistry::new();
-        let _running = registry.register_task_with_id(21).start(0);
-
-        let _duplicate = registry.register_task_with_id(21);
     }
 }
