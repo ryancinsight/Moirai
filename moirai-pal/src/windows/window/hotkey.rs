@@ -168,7 +168,8 @@ impl NativeWindow {
         // SAFETY: the identifier was registered for this live handle.
         unsafe { UnregisterHotKey(Some(self.hwnd), i32::from(id.0)) }.map_err(windows_error)?;
         self.hotkeys.swap_remove(index);
-        self.state.hotkey_presses.retain(|pressed| *pressed != id.0);
+        self.state
+            .with(|state| state.hotkey_presses.retain(|pressed| *pressed != id.0));
         Ok(true)
     }
 
@@ -178,12 +179,14 @@ impl NativeWindow {
     /// [`NativeWindow::poll_events`] or [`NativeWindow::wait_events`].
     pub fn take_hotkey_presses(&mut self) -> Vec<HotkeyId> {
         let hotkeys = &self.hotkeys;
-        self.state
-            .hotkey_presses
-            .drain(..)
-            .map(HotkeyId)
-            .filter(|id| hotkeys.contains(id))
-            .collect()
+        self.state.with(|state| {
+            state
+                .hotkey_presses
+                .drain(..)
+                .map(HotkeyId)
+                .filter(|id| hotkeys.contains(id))
+                .collect()
+        })
     }
 
     /// Releases every registration; used when the window closes.
@@ -194,7 +197,7 @@ impl NativeWindow {
             // harmlessly, and close cannot act on that failure.
             let _ = unsafe { UnregisterHotKey(Some(self.hwnd), i32::from(id.0)) };
         }
-        self.state.hotkey_presses.clear();
+        self.state.with(|state| state.hotkey_presses.clear());
     }
 }
 

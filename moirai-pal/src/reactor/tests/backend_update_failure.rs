@@ -4,7 +4,7 @@
 use super::super::core::{FdKey, IoReactor};
 use super::super::registration::PlatformUpdateFailure;
 use super::harness::{LockObservingWake, WakeCount, socket_to_raw};
-use crate::{Event, Interest, Reactor};
+use crate::{Event, Interest};
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -152,6 +152,8 @@ fn backend_update_failure_removes_absent_registration_and_wakes_waiters() {
 #[test]
 #[cfg(unix)]
 fn closed_descriptor_update_failure_retires_registration_without_failing() {
+    use crate::Reactor;
+
     let reactor = IoReactor::new().expect("reactor");
     let socket = UdpSocket::bind("127.0.0.1:0").expect("socket bind");
     socket.set_nonblocking(true).expect("socket nonblocking");

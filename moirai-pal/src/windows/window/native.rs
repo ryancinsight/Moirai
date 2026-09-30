@@ -45,7 +45,7 @@ use super::input::{
     wheel_deltas,
 };
 use super::present::{paint, paint_frame};
-use super::state::{WindowState, decode_composition};
+use super::state::{SharedWindowState, WindowState, decode_composition};
 use super::tray::{OwnedIcon, TRAY_CALLBACK_MESSAGE};
 
 const WINDOW_CLASS_NAME: &[u16] = &[
@@ -69,7 +69,7 @@ pub struct NativeWindow {
     pub(crate) hwnd: HWND,
     #[expect(dead_code, reason = "the guard's Drop restores the thread context")]
     dpi_context: ThreadDpiAwarenessContext,
-    pub(super) state: Box<WindowState>,
+    pub(super) state: SharedWindowState,
     accessibility: Option<WindowsAccessibilityAdapter>,
     pub(super) visible: bool,
     pub(super) show_maximized: bool,
@@ -135,12 +135,12 @@ impl NativeWindow {
         let dpi_context = ThreadDpiAwarenessContext::enter()?;
         let instance = register_class()?;
         let (outer_width, outer_height) = outer_dimensions(config.width(), config.height())?;
-        let mut state = Box::new(WindowState::new()?);
-        let state_ptr: *mut WindowState = &mut *state;
-        // SAFETY: `instance`, the class/title UTF-16 buffers and `state_ptr`
-        // remain valid for the complete synchronous CreateWindowExW call. The
-        // window procedure stores the state pointer only for this HWND, and
-        // `NativeWindow` keeps the Box alive until DestroyWindow returns.
+        let state = SharedWindowState::new(WindowState::new()?);
+        // SAFETY: `instance`, the class/title UTF-16 buffers and the state
+        // creation parameter remain valid for the complete synchronous
+        // CreateWindowExW call. The window procedure adopts its own strong
+        // count of the state during WM_NCCREATE and releases it in
+        // WM_NCDESTROY, so the HWND never observes freed state.
         let hwnd = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
@@ -154,11 +154,11 @@ impl NativeWindow {
                 None,
                 None,
                 Some(HINSTANCE::from(instance)),
-                Some(state_ptr.cast::<c_void>()),
+                Some(state.create_param()),
             )
         }
         .map_err(windows_error)?;
-        let mut window = Self {
+        let window = Self {
             hwnd,
             dpi_context,
             state,
@@ -171,14 +171,17 @@ impl NativeWindow {
             menu_shape: Vec::new(),
             destroyed: false,
         };
-        if !window
-            .state
-            .events
-            .iter()
-            .any(|event| matches!(event, WindowEvent::Resized { .. }))
-        {
+        let resized = window.state.with(|state| {
+            state
+                .events
+                .iter()
+                .any(|event| matches!(event, WindowEvent::Resized { .. }))
+        });
+        if !resized {
             let (width, height) = client_dimensions(hwnd)?;
-            window.state.push(WindowEvent::Resized { width, height });
+            window
+                .state
+                .with(|state| state.push(WindowEvent::Resized { width, height }));
         }
         Ok(window)
     }
@@ -289,16 +292,18 @@ impl NativeWindow {
                 DispatchMessageW(&message);
             }
         }
-        if let Some(error) = self.state.error.take() {
-            return Err(error);
-        }
-        if self.state.overflowed {
-            self.state.overflowed = false;
-            return Err(io::Error::other(
-                "native window event queue capacity exceeded",
-            ));
-        }
-        let mut events: Vec<WindowEvent> = self.state.events.drain(..).collect();
+        let mut events = self.state.with(|state| {
+            if let Some(error) = state.error.take() {
+                return Err(error);
+            }
+            if state.overflowed {
+                state.overflowed = false;
+                return Err(io::Error::other(
+                    "native window event queue capacity exceeded",
+                ));
+            }
+            Ok(state.events.drain(..).collect::<Vec<WindowEvent>>())
+        })?;
         if let Some(accessibility) = self.accessibility.as_mut() {
             events.extend(
                 accessibility
@@ -336,9 +341,10 @@ impl NativeWindow {
                 "native event wait exceeds the 30 second bound",
             ));
         }
-        if !self.state.events.is_empty()
-            || self.state.overflowed
-            || self.state.error.is_some()
+        let pending = self
+            .state
+            .with(|state| !state.events.is_empty() || state.overflowed || state.error.is_some());
+        if pending
             || self
                 .accessibility
                 .as_ref()
@@ -391,8 +397,9 @@ impl Drop for NativeWindow {
             self.release_tray_icon();
             self.accessibility.take();
             // Drop cannot report errors. DestroyWindow is the synchronous RAII
-            // fallback; the callback remains valid through the call because
-            // `state` is dropped only after this method returns.
+            // fallback. The window holds its own count of the callback state,
+            // so a failed call leaves the window with valid state rather than
+            // freeing it under a live handle.
             // SAFETY: the handle was created on this thread and remains owned by
             // this object until the destructor finishes.
             if unsafe { IsWindow(Some(self.hwnd)) }.as_bool() {
@@ -445,26 +452,35 @@ unsafe extern "system" fn window_proc(
             if create.is_null() {
                 return LRESULT(0);
             }
-            let state = (*create).lpCreateParams.cast::<WindowState>();
-            if state.is_null() {
+            let create_param = (*create).lpCreateParams.cast_const();
+            if create_param.is_null() {
                 return LRESULT(0);
             }
-            // SAFETY: the state pointer came from NativeWindow's live Box and the
-            // HWND is being initialized synchronously by CreateWindowExW.
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
+            // SAFETY: the creation parameter is the live state that
+            // `NativeWindow::new_hidden` lent for the synchronous
+            // CreateWindowExW call. The window takes its own count here and
+            // returns it in WM_NCDESTROY.
+            SetWindowLongPtrW(
+                hwnd,
+                GWLP_USERDATA,
+                SharedWindowState::adopt_create_param(create_param),
+            );
             // Default creation stores the caption supplied to CreateWindowExW.
             return DefWindowProcW(hwnd, message, wparam, lparam);
         }
 
-        // SAFETY: GWLP_USERDATA is written only by WM_NCCREATE above for this HWND;
-        // the null check prevents dereferencing a window not created by this module.
-        let state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState;
-        if state_ptr.is_null() {
+        // SAFETY: GWLP_USERDATA is written only by WM_NCCREATE above for this HWND
+        // and cleared in WM_NCDESTROY; zero means a window not created by this
+        // module, or one whose state was already released.
+        let Some(state) =
+            SharedWindowState::borrow_userdata(GetWindowLongPtrW(hwnd, GWLP_USERDATA))
+        else {
             return DefWindowProcW(hwnd, message, wparam, lparam);
-        }
-        // SAFETY: NativeWindow keeps the Box alive until DestroyWindow returns; the
-        // callback is invoked synchronously on the owning window thread.
-        let state = &mut *state_ptr;
+        };
+        // Every access below lends the state to a closure that makes no
+        // native call: a message a native call delivers re-entrantly to this
+        // procedure therefore always finds the state unborrowed.
+        //
         // SendInput delivers a UTF-16 surrogate pair as two WM_CHAR messages
         // with keyboard and repaint messages between them. Keep the high
         // surrogate pending across that interleave so native emoji input
@@ -479,51 +495,55 @@ unsafe extern "system" fn window_proc(
                 | WM_IME_ENDCOMPOSITION
                 | WM_NCDESTROY
         ) {
-            state.finish_text();
+            state.with(WindowState::finish_text);
         }
         match message {
-            WM_CLOSE => state.push(WindowEvent::CloseRequested),
-            WM_HOTKEY => state.push_hotkey(wparam.0),
-            WM_COMMAND => state.push_menu_command(wparam.0, lparam.0),
-            TRAY_CALLBACK_MESSAGE => state.push_tray(wparam.0, lparam.0),
+            WM_CLOSE => state.with(|state| state.push(WindowEvent::CloseRequested)),
+            WM_HOTKEY => state.with(|state| state.push_hotkey(wparam.0)),
+            WM_COMMAND => state.with(|state| state.push_menu_command(wparam.0, lparam.0)),
+            TRAY_CALLBACK_MESSAGE => state.with(|state| state.push_tray(wparam.0, lparam.0)),
             WM_DESTROY => {}
-            WM_SETFOCUS => state.push(WindowEvent::FocusGained),
-            WM_KILLFOCUS => {
+            WM_SETFOCUS => state.with(|state| state.push(WindowEvent::FocusGained)),
+            WM_KILLFOCUS => state.with(|state| {
                 state.clear_modifiers();
                 state.push(WindowEvent::FocusLost);
-            }
+            }),
             WM_MOUSEMOVE => {
                 let (x, y) = point_from_lparam(lparam);
-                state.push(WindowEvent::PointerMove { x, y });
+                state.with(|state| state.push(WindowEvent::PointerMove { x, y }));
             }
             WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
                 let (x, y) = point_from_lparam(lparam);
                 if let Some(button) = mouse_button(message, wparam) {
-                    state.push(WindowEvent::PointerDown { x, y, button });
+                    state.with(|state| state.push(WindowEvent::PointerDown { x, y, button }));
                 }
             }
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 let (x, y) = point_from_lparam(lparam);
                 if let Some(button) = mouse_button(message, wparam) {
-                    state.push(WindowEvent::PointerUp { x, y, button });
+                    state.with(|state| state.push(WindowEvent::PointerUp { x, y, button }));
                 }
             }
             WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
                 if let Some((delta_x, delta_y)) = wheel_deltas(message, wparam) {
-                    match client_point_from_wheel_lparam(hwnd, lparam) {
-                        Ok((x, y)) => state.push(WindowEvent::PointerWheel {
-                            x,
-                            y,
-                            delta_x,
-                            delta_y,
-                            modifiers: state.modifiers.with_wheel_message_flags(wparam.0),
-                        }),
+                    let point = client_point_from_wheel_lparam(hwnd, lparam);
+                    state.with(|state| match point {
+                        Ok((x, y)) => {
+                            let modifiers = state.modifiers.with_wheel_message_flags(wparam.0);
+                            state.push(WindowEvent::PointerWheel {
+                                x,
+                                y,
+                                delta_x,
+                                delta_y,
+                                modifiers,
+                            });
+                        }
                         Err(error) => state.record_error(error),
-                    }
+                    });
                 }
             }
             message @ (WM_KEYDOWN | WM_SYSKEYDOWN) => {
-                push_key_event(state, wparam, lparam, true);
+                state.with(|state| push_key_event(state, wparam, lparam, true));
                 // System-key messages carry Alt/menu and F10/F4 behavior that
                 // DefWindowProcW must retain after the PAL records the value event.
                 if message == WM_SYSKEYDOWN {
@@ -531,70 +551,75 @@ unsafe extern "system" fn window_proc(
                 }
             }
             message @ (WM_KEYUP | WM_SYSKEYUP) => {
-                push_key_event(state, wparam, lparam, false);
+                state.with(|state| push_key_event(state, wparam, lparam, false));
                 if message == WM_SYSKEYUP {
                     return DefWindowProcW(hwnd, message, wparam, lparam);
                 }
             }
-            WM_CHAR => state.push_text_unit(wparam.0 as u16),
-            WM_IME_STARTCOMPOSITION => {
+            WM_CHAR => state.with(|state| state.push_text_unit(wparam.0 as u16)),
+            WM_IME_STARTCOMPOSITION => state.with(|state| {
                 state.push_composition(CompositionPhase::Started, String::new());
-            }
+            }),
             WM_IME_COMPOSITION => {
-                if let Err(error) = composition_message(hwnd, state, lparam) {
-                    state.record_error(error);
+                if let Err(error) = composition_message(hwnd, &state, lparam) {
+                    state.with(|state| state.record_error(error));
                 }
             }
-            WM_IME_ENDCOMPOSITION => {
-                if state.composition_active {
-                    state.push_composition(CompositionPhase::Canceled, String::new());
-                }
-            }
+            WM_IME_ENDCOMPOSITION => state.with(cancel_composition),
             WM_SIZE => {
                 let (width, height) = extent_from_lparam(lparam);
-                state.push(WindowEvent::Resized { width, height });
+                state.with(|state| state.push(WindowEvent::Resized { width, height }));
             }
             WM_DPICHANGED => {
                 let dpi = (wparam.0 & 0xffff) as u32;
                 if dpi != 0 {
-                    state.push(WindowEvent::DpiChanged { dpi });
+                    state.with(|state| state.push(WindowEvent::DpiChanged { dpi }));
                 }
             }
             WM_ERASEBKGND => return LRESULT(1),
             WM_PRINT => {
+                // DefWindowProcW sends WM_PRINTCLIENT and WM_ERASEBKGND to this
+                // window synchronously; no state is lent across the call.
                 let result = DefWindowProcW(hwnd, message, wparam, lparam);
                 let hdc = HDC(wparam.0 as *mut c_void);
                 // SAFETY: WM_PRINT supplies a live destination HDC for the
-                // synchronous full-window render; the retained frame is
-                // borrowed only for the duration of the GDI calls.
-                paint_frame(hwnd, state, hdc);
+                // synchronous full-window render.
+                paint_frame(hwnd, &state, hdc);
                 return result;
             }
             WM_PRINTCLIENT => {
                 let hdc = HDC(wparam.0 as *mut c_void);
                 // SAFETY: WM_PRINTCLIENT supplies a live destination HDC for
-                // the synchronous client-area render; the retained frame is
-                // borrowed only for the duration of the GDI calls.
-                paint_frame(hwnd, state, hdc);
+                // the synchronous client-area render.
+                paint_frame(hwnd, &state, hdc);
             }
             WM_PAINT => {
-                // SAFETY: the callback owns the live HWND and its state for the
-                // duration of the synchronous paint operation.
-                paint(hwnd, state);
+                // SAFETY: the callback owns the live HWND for the duration of
+                // the synchronous paint operation.
+                paint(hwnd, &state);
             }
             WM_NCDESTROY => {
-                state.finish_text();
-                state.push(WindowEvent::Destroyed);
+                state.with(|state| state.push(WindowEvent::Destroyed));
                 // SAFETY: clearing the module-owned userdata before returning from
                 // WM_NCDESTROY prevents later messages from observing stale state.
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                 // Release the caption and other default nonclient resources.
-                return DefWindowProcW(hwnd, message, wparam, lparam);
+                let result = DefWindowProcW(hwnd, message, wparam, lparam);
+                // The last message this window receives: return the count that
+                // WM_NCCREATE adopted. `state` is not used afterwards.
+                SharedWindowState::release_userdata(state);
+                return result;
             }
             ACCESSIBILITY_WAKE_MESSAGE => {}
             _ => return DefWindowProcW(hwnd, message, wparam, lparam),
         }
         LRESULT(0)
+    }
+}
+
+fn cancel_composition(state: &mut WindowState) {
+    if state.composition_active {
+        state.push_composition(CompositionPhase::Canceled, String::new());
     }
 }
 
@@ -617,7 +642,7 @@ fn push_key_event(state: &mut WindowState, wparam: WPARAM, lparam: LPARAM, press
     }
 }
 
-fn composition_message(hwnd: HWND, state: &mut WindowState, lparam: LPARAM) -> io::Result<()> {
+fn composition_message(hwnd: HWND, state: &SharedWindowState, lparam: LPARAM) -> io::Result<()> {
     let flags = u32::try_from(lparam.0).map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -629,13 +654,11 @@ fn composition_message(hwnd: HWND, state: &mut WindowState, lparam: LPARAM) -> i
     } else if flags & GCS_COMPSTR.0 != 0 {
         (CompositionPhase::Updated, GCS_COMPSTR)
     } else {
-        if state.composition_active {
-            state.push_composition(CompositionPhase::Canceled, String::new());
-        }
+        state.with(cancel_composition);
         return Ok(());
     };
     let text = read_composition_text(hwnd, kind)?;
-    state.push_composition(phase, text);
+    state.with(|state| state.push_composition(phase, text));
     Ok(())
 }
 

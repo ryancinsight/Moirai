@@ -206,13 +206,14 @@ impl NativeWindow {
         }
         notify_shell(NIM_DELETE, &self.tray_data())?;
         self.tray_icon = None;
-        self.state.tray_events.clear();
+        self.state.with(|state| state.tray_events.clear());
         Ok(true)
     }
 
     /// Drains the tray icon's queued activity, oldest first.
     pub fn take_tray_events(&mut self) -> Vec<TrayEvent> {
-        self.state.tray_events.drain(..).collect()
+        self.state
+            .with(|state| state.tray_events.drain(..).collect())
     }
 
     /// Removes the icon while the window closes; failures cannot be acted on.
@@ -221,7 +222,7 @@ impl NativeWindow {
             let _ = notify_shell(NIM_DELETE, &self.tray_data());
             self.tray_icon = None;
         }
-        self.state.tray_events.clear();
+        self.state.with(|state| state.tray_events.clear());
     }
 
     fn tray_data(&self) -> NOTIFYICONDATAW {

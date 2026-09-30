@@ -1,7 +1,11 @@
 //! Bounded callback state for a native window.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::ffi::c_void;
 use std::io;
+use std::mem::ManuallyDrop;
+use std::rc::Rc;
 
 use windows::Win32::Foundation::LPARAM;
 
@@ -159,6 +163,79 @@ impl WindowState {
                 character: '\u{fffd}',
             });
         }
+    }
+}
+
+/// Callback state shared by a `NativeWindow` and its window procedure.
+///
+/// Both sides reach the state through this one reference-counted cell, so no
+/// `&mut WindowState` is ever derived from a raw pointer and two mutable
+/// references cannot coexist: [`with`](Self::with) lends the state for the
+/// duration of a closure that performs no native call, so a message that a
+/// native call delivers re-entrantly to the window procedure always finds the
+/// state unborrowed. The window holds its own strong count from `WM_NCCREATE`
+/// to `WM_NCDESTROY`, so the state outlives every message the window can
+/// receive, including after a failed `DestroyWindow`.
+#[derive(Clone, Debug)]
+pub(super) struct SharedWindowState(Rc<RefCell<WindowState>>);
+
+impl SharedWindowState {
+    pub(super) fn new(state: WindowState) -> Self {
+        Self(Rc::new(RefCell::new(state)))
+    }
+
+    /// Lends the state mutably to `operation`, which must not call into the
+    /// native window system.
+    pub(super) fn with<R>(&self, operation: impl FnOnce(&mut WindowState) -> R) -> R {
+        operation(&mut self.0.borrow_mut())
+    }
+
+    /// The `lpCreateParams` value that lets the window procedure adopt this
+    /// state during `WM_NCCREATE`. Borrows: no count is transferred.
+    pub(super) fn create_param(&self) -> *const c_void {
+        Rc::as_ptr(&self.0).cast()
+    }
+
+    /// Gives the window its own strong count and returns the value to store
+    /// in `GWLP_USERDATA`.
+    ///
+    /// # Safety
+    /// `create_param` must come from [`create_param`](Self::create_param) of a
+    /// state that is alive for this call, and the caller must store the result
+    /// as the window's user data and later release it exactly once through
+    /// [`release_userdata`](Self::release_userdata).
+    pub(super) unsafe fn adopt_create_param(create_param: *const c_void) -> isize {
+        let cell = create_param.cast::<RefCell<WindowState>>();
+        // SAFETY: the caller guarantees `cell` is the live `Rc` allocation of
+        // a `SharedWindowState`, so a strong count may be added to it.
+        unsafe { Rc::increment_strong_count(cell) };
+        cell as isize
+    }
+
+    /// Views the state a window adopted, without changing its count.
+    ///
+    /// # Safety
+    /// `userdata` must be zero or a value returned by
+    /// [`adopt_create_param`](Self::adopt_create_param) that has not been
+    /// released, and the result must not be used after its release.
+    pub(super) unsafe fn borrow_userdata(userdata: isize) -> Option<ManuallyDrop<Self>> {
+        let cell = userdata as *const RefCell<WindowState>;
+        if cell.is_null() {
+            return None;
+        }
+        // SAFETY: the adopted count keeps the allocation alive; `ManuallyDrop`
+        // stops the reconstructed `Rc` from consuming that count.
+        Some(ManuallyDrop::new(Self(unsafe { Rc::from_raw(cell) })))
+    }
+
+    /// Releases the count adopted by the window.
+    pub(super) fn release_userdata(state: ManuallyDrop<Self>) {
+        drop(ManuallyDrop::into_inner(state));
+    }
+
+    #[cfg(test)]
+    pub(super) fn holders(&self) -> usize {
+        Rc::strong_count(&self.0)
     }
 }
 
