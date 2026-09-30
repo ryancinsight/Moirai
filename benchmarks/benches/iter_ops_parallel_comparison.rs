@@ -1,13 +1,11 @@
 //! Scoped `iter_ops::ParallelIter` comparison against Rayon.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use moirai_iter::iter_ops::ParallelIter;
 use rayon::prelude::*;
-use std::time::Duration;
 
-const SAMPLE_SIZE: usize = 10;
-const WARM_UP_MILLIS: u64 = 100;
-const MEASUREMENT_MILLIS: u64 = 300;
 const WORK_ITEMS: usize = 8_192;
 const DIRECT_OUTPUT_WORK_ITEMS: usize = 131_072;
 
@@ -62,9 +60,6 @@ fn iter_ops_parallel_comparison(c: &mut Criterion) {
     );
 
     let mut direct_output_group = c.benchmark_group("iter_ops_parallel_map_output");
-    direct_output_group.sample_size(SAMPLE_SIZE);
-    direct_output_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    direct_output_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     direct_output_group.bench_with_input(
         BenchmarkId::new("moirai", DIRECT_OUTPUT_WORK_ITEMS),
         &direct_output_data,
@@ -79,9 +74,6 @@ fn iter_ops_parallel_comparison(c: &mut Criterion) {
     direct_output_group.finish();
 
     let mut map_group = c.benchmark_group("iter_ops_parallel_map");
-    map_group.sample_size(SAMPLE_SIZE);
-    map_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    map_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     map_group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_parallel_map(black_box(input.clone()))))
     });
@@ -91,9 +83,6 @@ fn iter_ops_parallel_comparison(c: &mut Criterion) {
     map_group.finish();
 
     let mut reduce_group = c.benchmark_group("iter_ops_parallel_reduce");
-    reduce_group.sample_size(SAMPLE_SIZE);
-    reduce_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    reduce_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     reduce_group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_parallel_reduce(black_box(input.clone()))))
     });
@@ -103,5 +92,9 @@ fn iter_ops_parallel_comparison(c: &mut Criterion) {
     reduce_group.finish();
 }
 
-criterion_group!(benches, iter_ops_parallel_comparison);
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = iter_ops_parallel_comparison
+}
 criterion_main!(benches);

@@ -334,6 +334,7 @@ embedded_sources![
     "benches/async_udp_comparison.rs",
     "benches/cache_iterator_comparison.rs",
     "benches/channel_matrix.rs",
+    "benches/common/time_model.rs",
     "benches/example_pattern_comparison.rs",
     "benches/execution_context_comparison.rs",
     "benches/industry_comparison.rs",

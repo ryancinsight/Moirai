@@ -5,6 +5,8 @@
 //! traversal win of the flat-buffer layout is measurable head-to-head: one
 //! contiguous allocation plus an offset table instead of a `Vec` per chunk.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_core::communication::{ChunkedVec, CollectiveOps};
 
@@ -54,7 +56,6 @@ fn pairs() -> Vec<(usize, usize)> {
 
 pub fn collective_ops_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("collective_scatter");
-    group.sample_size(10);
     for (participants, items) in pairs() {
         let data: Vec<u64> = (0..items as u64).collect();
         group.bench_with_input(
@@ -69,7 +70,6 @@ pub fn collective_ops_comparison(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("collective_gather");
-    group.sample_size(10);
     for (participants, items) in pairs() {
         let data: Vec<u64> = (0..items as u64).collect();
         let jagged = jagged_scatter(&data, participants);
@@ -88,7 +88,6 @@ pub fn collective_ops_comparison(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("collective_traverse");
-    group.sample_size(10);
     for (participants, items) in pairs() {
         let data: Vec<u64> = (0..items as u64).collect();
         let jagged = jagged_scatter(&data, participants);
@@ -107,7 +106,6 @@ pub fn collective_ops_comparison(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("collective_all_to_all");
-    group.sample_size(10);
     for (participants, items) in pairs() {
         let data: Vec<u64> = (0..items as u64).collect();
         let jagged = jagged_scatter(&data, participants);
@@ -126,5 +124,9 @@ pub fn collective_ops_comparison(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, collective_ops_comparison);
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = collective_ops_comparison
+}
 criterion_main!(benches);

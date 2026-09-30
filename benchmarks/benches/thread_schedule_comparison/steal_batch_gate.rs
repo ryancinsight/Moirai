@@ -202,9 +202,6 @@ fn owner_growth_under_thieves(thieves: usize) -> Duration {
 
 pub(super) fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("steal_batch_gate");
-    group.sample_size(20);
-    group.measurement_time(Duration::from_secs(2));
-    group.warm_up_time(Duration::from_millis(300));
 
     for &thieves in THIEF_COUNTS {
         group.throughput(Throughput::Elements(DRAIN_ITEMS as u64));

@@ -1,3 +1,5 @@
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_core::Priority;
 use moirai_executor::schedule::{
@@ -5,7 +7,6 @@ use moirai_executor::schedule::{
     BlockingTask, HybridRoutePolicy, HybridRouter, ProcessCount, RoutePolicy, RouteSummary,
     RouteTopology, ServerCount, ServerRoutePolicy, SyncTask, WorkClass, WorkerCount,
 };
-use std::time::Duration;
 
 fn route_topology() -> RouteTopology {
     RouteTopology::new(
@@ -160,9 +161,6 @@ fn benchmark_accelerator_metadata_summary(c: &mut Criterion) {
     let topology = route_topology();
     let router = HybridRouter::<AcceleratorRoutePolicy>::new(topology);
     let mut group = c.benchmark_group("scheduler_route_accelerator_metadata_summary");
-    group.sample_size(20);
-    group.warm_up_time(Duration::from_millis(300));
-    group.measurement_time(Duration::from_secs(1));
 
     for count in [16_384usize, 65_536] {
         let sync_observed =
@@ -221,9 +219,6 @@ fn benchmark_thread_process_server_summary(c: &mut Criterion) {
     let hybrid = HybridRouter::<HybridRoutePolicy>::new(topology);
     let server = HybridRouter::<ServerRoutePolicy>::new(topology);
     let mut group = c.benchmark_group("scheduler_route_thread_process_server_summary");
-    group.sample_size(20);
-    group.warm_up_time(Duration::from_millis(300));
-    group.measurement_time(Duration::from_secs(1));
 
     for count in [4_096usize, 65_536] {
         let observed =
@@ -272,9 +267,6 @@ fn benchmark_async_process_lanes(c: &mut Criterion) {
     let topology = route_topology();
     let router = HybridRouter::<HybridRoutePolicy>::new(topology);
     let mut group = c.benchmark_group("scheduler_route_async_process_lanes");
-    group.sample_size(20);
-    group.warm_up_time(Duration::from_millis(300));
-    group.measurement_time(Duration::from_secs(1));
 
     for count in [16_384usize, 65_536] {
         let observed =
@@ -300,9 +292,6 @@ fn benchmark_policy_overhead(c: &mut Criterion) {
     let hybrid = HybridRouter::<HybridRoutePolicy>::new(topology);
     let server = HybridRouter::<ServerRoutePolicy>::new(topology);
     let mut group = c.benchmark_group("scheduler_route_policy_overhead");
-    group.sample_size(20);
-    group.warm_up_time(Duration::from_millis(300));
-    group.measurement_time(Duration::from_secs(1));
 
     for count in [16_384usize, 65_536] {
         let thread_summary = verify_summary::<SyncTask, moirai_executor::schedule::ThreadRoutePolicy>(
@@ -341,13 +330,9 @@ fn benchmark_policy_overhead(c: &mut Criterion) {
     group.finish();
 }
 
-fn criterion_config() -> Criterion {
-    Criterion::default().without_plots()
-}
-
 criterion_group! {
     name = benches;
-    config = criterion_config();
+    config = time_model::criterion();
     targets =
         benchmark_thread_process_server_summary,
         benchmark_async_process_lanes,

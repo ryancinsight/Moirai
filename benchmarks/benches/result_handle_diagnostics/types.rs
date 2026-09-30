@@ -26,9 +26,6 @@ use std::{
 #[cfg(windows)]
 use std::sync::atomic::AtomicI64;
 
-pub(crate) const BENCHMARK_SAMPLE_SIZE: usize = 20;
-pub(crate) const BENCHMARK_MEASUREMENT_SECONDS: u64 = 2;
-pub(crate) const BENCHMARK_WARM_UP_MILLIS: u64 = 500;
 const WORKER_THREADS: usize = 4;
 const READY_VALUE: usize = 42;
 const CAPTURE_WORDS: usize = 10;

@@ -204,18 +204,18 @@ fn criterion_benchmarks_are_executable_and_bounded() {
     ] {
         let source = read_benchmark(relative);
         assert!(
-            source.contains("sample_size")
-                && source.contains("measurement_time")
-                && source.contains("warm_up_time"),
-            "{relative} must bound Criterion sampling and measurement windows"
+            source.contains("time_model::criterion()"),
+            "{relative} must take its Criterion sampling and measurement windows from the shared time model"
         );
     }
 
-    let performance = read_benchmark("benches/performance_benchmarks.rs");
-    assert!(
-        performance.contains("without_plots"),
-        "performance_benchmarks must disable plot generation so cargo bench exits under the verification gate"
-    );
+    let time_model = read_benchmark("benches/common/time_model.rs");
+    for required in ["sample_size", "measurement_time", "warm_up_time", "without_plots"] {
+        assert!(
+            time_model.contains(required),
+            "the shared time model must bound sampling and disable plots: missing {required}"
+        );
+    }
 }
 
 #[test]
@@ -451,7 +451,7 @@ fn result_handle_diagnostics_separates_slot_and_scheduler_costs() {
         "verify_ready_value",
         "verify_captured_ready_value",
         "verify_oversized_captured_ready_value",
-        "without_plots",
+        "time_model::criterion()",
     ] {
         assert!(
             source.contains(required),

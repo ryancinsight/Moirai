@@ -2,7 +2,6 @@
 
 use criterion::{black_box, BenchmarkId, Criterion, Throughput};
 use moirai_scheduler::{ChaseLevDeque, DequeCapacity};
-use std::time::Duration;
 
 const CAPACITIES: &[usize] = &[16, 32, 64, 128, 256];
 const WARM_ITEMS: usize = 15;
@@ -45,9 +44,6 @@ fn cold_burst_sum(capacity: usize, count: usize) -> usize {
 
 pub(super) fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("local_queue_initial_capacity");
-    group.sample_size(20);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
 
     for &capacity in CAPACITIES {
         let mut deque = ChaseLevDeque::new(deque_capacity(capacity));

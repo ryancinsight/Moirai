@@ -7,10 +7,7 @@
 
 use criterion::{black_box, BenchmarkId, Criterion, Throughput};
 use moirai::Moirai;
-use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const WORKER_THREADS: usize = 4;
 const PRIMITIVE_COUNTS: &[usize] = &[1_024, 4_096, 16_384, 65_536];
@@ -99,9 +96,6 @@ fn validate_for_each_exactly_once(runtime: &Moirai, count: usize) {
 
 fn bench_primitives(c: &mut Criterion, runtime: &Moirai) {
     let mut group = c.benchmark_group("dispatch_floor/four_workers/primitives");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
 
     for &count in PRIMITIVE_COUNTS {
         validate_for_each_exactly_once(runtime, count);
@@ -151,9 +145,6 @@ where
     let mut group = c.benchmark_group(format!(
         "dispatch_floor/four_workers/policy_crossover/{name}"
     ));
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
 
     for &count in CROSSOVER_COUNTS {
         let values = input(count);

@@ -1,3 +1,5 @@
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai::Moirai;
 use moirai_async::Notify;
@@ -24,9 +26,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const BENCHMARK_SAMPLE_SIZE: usize = 10;
-const BENCHMARK_MEASUREMENT_SECONDS: u64 = 1;
-const BENCHMARK_WARM_UP_MILLIS: u64 = 250;
 const WAKE_BATCH_WAITERS: usize = 64;
 
 fn benchmark_async_wake_batch(c: &mut Criterion) {
@@ -403,11 +402,7 @@ fn benchmark_error_handling(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(BENCHMARK_SAMPLE_SIZE)
-        .measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS))
-        .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets =
         benchmark_async_wake_batch,
         benchmark_task_scheduling_overhead,

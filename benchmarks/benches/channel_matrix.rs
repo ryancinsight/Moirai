@@ -4,15 +4,13 @@
 //! The broader example benchmark includes runtime scheduling and payload work;
 //! this matrix keeps the payload to integer transfer plus checksum validation.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use moirai_core::channel::mpmc;
 use std::thread;
-use std::time::Duration;
 use tokio::sync::mpsc;
 
-const SAMPLE_SIZE: usize = 10;
-const MEASUREMENT_MILLIS: u64 = 250;
-const WARM_UP_MILLIS: u64 = 100;
 const ITEM_COUNT: usize = 8_192;
 const PRODUCER_COUNTS: [usize; 3] = [1, 4, 8];
 const CAPACITIES: [usize; 3] = [1, 512, 4_096];
@@ -119,9 +117,6 @@ fn bench_channel_matrix(c: &mut Criterion) {
         .expect("Tokio runtime must start");
 
     let mut group = c.benchmark_group("bounded_channel_matrix");
-    group.sample_size(SAMPLE_SIZE);
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
     group.throughput(Throughput::Elements(ITEM_COUNT as u64));
 
     for producers in PRODUCER_COUNTS {
@@ -158,11 +153,7 @@ fn bench_channel_matrix(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = bench_channel_matrix
 }
 

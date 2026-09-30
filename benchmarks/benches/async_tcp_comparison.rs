@@ -1,5 +1,7 @@
 //! Async TCP facade comparison benchmarks against Tokio TCP sockets.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_async::io::{AsyncReadExt as MoiraiAsyncReadExt, AsyncWriteExt as MoiraiAsyncWriteExt};
 use std::io::{self, Read, Write};
@@ -10,9 +12,6 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::Builder;
 
-const SAMPLE_SIZE: usize = 20;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const CLIENT_PAYLOAD: &[u8] = b"moirai-tcp-loopback-ping";
 const SERVER_PAYLOAD: &[u8] = b"moirai-tcp-loopback-pong";
 const SHUTDOWN_PAYLOAD: &[u8] = b"moirai-tcp-shutdown";
@@ -275,7 +274,6 @@ fn async_tcp_comparison(c: &mut Criterion) {
     assert_eq!(tokio_shutdown_expected, SHUTDOWN_PAYLOAD.len());
 
     let mut group = c.benchmark_group("async_tcp_loopback_echo");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", CLIENT_PAYLOAD.len()),
         &CLIENT_PAYLOAD.len(),
@@ -325,7 +323,6 @@ fn async_tcp_comparison(c: &mut Criterion) {
     assert_eq!(&tokio_stream_expected, SERVER_PAYLOAD);
 
     let mut stream_group = c.benchmark_group("async_tcp_stream_echo");
-    stream_group.sample_size(SAMPLE_SIZE);
     stream_group.bench_with_input(
         BenchmarkId::new("moirai", CLIENT_PAYLOAD.len()),
         &CLIENT_PAYLOAD.len(),
@@ -368,7 +365,6 @@ fn async_tcp_comparison(c: &mut Criterion) {
     );
 
     let mut shutdown_group = c.benchmark_group("async_tcp_write_shutdown");
-    shutdown_group.sample_size(SAMPLE_SIZE);
     shutdown_group.bench_with_input(
         BenchmarkId::new("moirai", SHUTDOWN_PAYLOAD.len()),
         &SHUTDOWN_PAYLOAD.len(),
@@ -398,11 +394,7 @@ fn async_tcp_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = async_tcp_comparison
 }
 criterion_main!(benches);

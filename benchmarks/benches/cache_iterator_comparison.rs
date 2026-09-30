@@ -1,13 +1,11 @@
 //! Borrowed cache iterator comparison against Rayon.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::cache::CacheIterExt;
 use rayon::prelude::*;
-use std::time::Duration;
 
-const SAMPLE_SIZE: usize = 10;
-const WARM_UP_MILLIS: u64 = 100;
-const MEASUREMENT_MILLIS: u64 = 300;
 const WORK_ITEMS: usize = 1_024;
 const LARGE_WORK_ITEMS: usize = 32_768;
 // First `u64` length above the cache map's scheduler-batch fan-out floor.
@@ -96,9 +94,6 @@ fn cache_iterator_comparison(c: &mut Criterion) {
     );
 
     let mut map_group = c.benchmark_group("cache_iterator_zero_copy_map");
-    map_group.sample_size(SAMPLE_SIZE);
-    map_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    map_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     map_group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_zero_copy_map(black_box(input))))
     });
@@ -108,9 +103,6 @@ fn cache_iterator_comparison(c: &mut Criterion) {
     map_group.finish();
 
     let mut large_map_group = c.benchmark_group("cache_iterator_zero_copy_large_map");
-    large_map_group.sample_size(SAMPLE_SIZE);
-    large_map_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    large_map_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     large_map_group.bench_with_input(
         BenchmarkId::new("moirai", MAP_FAN_OUT_WORK_ITEMS),
         &map_fan_out_data,
@@ -124,9 +116,6 @@ fn cache_iterator_comparison(c: &mut Criterion) {
     large_map_group.finish();
 
     let mut reduce_group = c.benchmark_group("cache_iterator_zero_copy_reduce");
-    reduce_group.sample_size(SAMPLE_SIZE);
-    reduce_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    reduce_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     reduce_group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_zero_copy_reduce(black_box(input))))
     });
@@ -136,9 +125,6 @@ fn cache_iterator_comparison(c: &mut Criterion) {
     reduce_group.finish();
 
     let mut large_reduce_group = c.benchmark_group("cache_iterator_zero_copy_large_reduce");
-    large_reduce_group.sample_size(SAMPLE_SIZE);
-    large_reduce_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    large_reduce_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     large_reduce_group.bench_with_input(
         BenchmarkId::new("moirai", LARGE_WORK_ITEMS),
         &large_data,
@@ -152,5 +138,9 @@ fn cache_iterator_comparison(c: &mut Criterion) {
     large_reduce_group.finish();
 }
 
-criterion_group!(benches, cache_iterator_comparison);
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = cache_iterator_comparison
+}
 criterion_main!(benches);

@@ -1,12 +1,10 @@
 //! Generic iterator SIMD-surface benchmarks.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::simd_iter::SimdSliceIter;
-use std::time::Duration;
 
-const SAMPLE_SIZE: usize = 20;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const WORK_ITEMS: usize = 32 * 1024;
 
 fn data() -> (Vec<u64>, Vec<u64>) {
@@ -49,7 +47,6 @@ fn iter_simd_comparison(c: &mut Criterion) {
     assert_eq!(generic_dot(&left, &right), scalar_dot(&left, &right));
 
     let mut group = c.benchmark_group("iter_simd_generic_add");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("generic", WORK_ITEMS),
         &(&left, &right),
@@ -67,7 +64,6 @@ fn iter_simd_comparison(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("iter_simd_generic_dot");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("generic", WORK_ITEMS),
         &(&left, &right),
@@ -87,11 +83,7 @@ fn iter_simd_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = iter_simd_comparison
 }
 criterion_main!(benches);

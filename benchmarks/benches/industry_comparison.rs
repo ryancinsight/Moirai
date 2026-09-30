@@ -4,21 +4,17 @@
 //! Rayon on workloads where the APIs perform the same value-preserving work.
 //! Tokio and Rayon remain benchmark-only dependencies.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use moirai::Moirai;
 use rayon::prelude::*;
-use std::{
-    sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const TASK_COUNTS: &[usize] = &[100, 1_000, 10_000];
 const MAP_REDUCE_COUNTS: &[usize] = &[4_096, 32_768, 65_536];
 const WORKER_THREADS: usize = 4;
 const CPU_WORK: usize = 8;
-const BENCHMARK_SAMPLE_SIZE: usize = 10;
-const BENCHMARK_MEASUREMENT_SECONDS: u64 = 1;
-const BENCHMARK_WARM_UP_MILLIS: u64 = 250;
 
 fn expected_ready_sum(count: usize) -> usize {
     count * (count + 1) / 2
@@ -68,9 +64,6 @@ fn rayon_par_iter_map_reduce(rayon: &rayon::ThreadPool, work_items: usize) -> u6
 
 fn benchmark_ready_task_spawning(c: &mut Criterion) {
     let mut group = c.benchmark_group("industry_ready_task_spawning");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
-    group.warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -170,9 +163,6 @@ fn benchmark_ready_task_spawning(c: &mut Criterion) {
 
 fn benchmark_official_rayon_map_reduce(c: &mut Criterion) {
     let mut group = c.benchmark_group("official_rayon_map_reduce");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
-    group.warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -209,9 +199,10 @@ fn benchmark_official_rayon_map_reduce(c: &mut Criterion) {
     moirai.shutdown();
 }
 
-criterion_group!(
-    benches,
-    benchmark_ready_task_spawning,
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = benchmark_ready_task_spawning,
     benchmark_official_rayon_map_reduce
-);
+}
 criterion_main!(benches);

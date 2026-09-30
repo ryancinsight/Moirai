@@ -53,7 +53,7 @@ fn transport_archive_benchmark_compares_real_borrowed_and_owned_paths() {
         "String::from_utf8(payload.to_owned())",
         "verify_len",
         "assert_eq!(actual, expected)",
-        "without_plots",
+        "time_model::criterion()",
     ] {
         assert!(
             source.contains(required),

@@ -3,6 +3,8 @@
     reason = "test scope: failed precondition = test failure"
 )]
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, BenchmarkId, Criterion};
 use moirai::{
     FixedRemoteTask, Moirai, RemoteCapabilityToken, RoutedProcessTarget, RoutedServerTarget,
@@ -239,9 +241,6 @@ fn benchmark_routed_execution(c: &mut Criterion) {
     run_public_process_route_once(&public_runtime, 0);
 
     let mut group = c.benchmark_group("process_server_routed_execution");
-    group.sample_size(10);
-    group.warm_up_time(Duration::from_millis(200));
-    group.measurement_time(Duration::from_secs(1));
 
     group.bench_function(BenchmarkId::new("server_route_sum_u64", 1), |b| {
         b.iter_custom(|iterations| {
@@ -313,16 +312,12 @@ fn run_child_server() -> bool {
     true
 }
 
-fn criterion_config() -> Criterion {
-    Criterion::default().without_plots()
-}
-
 fn main() {
     if run_child_server() {
         return;
     }
 
-    let mut criterion = criterion_config().configure_from_args();
+    let mut criterion = time_model::criterion().configure_from_args();
     benchmark_routed_execution(&mut criterion);
     criterion.final_summary();
 }

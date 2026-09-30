@@ -1,14 +1,12 @@
 //! Async file facade comparison benchmarks against Tokio fs.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use std::path::PathBuf;
-use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime::Builder;
 
-const SAMPLE_SIZE: usize = 30;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const READ_BYTES: usize = 64 * 1024;
 const APPEND_PREFIX: &[u8] = b"moirai-append-prefix:";
 
@@ -260,7 +258,6 @@ fn async_fs_comparison(c: &mut Criterion) {
     assert_copied_bytes(&tokio_copy_path, &expected);
 
     let mut group = c.benchmark_group("async_fs_read_to_end");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", READ_BYTES), &path, |b, input| {
         b.iter(|| black_box(moirai_read(black_box(&moirai_runtime), black_box(input))))
     });
@@ -272,7 +269,6 @@ fn async_fs_comparison(c: &mut Criterion) {
     let moirai_write_input = (&moirai_write_path, expected.as_slice());
     let tokio_write_input = (&tokio_write_path, expected.as_slice());
     let mut group = c.benchmark_group("async_fs_write_file");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", READ_BYTES),
         &moirai_write_input,
@@ -298,7 +294,6 @@ fn async_fs_comparison(c: &mut Criterion) {
     let moirai_append_input = (&moirai_append_path, expected.as_slice());
     let tokio_append_input = (&tokio_append_path, expected.as_slice());
     let mut group = c.benchmark_group("async_fs_append_file");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", READ_BYTES),
         &moirai_append_input,
@@ -336,7 +331,6 @@ fn async_fs_comparison(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("async_fs_metadata_file");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", READ_BYTES), &path, |b, input| {
         b.iter(|| {
             black_box(moirai_metadata_len(
@@ -361,7 +355,6 @@ fn async_fs_comparison(c: &mut Criterion) {
         expected.as_slice(),
     );
     let mut group = c.benchmark_group("async_fs_rename_file");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", READ_BYTES),
         &moirai_rename_input,
@@ -403,7 +396,6 @@ fn async_fs_comparison(c: &mut Criterion) {
     let moirai_remove_input = (&moirai_remove_path, expected.as_slice());
     let tokio_remove_input = (&tokio_remove_path, expected.as_slice());
     let mut group = c.benchmark_group("async_fs_remove_file");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", READ_BYTES),
         &moirai_remove_input,
@@ -437,7 +429,6 @@ fn async_fs_comparison(c: &mut Criterion) {
     let moirai_copy_input = (&path, &moirai_copy_path);
     let tokio_copy_input = (&path, &tokio_copy_path);
     let mut group = c.benchmark_group("async_fs_copy_file");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", READ_BYTES),
         &moirai_copy_input,
@@ -477,11 +468,7 @@ fn async_fs_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = async_fs_comparison
 }
 criterion_main!(benches);

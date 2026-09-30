@@ -1,14 +1,13 @@
 //! Async UDP facade comparison benchmarks against Tokio UDP sockets.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::io;
 use std::net::UdpSocket as StdUdpSocket;
 use std::time::{Duration, Instant};
 use tokio::runtime::Builder;
 
-const SAMPLE_SIZE: usize = 30;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const PAYLOAD: &[u8] = b"moirai-udp-loopback-payload";
 const RECV_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -101,7 +100,6 @@ fn async_udp_comparison(c: &mut Criterion) {
     assert_eq!(tokio_expected, PAYLOAD);
 
     let mut group = c.benchmark_group("async_udp_loopback_recv_from");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", PAYLOAD.len()),
         &PAYLOAD.len(),
@@ -137,11 +135,7 @@ fn async_udp_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = async_udp_comparison
 }
 criterion_main!(benches);

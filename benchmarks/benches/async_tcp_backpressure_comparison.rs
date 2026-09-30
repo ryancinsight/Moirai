@@ -1,5 +1,7 @@
 //! Async TCP write-readiness comparison under bounded socket buffers.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_async::io::AsyncWrite as MoiraiAsyncWrite;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
@@ -12,9 +14,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::runtime::Builder;
 
-const SAMPLE_SIZE: usize = 20;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const SOCKET_BUFFER_BYTES: usize = 4 * 1024;
 const WRITE_CHUNK: [u8; 16 * 1024] = [0xA5; 16 * 1024];
 const MAX_WRITTEN_BYTES: usize = 16 * 1024 * 1024;
@@ -174,7 +173,6 @@ fn async_tcp_backpressure_comparison(c: &mut Criterion) {
     assert!(tokio_expected > 0);
 
     let mut group = c.benchmark_group("async_tcp_write_backpressure");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", WRITE_CHUNK.len()),
         &WRITE_CHUNK.len(),
@@ -190,11 +188,7 @@ fn async_tcp_backpressure_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = async_tcp_backpressure_comparison
 }
 criterion_main!(benches);

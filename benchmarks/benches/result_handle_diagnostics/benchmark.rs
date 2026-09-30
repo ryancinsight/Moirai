@@ -1,8 +1,5 @@
 pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
     let mut group = c.benchmark_group("result_handle_diagnostics");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
-    group.warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -456,9 +453,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
         |bench| {
             let registry = TaskRegistry::new();
             let metrics = ExecutorMetrics::new();
-            bench.iter(|| {
-                direct_public_token_wrapper_after_send_components(&registry, &metrics)
-            });
+            bench.iter(|| direct_public_token_wrapper_after_send_components(&registry, &metrics));
         },
     );
 
@@ -467,9 +462,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
         |bench| {
             let registry = TaskRegistry::new();
             let metrics = ExecutorMetrics::new();
-            bench.iter(|| {
-                direct_public_wrapper_oversized_captured_components(&registry, &metrics)
-            });
+            bench.iter(|| direct_public_wrapper_oversized_captured_components(&registry, &metrics));
         },
     );
 
@@ -491,11 +484,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let registry = TaskRegistry::new();
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
-                direct_scheduled_public_token_wrapper_components(
-                    &scheduler,
-                    &registry,
-                    &metrics,
-                )
+                direct_scheduled_public_token_wrapper_components(&scheduler, &registry, &metrics)
             });
         },
     );
@@ -508,9 +497,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
                 direct_scheduled_public_registry_token_wrapper_components(
-                    &scheduler,
-                    &registry,
-                    &metrics,
+                    &scheduler, &registry, &metrics,
                 )
             });
         },
@@ -524,9 +511,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
                 direct_scheduled_public_registry_token_wrapper_after_send_quiescent(
-                    &scheduler,
-                    &registry,
-                    &metrics,
+                    &scheduler, &registry, &metrics,
                 )
             });
         },
@@ -539,8 +524,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let registry = TaskRegistry::new();
             bench.iter(|| {
                 direct_scheduled_public_registry_token_wrapper_local_metrics_quiescent(
-                    &scheduler,
-                    &registry,
+                    &scheduler, &registry,
                 )
             });
         },
@@ -564,8 +548,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let registry = TaskRegistry::new();
             bench.iter(|| {
                 direct_scheduled_public_registry_token_wrapper_without_metrics(
-                    &scheduler,
-                    &registry,
+                    &scheduler, &registry,
                 )
             });
         },
@@ -578,11 +561,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let registry = TaskRegistry::new();
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
-                direct_scheduled_public_token_wrapper_without_catch(
-                    &scheduler,
-                    &registry,
-                    &metrics,
-                )
+                direct_scheduled_public_token_wrapper_without_catch(&scheduler, &registry, &metrics)
             });
         },
     );
@@ -594,11 +573,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let registry = TaskRegistry::new();
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
-                direct_scheduled_public_token_wrapper_atomic_result(
-                    &scheduler,
-                    &registry,
-                    &metrics,
-                )
+                direct_scheduled_public_token_wrapper_atomic_result(&scheduler, &registry, &metrics)
             });
         },
     );
@@ -622,9 +597,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
                 direct_scheduled_public_token_wrapper_oversized_components(
-                    &scheduler,
-                    &registry,
-                    &metrics,
+                    &scheduler, &registry, &metrics,
                 )
             });
         },
@@ -638,9 +611,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
                 direct_scheduled_public_token_wrapper_oversized_storage_only(
-                    &scheduler,
-                    &registry,
-                    &metrics,
+                    &scheduler, &registry, &metrics,
                 )
             });
         },
@@ -654,9 +625,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
                 direct_scheduled_public_token_wrapper_oversized_read_one_components(
-                    &scheduler,
-                    &registry,
-                    &metrics,
+                    &scheduler, &registry, &metrics,
                 )
             });
         },
@@ -669,8 +638,7 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let registry = TaskRegistry::new();
             bench.iter(|| {
                 direct_scheduled_public_token_wrapper_oversized_without_metrics(
-                    &scheduler,
-                    &registry,
+                    &scheduler, &registry,
                 )
             });
         },
