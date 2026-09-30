@@ -27,14 +27,15 @@ pub(crate) struct OwnedStateLease {
 unsafe impl Send for OwnedStateLease {}
 
 // SAFETY: the block Arc keeps every slot address stable until this lease drops;
-// registry cleanup cannot clear its slot while the `token_active` flag is set.
+// the registry retires a block only after every slot in it has released its
+// token, which `token_active` records.
 unsafe impl StateLease for OwnedStateLease {
     fn state(&self) -> &TaskState {
         // Reading the owner documents and preserves the lifetime dependency;
         // this reference is optimized away and performs no refcount operation.
         let _ = &self.block;
-        // SAFETY: the block Arc keeps the allocation alive and registry cleanup
-        // cannot clear this slot while its token-active marker remains set.
+        // SAFETY: the block Arc keeps the allocation alive, and the registry
+        // retires no block that holds an active token.
         unsafe { self.state.as_ref() }
     }
 }
@@ -51,7 +52,8 @@ pub(crate) struct SchedulerStateLease {
 unsafe impl Send for SchedulerStateLease {}
 
 // SAFETY: the constructor's registry-lifetime obligation keeps `state` valid;
-// cleanup cannot clear it while its `token_active` flag is set.
+// the registry retires no block holding a slot whose `token_active` flag is set,
+// and a lease makes its last access to the state when it retires that flag.
 unsafe impl StateLease for SchedulerStateLease {
     fn state(&self) -> &TaskState {
         // SAFETY: discharged by `SchedulerStateLease::new` and preserved by
@@ -181,7 +183,7 @@ impl<L: StateLease> Drop for TaskLifecycleToken<L> {
         if let Some(lease) = self.lease.take() {
             // A token reaches Drop only when admission or queued execution ends
             // before `start`; publish terminal completion before retiring its
-            // lease so cleanup cannot reclaim the slot during publication.
+            // lease so block retirement cannot reclaim the slot during publication.
             lease.state().mark_completed();
             lease.state().retire_token();
         }

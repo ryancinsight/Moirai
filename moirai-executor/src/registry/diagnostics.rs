@@ -4,7 +4,7 @@ use std::time::Duration;
 #[cfg(feature = "registry-diagnostics")]
 use super::registry::TaskRegistry;
 #[cfg(feature = "registry-diagnostics")]
-use super::state::{TIMESTAMP_NOT_RECORDED, TaskState, task_location};
+use super::state::{TIMESTAMP_NOT_RECORDED, TaskState};
 
 #[cfg(feature = "registry-diagnostics")]
 impl TaskRegistry {
@@ -13,14 +13,12 @@ impl TaskRegistry {
     #[cold]
     #[inline(never)]
     pub fn diagnostic_block_lookup(&self) -> u64 {
-        let id = self
-            .next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (block_index, slot_index) = task_location(id);
+        let id = self.issue_id();
+        let (block_index, slot_index) = id.location();
         let block = self.ensure_block(block_index);
         let slot_occupied = block.get(slot_index).is_some();
         std::hint::black_box(slot_occupied);
-        id
+        id.get()
     }
 
     /// Diagnostic-only synchronization cost on the registration path.
@@ -38,7 +36,7 @@ impl TaskRegistry {
             .blocks
             .read()
             .expect("task registry block directory is never poisoned");
-        let len = blocks.len();
+        let len = blocks.end();
         drop(blocks);
         len
     }
@@ -48,12 +46,12 @@ impl TaskRegistry {
     #[cold]
     #[inline(never)]
     pub fn diagnostic_slot_initialize(&self) -> u64 {
-        let id = self
-            .next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (block_index, slot_index) = task_location(id);
-        self.ensure_block(block_index).insert(slot_index);
-        id
+        let id = self.issue_id();
+        let task_id = id.get();
+        let (block_index, slot_index) = id.location();
+        // SAFETY: `id` was issued once above and this is its only registration.
+        unsafe { self.ensure_block(block_index).insert(slot_index) };
+        task_id
     }
 
     /// Diagnostic-only lifecycle timestamp publication path for benchmark attribution.

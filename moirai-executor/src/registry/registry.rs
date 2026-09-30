@@ -7,12 +7,13 @@ use std::{
     ptr::NonNull,
     sync::{
         Arc, RwLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::Duration,
 };
 
 use super::super::task::TaskMetadata;
+use super::directory::{BlockDirectory, BlockLookup};
+use super::retention::RetentionPolicy;
 use super::state::{TaskState, TaskStateBlock, task_location};
 use super::token::{SchedulerStateLease, TaskLifecycleToken};
 
@@ -23,6 +24,34 @@ pub(crate) enum CancelOutcome {
     Requested,
     /// The task already completed; cancelling is a no-op.
     AlreadyCompleted,
+}
+
+/// What the registry knows about a task id.
+enum Observation<R> {
+    /// The id's block was retired: the task completed and its state was released.
+    Retired,
+    /// No task is registered under the id.
+    Unregistered,
+    /// The task's state, as seen by the observer.
+    Registered(R),
+}
+
+/// A task id issued by the registry and not yet registered.
+///
+/// Registration consumes it and nothing else constructs one, so a slot has at
+/// most one registrant and the block can write it without a claim.
+#[derive(Debug)]
+pub(super) struct IssuedId(u64);
+
+impl IssuedId {
+    pub(super) const fn get(&self) -> u64 {
+        self.0
+    }
+
+    /// Block index and slot index of the id.
+    pub(super) fn location(&self) -> (usize, usize) {
+        task_location(self.0)
+    }
 }
 
 /// Public task registry facade used by executor lifecycle tracking and tests.
@@ -36,41 +65,64 @@ pub(crate) enum CancelOutcome {
 /// The id counter is atomic, and the block directory takes its lock in read
 /// mode for the common path — a block is created once per 1024 ids, and slot
 /// insertion itself only needs `&TaskStateBlock`.
+///
+/// Storage is bounded by a [`RetentionPolicy`] when one is set: settled blocks
+/// are released, and [`TaskRegistry::is_completed`] keeps answering `true` for
+/// their tasks. Without a policy every block stays resident until
+/// [`TaskRegistry::cleanup_completed`] releases it.
 #[derive(Debug)]
 pub struct TaskRegistry {
-    pub(super) blocks: RwLock<Vec<Arc<TaskStateBlock>>>,
+    pub(super) blocks: RwLock<BlockDirectory>,
     pub(super) next_id: AtomicU64,
+    pub(super) retention: Option<RetentionPolicy>,
+    pub(super) sweep_cursor: AtomicUsize,
 }
 
 impl TaskRegistry {
-    /// Create a new task registry.
+    /// Create a registry that retains every task until it is cleaned up
+    /// explicitly.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            blocks: RwLock::new(Vec::new()),
+            blocks: RwLock::new(BlockDirectory::new()),
             next_id: AtomicU64::new(1),
+            retention: None,
+            sweep_cursor: AtomicUsize::new(0),
         }
+    }
+
+    /// Create a registry whose completed tasks are released under `policy`.
+    #[must_use]
+    pub fn with_retention(policy: RetentionPolicy) -> Self {
+        Self {
+            retention: Some(policy),
+            ..Self::new()
+        }
+    }
+
+    /// Issue the next task id.
+    ///
+    /// The counter is the only source of ids, so every id is issued once; the
+    /// returned [`IssuedId`] is consumed by registration, which is what lets a
+    /// slot be written without a claim.
+    pub(super) fn issue_id(&self) -> IssuedId {
+        IssuedId(self.next_id.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Register a new task and return its ID.
     pub fn register_task(&self) -> u64 {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.register_task_with_id(id);
-        id
+        let id = self.issue_id();
+        let task_id = id.get();
+        self.register_owned(id);
+        task_id
     }
 
     /// Register a new task and return its ID plus lifecycle mutation token.
     #[cfg(any(test, feature = "registry-diagnostics"))]
     pub(crate) fn register_next_task(&self) -> (u64, TaskLifecycleToken) {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let lifecycle = self.register_task_with_id(id);
-        (id, lifecycle)
-    }
-
-    /// Register a task with an externally allocated ID.
-    pub(crate) fn register_task_with_id(&self, id: u64) -> TaskLifecycleToken {
-        let (block, state) = self.initialize_task_with_id(id);
-        TaskLifecycleToken::new_owned(block, state)
+        let id = self.issue_id();
+        let task_id = id.get();
+        (task_id, self.register_owned(id))
     }
 
     /// Register a task whose lifecycle cannot outlive this registry.
@@ -78,65 +130,56 @@ impl TaskRegistry {
     /// # Safety
     ///
     /// The caller must keep this registry's blocks alive until the returned
-    /// lifecycle token is consumed or dropped. Slot cleanup remains safe while
-    /// the token is live because registration marks the slot active.
+    /// lifecycle token is consumed or dropped. Block retirement remains safe
+    /// while the token is live because registration marks the slot active and
+    /// only a block with no active slot retires.
     pub(crate) unsafe fn register_next_scheduled_task(
         &self,
     ) -> (u64, TaskLifecycleToken<SchedulerStateLease>) {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = self.issue_id();
+        let task_id = id.get();
         // The scheduled token borrows the slot rather than owning the block, so
         // this path never needs the `Arc`; keeping the insert under the shared
         // guard avoids a refcount bump on every spawn.
         let state = self.insert_slot(id);
         (
-            id,
+            task_id,
             // SAFETY: forwarded from this method's caller contract.
             unsafe { TaskLifecycleToken::new_scheduled(state) },
         )
     }
 
-    fn initialize_task_with_id(&self, id: u64) -> (Arc<TaskStateBlock>, NonNull<TaskState>) {
-        let (block_index, slot_index) = task_location(id);
+    pub(super) fn register_owned(&self, id: IssuedId) -> TaskLifecycleToken {
+        let (block_index, slot_index) = id.location();
         let block = self.ensure_block(block_index);
-        self.claim_slot(id, &block, slot_index);
-        let state = block.insert(slot_index);
-        (block, state)
+        // SAFETY: `id` was issued once by the counter and registration consumes it.
+        let state = unsafe { block.insert(slot_index) };
+        TaskLifecycleToken::new_owned(block, state)
     }
 
-    /// Claim a slot and return only its state pointer.
+    /// Register a slot and return only its state pointer.
     ///
     /// The owned-token path needs the block `Arc`; the scheduled path does not,
     /// and it is the one every spawn takes. Resolving the block under the
     /// shared guard and inserting there keeps that path free of a refcount
     /// bump. Falls back to the growing path when the block does not exist yet,
     /// which happens once per 1024 ids.
-    fn insert_slot(&self, id: u64) -> NonNull<TaskState> {
-        let (block_index, slot_index) = task_location(id);
+    fn insert_slot(&self, id: IssuedId) -> NonNull<TaskState> {
+        let (block_index, slot_index) = id.location();
         {
             let blocks = self
                 .blocks
                 .read()
                 .expect("task registry block directory is never poisoned");
-            if let Some(block) = blocks.get(block_index) {
-                self.claim_slot(id, block, slot_index);
-                return block.insert(slot_index);
+            if let BlockLookup::Live(block) = blocks.lookup(block_index) {
+                // SAFETY: `id` was issued once by the counter and registration
+                // consumes it.
+                return unsafe { block.insert(slot_index) };
             }
         }
         let block = self.ensure_block(block_index);
-        self.claim_slot(id, &block, slot_index);
-        block.insert(slot_index)
-    }
-
-    /// Advance the id watermark and reject re-registering a live slot.
-    fn claim_slot(&self, id: u64, block: &TaskStateBlock, slot_index: usize) {
-        self.next_id
-            .fetch_max(id.saturating_add(1), Ordering::Relaxed);
-        assert!(
-            block
-                .get(slot_index)
-                .is_none_or(|state| state.is_completed() && !state.token_active()),
-            "task ID must not be re-registered while active"
-        );
+        // SAFETY: as above.
+        unsafe { block.insert(slot_index) }
     }
 
     /// Mark a task as started.
@@ -152,48 +195,22 @@ impl TaskRegistry {
     }
 
     /// Check if a task is completed.
+    ///
+    /// A task whose block was released under the retention policy is completed.
     #[must_use]
     pub fn is_completed(&self, task_id: u64) -> bool {
-        self.with_state(task_id, TaskState::is_completed)
-            .unwrap_or(false)
+        match self.observe(task_id, TaskState::is_completed) {
+            Observation::Retired => true,
+            Observation::Unregistered => false,
+            Observation::Registered(completed) => completed,
+        }
     }
 
-    /// Get task metadata.
+    /// Get task metadata, or `None` for an unregistered task and for one whose
+    /// metadata the retention policy already released.
     #[must_use]
     pub fn get_metadata(&self, task_id: u64) -> Option<TaskMetadata> {
         self.with_state(task_id, |state| state.snapshot(task_id))
-    }
-
-    /// Remove old completed tasks to prevent retained task metadata growth.
-    pub fn cleanup_completed(&self, older_than: Duration) {
-        // `Instant - Duration` panics when the result predates the platform's
-        // clock origin, which a caller-supplied retention window longer than the
-        // process uptime reaches. No recorded completion can be older than a
-        // cutoff before the clock started, so that case is an empty sweep.
-        let Some(cutoff) = std::time::Instant::now().checked_sub(older_than) else {
-            return;
-        };
-        let mut blocks = self
-            .blocks
-            .write()
-            .expect("task registry block directory is never poisoned");
-        for block in blocks.iter() {
-            for slot_index in 0..block.len() {
-                let removable = block.get(slot_index).is_some_and(|state| {
-                    !state.token_active()
-                        && state
-                            .completed_at()
-                            .is_some_and(|completed| completed <= cutoff)
-                });
-                if removable {
-                    block.clear(slot_index);
-                }
-            }
-        }
-
-        while blocks.last().is_some_and(|block| block.is_empty()) {
-            blocks.pop();
-        }
     }
 
     /// Get count of active tasks.
@@ -202,19 +219,19 @@ impl TaskRegistry {
         self.blocks
             .read()
             .expect("task registry block directory is never poisoned")
-            .iter()
+            .resident_blocks()
             .flat_map(|block| block.states())
             .filter(|state| !state.is_completed())
             .count()
     }
 
-    /// Get count of completed tasks.
+    /// Get count of completed tasks whose state is still resident.
     #[must_use]
     pub fn completed_count(&self) -> usize {
         self.blocks
             .read()
             .expect("task registry block directory is never poisoned")
-            .iter()
+            .resident_blocks()
             .flat_map(|block| block.states())
             .filter(|state| state.is_completed())
             .count()
@@ -226,57 +243,85 @@ impl TaskRegistry {
     /// so all but that registration take the lock in shared mode and never
     /// exclude a concurrent spawn. The length is re-checked under the write
     /// lock because another producer may have grown the directory between the
-    /// two acquisitions.
+    /// two acquisitions. Creating a block advances the retention sweep by one
+    /// window, after the directory lock is released.
+    ///
+    /// Every caller holds an issued id whose slot is not yet registered, so the
+    /// block cannot have retired.
     pub(super) fn ensure_block(&self, block_index: usize) -> Arc<TaskStateBlock> {
-        if let Some(block) = self
+        if let BlockLookup::Live(block) = self
             .blocks
             .read()
             .expect("task registry block directory is never poisoned")
-            .get(block_index)
+            .lookup(block_index)
         {
             return Arc::clone(block);
         }
-        let mut blocks = self
+        let ensured = self
             .blocks
             .write()
-            .expect("task registry block directory is never poisoned");
-        while blocks.len() <= block_index {
-            blocks.push(Arc::new(TaskStateBlock::new()));
+            .expect("task registry block directory is never poisoned")
+            .ensure(block_index);
+        let (block, created) =
+            ensured.expect("invariant: a block holding an issued, unregistered id never retires");
+        if created {
+            self.sweep_step();
         }
-        Arc::clone(&blocks[block_index])
+        block
     }
 
-    /// Run `f` against the state slot for `task_id`, if it is registered.
+    /// Run `f` against the state of `task_id`, if it is resident.
+    pub(super) fn with_state<R>(&self, task_id: u64, f: impl FnOnce(&TaskState) -> R) -> Option<R> {
+        match self.observe(task_id, f) {
+            Observation::Registered(value) => Some(value),
+            Observation::Retired | Observation::Unregistered => None,
+        }
+    }
+
+    /// Run `f` against the state slot for `task_id` and report how the id stands.
     ///
     /// Callers take the block by `Arc` rather than borrowing through the
     /// directory guard, so the shared lock is released before `f` runs.
-    pub(super) fn with_state<R>(&self, task_id: u64, f: impl FnOnce(&TaskState) -> R) -> Option<R> {
+    fn observe<R>(&self, task_id: u64, f: impl FnOnce(&TaskState) -> R) -> Observation<R> {
         let (block_index, slot_index) = task_location(task_id);
         let block = {
             let blocks = self
                 .blocks
                 .read()
                 .expect("task registry block directory is never poisoned");
-            Arc::clone(blocks.get(block_index)?)
+            match blocks.lookup(block_index) {
+                BlockLookup::Live(block) => Arc::clone(block),
+                BlockLookup::Retired => return Observation::Retired,
+                BlockLookup::Absent => return Observation::Unregistered,
+            }
         };
-        let state = block.get(slot_index)?;
-        Some(f(state))
+        block
+            .get(slot_index)
+            .map_or(Observation::Unregistered, |state| {
+                Observation::Registered(f(state))
+            })
     }
 
     /// Request cooperative cancellation of a task.
     ///
     /// Returns `None` when the task is unknown. Running tasks are not
     /// preempted: a task that already started keeps running to completion and
-    /// reports `Requested` here without effect.
+    /// reports `Requested` here without effect. A task whose state the
+    /// retention policy released completed earlier and reports
+    /// `AlreadyCompleted`.
     pub(crate) fn request_cancel(&self, task_id: u64) -> Option<CancelOutcome> {
-        self.with_state(task_id, |state| {
+        match self.observe(task_id, |state| {
             if state.is_completed() {
                 CancelOutcome::AlreadyCompleted
             } else {
                 state.request_cancel();
                 CancelOutcome::Requested
             }
-        })
+        }) {
+            Observation::Retired => Some(CancelOutcome::AlreadyCompleted),
+            Observation::Unregistered => None,
+            Observation::Registered(outcome) => Some(outcome),
+        }
     }
 
     /// Register a waker to be notified when the task completes.

@@ -7,6 +7,7 @@
 //! Hephaestus providers; Moirai does not depend on them (ADR 0041). A device
 //! operation is scheduled on Moirai as an ordinary task.
 
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 pub mod occupancy;

@@ -162,7 +162,10 @@ pub struct SchedulerScope<
     pub(super) priority: Priority,
     pub(super) locality_hint: Option<usize>,
     pub(super) jobs: RefCell<Vec<ScheduledJob>>,
-    pub(super) _state: PhantomData<&'scope SchedulerScopeState>,
+    /// Pins `'scope` invariant. A covariant scope could be shrunk inside the body,
+    /// letting `spawn` accept a borrow of a body-local that a buffered job
+    /// would use after the body returned and dropped it.
+    pub(super) _scope: PhantomData<fn(&'scope ()) -> &'scope ()>,
     pub(super) _class: PhantomData<C>,
 }
 

@@ -5,6 +5,7 @@
 
 use std::{
     cell::UnsafeCell,
+    mem::MaybeUninit,
     ptr::NonNull,
     sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
     time::{Duration, Instant},
@@ -27,32 +28,39 @@ pub(crate) const NO_WORKER: usize = usize::MAX;
 pub(crate) const TIMESTAMP_NOT_RECORDED: u64 = u64::MAX;
 pub(crate) const TASK_STATE_BLOCK_SIZE: usize = 1024;
 
-/// One fixed-size block of task-state slots.
-///
-/// Slots are `UnsafeCell` so the registry can initialize and retire individual
-/// states while lifecycle tokens retain shared ownership of the block. All
-/// access goes through the methods below, which touch a slot only through its
-/// own `UnsafeCell` — never a `&mut`/`&` spanning the whole slice.
-///
-/// # Safety contract (relied on by every slot accessor below)
-/// 1. Structural slot mutation requires exclusive [`super::TaskRegistry`]
-///    access. The executor shares that registry only through `Arc<Mutex<_>>`,
-///    so no two registry operations mutate a block concurrently.
-/// 2. A slot's [`TaskState`] is interior-mutable (atomics + a `Mutex`). A
-///    lifecycle token accesses only those fields through a shared block view or
-///    a stable pointer, so concurrent token and registry reads are atomic/locked.
-/// 3. The registry writes a slot's `Option` only when `token_active == false`:
-///    `insert` targets a fresh or retired id; `clear` targets a completed,
-///    retired slot. An owned token's block `Arc` keeps the allocation alive;
-///    scheduler-bounded tokens require their registry to outlive the job.
-pub(super) struct TaskStateBlock {
-    slots: Box<[UnsafeCell<Option<TaskState>>]>,
+/// Which settled blocks a retirement sweep may release.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Retirement {
+    /// Only blocks whose every task completed at or before the instant.
+    CompletedBefore(Instant),
+    /// Any block whose every task completed, whatever its age.
+    Forced,
 }
 
-// SAFETY: registry mutation is serialized and writes only one slot's
-// `UnsafeCell` after that slot's token retires. Lifecycle tokens keep the block
-// alive and access only their slot's atomic/mutex fields. Sibling-slot writes
-// are disjoint, so sharing the block across token and registry threads is safe.
+/// One fixed-size block of task-state slots.
+///
+/// A slot is written once, by the registration that owns its id, and then
+/// published by a release store to its `published` flag; every observer reads
+/// the flag with acquire semantics before touching the state, so a lookup racing
+/// a registration sees either an absent slot or a complete state. A published
+/// state never moves and is never replaced. The only way a state's storage is
+/// released is retiring the whole block, which the registry does once every slot
+/// has completed and released its lifecycle token. An owned token's block `Arc`
+/// keeps the allocation alive; scheduler-bounded tokens require their registry
+/// to outlive the job and make their final access to the state when they retire.
+///
+/// The flags live apart from the states: a flag beside its state would pad every
+/// 72-byte state to 80 bytes, and the retirement scan reads flags without
+/// touching state lines.
+pub(super) struct TaskStateBlock {
+    published: Box<[AtomicBool]>,
+    states: Box<[UnsafeCell<MaybeUninit<TaskState>>]>,
+}
+
+// SAFETY: a state is written only before its `published` flag is set, by the one
+// registration that owns the slot, and only read after an acquire load observes
+// the flag. `TaskState` is `Send + Sync`, so sharing published states across
+// threads is sound.
 unsafe impl Sync for TaskStateBlock {}
 
 /// Shared lifecycle state for one task.
@@ -72,6 +80,7 @@ pub(crate) struct TaskState {
     pub(super) cancelled: AtomicBool,
 }
 
+// A registry block holds 1,024 of these plus one flag byte each; the size is// pinned because retained memory per task is this figure.const _: () = assert!(size_of::<TaskState>() <= 72);
 impl std::fmt::Debug for TaskState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TaskState")
@@ -222,73 +231,95 @@ impl TaskState {
 
 impl TaskStateBlock {
     pub(super) fn new() -> Self {
-        let slots = std::iter::repeat_with(|| UnsafeCell::new(None))
+        let published = std::iter::repeat_with(|| AtomicBool::new(false))
             .take(TASK_STATE_BLOCK_SIZE)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect();
+        let states = std::iter::repeat_with(|| UnsafeCell::new(MaybeUninit::uninit()))
+            .take(TASK_STATE_BLOCK_SIZE)
+            .collect();
 
-        Self { slots }
+        Self { published, states }
     }
 
-    /// Number of slots in the block.
-    pub(super) fn len(&self) -> usize {
-        self.slots.len()
-    }
-
-    /// Shared view of the state at `slot`, if the slot is occupied and in range.
+    /// Shared view of the state at `slot`, if the slot is registered and in range.
     pub(super) fn get(&self, slot: usize) -> Option<&TaskState> {
-        let cell = self.slots.get(slot);
-        // SAFETY: per the struct's safety contract, we form only a shared
-        // `&TaskState` to interior-mutable state; the registry never writes
-        // this slot's `Option` while a token to it is live, and concurrent
-        // token access touches only the same state's atomics/mutex.
-        cell.and_then(|cell| unsafe { (*cell.get()).as_ref() })
-    }
-
-    /// Insert a fresh state at `slot`, returning its stable address.
-    pub(super) fn insert(&self, slot: usize) -> NonNull<TaskState> {
-        let cell = self.slots[slot].get();
-        // SAFETY: per the struct's safety contract, the write goes through this
-        // slot's own `UnsafeCell`; no active token aliases the replaced state,
-        // and live tokens into sibling slots touch disjoint cells. The pointer
-        // derives from a shared view because tokens use only interior-mutability
-        // operations; registry code never moves an initialized live slot.
-        unsafe {
-            *cell = Some(TaskState::new());
-            NonNull::from((*cell).as_ref().unwrap_unchecked())
+        if !self.published.get(slot)?.load(Ordering::Acquire) {
+            return None;
         }
+        // SAFETY: the acquire load observed the release store that follows the
+        // slot's one write, so the state is initialized; nothing writes it again.
+        Some(unsafe { (*self.states[slot].get()).assume_init_ref() })
     }
 
-    /// Clear the state at `slot`, dropping it.
-    pub(super) fn clear(&self, slot: usize) {
+    /// Register a fresh state at `slot`, returning its stable address.
+    ///
+    /// # Safety
+    ///
+    /// No other call to `insert` has been or will be made for `slot`. The
+    /// registry meets this by issuing every task id exactly once from its
+    /// atomic counter and registering each id once.
+    pub(super) unsafe fn insert(&self, slot: usize) -> NonNull<TaskState> {
         debug_assert!(
-            self.get(slot).is_none_or(|state| !state.token_active()),
-            "retiring a registry slot requires its lifecycle token to be gone"
+            !self.published[slot].load(Ordering::Relaxed),
+            "a task id registers exactly once"
         );
-        // SAFETY: per the struct's safety contract, callers clear only completed
-        // slots whose token has retired, so no lifecycle access aliases the
-        // dropped state; the write is through this slot's own `UnsafeCell`.
-        unsafe {
-            *self.slots[slot].get() = None;
-        }
+        let cell = self.states[slot].get();
+        // SAFETY: the caller is the slot's only registrant and the slot is not
+        // yet published, so no reader touches the cell and this is the only
+        // access to it. The address is stable: the boxed slice never moves or
+        // shrinks and a published state is never replaced.
+        let state = unsafe { (*cell).write(TaskState::new()) };
+        let address = NonNull::from(&*state);
+        self.published[slot].store(true, Ordering::Release);
+        address
     }
 
-    /// Iterate shared views of the occupied states in this block.
+    /// Whether every task this block held has completed and released its
+    /// lifecycle token, so the block can retire.
+    ///
+    /// Every slot must be registered: a vacant slot is an id that was issued
+    /// but whose registration has not run yet, and retiring the block under it
+    /// would lose that registration. `first_slot_unissued` exempts slot 0 of
+    /// block 0, the one id the registry never issues. `retire` bounds the
+    /// completion age; slots are examined newest first, so a block still inside
+    /// its retention window is rejected after the first slot or two.
+    pub(super) fn is_settled(&self, first_slot_unissued: bool, retire: Retirement) -> bool {
+        (0..TASK_STATE_BLOCK_SIZE)
+            .rev()
+            .all(|slot| match self.get(slot) {
+                None => first_slot_unissued && slot == 0,
+                Some(state) => {
+                    !state.token_active()
+                        && state.completed_at().is_some_and(|completed| match retire {
+                            Retirement::Forced => true,
+                            Retirement::CompletedBefore(cutoff) => completed <= cutoff,
+                        })
+                }
+            })
+    }
+
+    /// Iterate shared views of the registered states in this block.
     pub(super) fn states(&self) -> impl Iterator<Item = &TaskState> {
-        let cells = self.slots.iter();
-        // SAFETY: as in `get` — shared views of interior-mutable state.
-        cells.filter_map(|cell| unsafe { (*cell.get()).as_ref() })
+        (0..TASK_STATE_BLOCK_SIZE).filter_map(|slot| self.get(slot))
     }
+}
 
-    pub(super) fn is_empty(&self) -> bool {
-        self.states().next().is_none()
+impl Drop for TaskStateBlock {
+    fn drop(&mut self) {
+        for (published, state) in self.published.iter_mut().zip(self.states.iter_mut()) {
+            if *published.get_mut() {
+                // SAFETY: the flag is set only after the state is written, and
+                // `&mut self` excludes every other access.
+                unsafe { state.get_mut().assume_init_drop() };
+            }
+        }
     }
 }
 
 impl std::fmt::Debug for TaskStateBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TaskStateBlock")
-            .field("slots", &self.slots.len())
+            .field("slots", &self.published.len())
             .field("occupied", &self.states().count())
             .finish()
     }

@@ -149,6 +149,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The executor releases finished-task state.** `HybridExecutor` now derives a
+  `RetentionPolicy` from `CleanupConfig` and releases the task registry in whole
+  blocks of 1,024 tasks as it registers new ones, once every task in a block has
+  finished and either its newest completion is older than
+  `task_retention_duration` or more than `max_retained_tasks` finished tasks are
+  retained. Before this, completed state stayed resident for the executor's
+  lifetime (about 73 bytes per task spawned) because nothing called the cleanup.
+  `wait_for_task` on a released task still resolves and `cancel_task` is still a
+  no-op; `task_status` and `task_stats` now return `None` for it. Set
+  `enable_automatic_cleanup` to `false` to keep every task's metadata. The
+  registry's `cleanup_completed` returns the number of blocks it released and no
+  longer holds the directory write lock across its scan, and registration into
+  an already-registered id now always panics.
+
 - **The unified channel reports its configured capacity.** `UnifiedChannel` now
   runs on the workspace's one bounded MPMC queue core (ADR-0016) instead of a
   per-channel copy of the same ring that serialized each side behind its own
@@ -202,6 +216,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are new. ADR 0035 carries the dated revision.
 
 ### Removed
+
+- **`CleanupConfig::cleanup_interval`.** Nothing ever read it: reclamation is
+  proportional to task registration rather than to elapsed time, so there is no
+  interval to configure. Migration: delete the field from struct literals.
 
 - **`moirai_core::memory::UnifiedRingBuffer`** (ADR-0016). It was a third copy of
   the bounded ring in the crate, serialized per side by a mutex, and
@@ -539,15 +557,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Dropping a Unix socket or its future retires the reactor registration.**
-  On epoll and kqueue a dropped read, write, accept, connect or datagram
-  future, or a dropped `AsyncTcpStream`, left its descriptor registered with
-  the task waker, so a later socket reusing the descriptor number inherited
-  the stale interest and a readiness event dispatched after `close` failed
-  the whole reactor with `EBADF`. Each pending operation now holds the
-  per-interest cancellation Windows already used, and a removal that finds
-  the descriptor closed retires the registration instead of failing.
-
 - **A WebView2 host renders the page it hosts.** `WebViewHost::new` left the
   controller at empty bounds and, under a hidden window, not visible, so
   WebView2 held `capture_preview_png`'s completion until the finite wait
@@ -572,6 +581,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   finishes, so the observer sees earlier writes. `write_all` is one pool job,
   so it is written in full once submitted. Panic containment belongs to the
   pool and holds only in unwind builds.
+- **`SlabAllocator` is `Sync` only for values that are `Send` and `Sync`.** It
+  moves values in and out through `&self`, so sharing it across threads could
+  drop a thread-affine value such as a `MutexGuard` on another thread.
+  `CacheAlignedAllocator::allocate` multiplied element size by count without
+  an overflow check, which in a release build wrapped into a short allocation
+  reported as success; the size now comes from `Layout::array` and an
+  overflowing count returns `None`.
 - **`TcpStream::connect` no longer blocks the polling thread.**
   `moirai_pal::net::AsyncTcpStream::connect` ran std's blocking connect inside
   `poll`, so an unanswered SYN held the executor thread for the OS connect
@@ -646,6 +662,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recover poisoned GPU buffer-pool mutexes instead of propagating a prior
   worker panic into every later pool operation.
 
+- **Dropping a Unix socket or its future retires the reactor registration.**
+  On epoll and kqueue a dropped read, write, accept, connect or datagram
+  future, or a dropped `AsyncTcpStream`, left its descriptor registered with
+  the task waker, so a later socket reusing the descriptor number inherited
+  the stale interest and a readiness event dispatched after `close` failed
+  the whole reactor with `EBADF`. Each pending operation now holds the
+  per-interest cancellation Windows already used, and a removal that finds
+  the descriptor closed retires the registration instead of failing.
+
+- **`IoReactor::get_active` no longer hands out a `'static` reference to a
+  scoped reactor.** It returned `&'static IoReactor` built from the pointer
+  `with_active` installs, so safe code could return the reference out of the
+  closure, drop the reactor, and call through the dangling reference. It is
+  replaced by `IoReactor::with_current`, which passes the reactor to a
+  higher-ranked closure so the reference cannot escape; the process-global
+  reactor path is unchanged.
+
 - Validate GPU buffer write and mapping ranges with checked arithmetic, so
   invalid offsets, bounds, and overflowing spans return typed validation
   errors before reaching wgpu.
@@ -663,13 +696,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   half of the Dekker pair the `SeqCst` counters exist for was absent.
   `loom_mpmc_waiter::notifier_without_the_store_load_barrier_loses_the_wakeup`
   enumerates the interleaving.
-- **`IoReactor::get_active` no longer hands out a `'static` reference to a
-  scoped reactor.** It returned `&'static IoReactor` built from the pointer
-  `with_active` installs, so safe code could return the reference out of the
-  closure, drop the reactor, and call through the dangling reference. It is
-  replaced by `IoReactor::with_current`, which passes the reactor to a
-  higher-ranked closure so the reference cannot escape; the process-global
-  reactor path is unchanged.
+- **A scope body can no longer spawn a job that borrows a value local to it.**
+  `SchedulerScope` and `moirai_parallel::Scope` were covariant in their
+  lifetime, so `spawn` accepted a borrow of a body-local that the buffered job
+  read after the body returned and dropped it. `SchedulerScope` is now
+  invariant in `'scope`, and `moirai_parallel::Scope` takes a second lifetime
+  (`Scope<'scope, 'env>`, as `std::thread::Scope` does) so tasks borrow the
+  environment and nothing shorter. A worker of one scheduler opening a scope
+  on another no longer indexes the second scheduler's worker table with its own
+  worker id, and a panic that escapes the scope drain aborts instead of
+  unwinding while scoped jobs still use the caller's frame. A panic payload
+  whose `Drop` panics aborts instead of unwinding out of job execution.
+
 
 ### Performance
 

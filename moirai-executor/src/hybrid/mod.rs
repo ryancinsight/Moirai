@@ -24,13 +24,15 @@ use moirai_core::{
 
 use crate::{
     metrics::ExecutorMetrics,
-    registry::{SchedulerStateLease, TaskLifecycleToken, TaskRegistry},
+    registry::{RetentionPolicy, SchedulerStateLease, TaskLifecycleToken, TaskRegistry},
     schedule::{SchedulerScope, SyncTask, ThreadScheduler, WorkClass, WorkScheduler},
 };
 
 mod async_state;
 pub(crate) mod control;
 pub(crate) mod manager;
+#[cfg(test)]
+mod retention_tests;
 pub(crate) mod spawner;
 #[cfg(test)]
 mod tests;
@@ -90,7 +92,10 @@ impl HybridExecutor<ThreadScheduler> {
     /// propagates scheduler construction failures.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
         let scheduler = ThreadScheduler::from_executor_config(&config)?;
-        let task_registry = Arc::new(TaskRegistry::new());
+        let task_registry = Arc::new(
+            RetentionPolicy::from_cleanup(&config.cleanup)
+                .map_or_else(TaskRegistry::new, TaskRegistry::with_retention),
+        );
         let metrics = Arc::new(ExecutorMetrics::new());
         scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)));
         metrics.update_worker_counts(0, scheduler.worker_count(), scheduler.worker_count());
