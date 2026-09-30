@@ -12,15 +12,30 @@ use crate::io::traits::{AsyncRead, AsyncWrite};
 #[cfg(feature = "tokio-compat")]
 use tokio_dep as tokio;
 
-/// Wrapper providing Tokio's I/O traits compatibility.
+#[cfg(all(test, feature = "tokio-compat"))]
+mod tests;
+
+/// Exposes a Moirai reader, writer, or buffered reader through the
+/// `tokio::io` traits.
+///
+/// The wrapper forwards every poll, including the task context, so the waker a
+/// Tokio caller registers is the waker the Moirai type stores. It keeps the
+/// layout of `T` and allocates nothing.
 #[repr(transparent)]
 pub struct TokioCompat<T> {
     inner: T,
 }
 
 impl<T> TokioCompat<T> {
+    /// Asserts at compile time that the wrapper adds no size or padding.
+    const TRANSPARENT: () = assert!(
+        size_of::<Self>() == size_of::<T>() && align_of::<Self>() == align_of::<T>(),
+        "compatibility wrapper must keep the layout of its inner type",
+    );
+
     /// Create a new Tokio compatibility wrapper.
     pub fn new(inner: T) -> Self {
+        let () = Self::TRANSPARENT;
         Self { inner }
     }
 
@@ -36,15 +51,27 @@ impl<T> From<T> for TokioCompat<T> {
     }
 }
 
-/// Wrapper providing Moirai's native I/O traits compatibility for Tokio types.
+/// Exposes a `tokio::io` reader, writer, or buffered reader through the Moirai
+/// I/O traits.
+///
+/// The wrapper forwards every poll, including the task context, so the waker a
+/// Moirai caller registers is the waker the Tokio type stores. It keeps the
+/// layout of `T` and allocates nothing.
 #[repr(transparent)]
 pub struct MoiraiCompat<T> {
     inner: T,
 }
 
 impl<T> MoiraiCompat<T> {
+    /// Asserts at compile time that the wrapper adds no size or padding.
+    const TRANSPARENT: () = assert!(
+        size_of::<Self>() == size_of::<T>() && align_of::<Self>() == align_of::<T>(),
+        "compatibility wrapper must keep the layout of its inner type",
+    );
+
     /// Create a new Moirai compatibility wrapper.
     pub fn new(inner: T) -> Self {
+        let () = Self::TRANSPARENT;
         Self { inner }
     }
 

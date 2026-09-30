@@ -74,8 +74,8 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Moirai and Tokio I/O types interoperate through transparent typed wrappers without scheduling or allocation in the adapter.
 - acceptance: Both wrapper directions implement read/write traits, readiness transitions wake the correct context, layout is transparent, and native/compat behavior is value-equivalent.
 - scope: async I/O compatibility wrappers and readiness mapping; Tokio remains a comparison and interoperability dependency.
-- next step: Audit the current compatibility surface against ADR 0006 and file the smallest missing direction as the first complete slice.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+- next step: Map `AsyncBufRead` (`poll_fill_buf`, `consume`) and vectored writes (`poll_write_vectored`, `is_write_vectored`) through both wrappers; read, write, flush, shutdown, layout, and waker propagation are delivered and tested.
+- basis: `3bf9b07808fd2326033f308eacbc2aa4325013fc`
 
 <a id="MOI-WASM-PROMISE-FUTURE-001"></a>
 ## MOI-WASM-PROMISE-FUTURE-001 — Own Promise-to-Future callback lifetimes

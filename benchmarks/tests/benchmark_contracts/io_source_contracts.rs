@@ -2,6 +2,7 @@
 fn async_io_extension_futures_are_zero_copy_and_value_semantic() {
     let io_source = read_benchmark("../moirai-async/src/io.rs");
     let io_tests = read_benchmark("../moirai-async/src/io/tests.rs");
+    let compat_tests = read_benchmark("../moirai-async/src/io/compat/tests.rs");
     let tcp_benchmark = read_benchmark("benches/async_tcp_comparison.rs");
     let compat_benchmark = read_benchmark("benches/async_io_compat_comparison.rs");
     let benchmark_manifest = read_benchmark("Cargo.toml");
@@ -19,6 +20,7 @@ fn async_io_extension_futures_are_zero_copy_and_value_semantic() {
         "pub struct Shutdown<'a, W: ?Sized>",
         "writer: &'a mut W",
         "#[repr(transparent)]",
+        "const TRANSPARENT: () = assert!(",
         "pub struct TokioCompat<T>",
         "pub struct MoiraiCompat<T>",
         "impl<T> From<T> for TokioCompat<T>",
@@ -56,6 +58,22 @@ fn async_io_extension_futures_are_zero_copy_and_value_semantic() {
         assert!(
             io_tests.contains(required),
             "async I/O extension tests must retain value marker {required}"
+        );
+    }
+
+    for required in [
+        "chunked_transfer_is_byte_identical_on_native_and_wrapped_paths",
+        "tokio_read_registers_the_polling_context_and_repoll_replaces_it",
+        "moirai_read_registers_the_polling_context_and_repoll_replaces_it",
+        "tokio_write_backpressure_wakes_the_latest_polling_context",
+        "moirai_write_backpressure_wakes_the_latest_polling_context",
+        "tokio_shutdown_reaches_the_reader_as_eof_and_wakes_it",
+        "moirai_observes_tokio_peer_eof_and_broken_pipe",
+        "zero_length_operations_transfer_nothing_and_keep_pending_data",
+    ] {
+        assert!(
+            compat_tests.contains(required),
+            "async I/O compatibility tests must retain scenario {required}"
         );
     }
 
