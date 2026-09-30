@@ -229,15 +229,15 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Get mnemosyne building under Miri, then write the one-job scope reproducer.
 - basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
 
-<a id="MOI-RESCUE-RING-BRANCHES-2026-09-29"></a>
-## MOI-RESCUE-RING-BRANCHES-2026-09-29 — Complete or drop the parked ring-unification branches
+<a id="MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30"></a>
+## MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30 — One spin-then-yield schedule for bounded-wait sites
 - status: todo
 - priority: tightening
-- outcome: The unlanded work in rescue PRs 506 (`refactor/moirai-ring-backoff-shards-uncommitted`), 507 (`rescue/one-ring-core-adr-0016`), 508 (`rescue/spsc-over-canonical-ring`), and 509 (`rescue/mpmc-block-policy`) is rebased onto current main, gated, and merged, or each PR is closed with the landed-work proof.
-- acceptance: The PR diff resolved against main is either integrated with its tests and benchmark comparison, or empty; the local and remote branches are gone.
-- scope: the ring buffer, SPSC, and MPMC block-policy code named by the four rescue branches, ADR 0016, and `moirai-core` ring tests.
-- next step: Fetch each `pull/<N>/head`, review its diff against the merge base, and port the branch closest to done first.
-- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+- outcome: The spin-then-yield schedules in `LockFreeQueue::enqueue`, the SPSC ring (`SPSC_BLOCK_SPINS`), the MPMC channel (`backoff_step`), `ResultCell`, and the task-handle waits derive from one schedule type whose spin budget is a const-generic parameter, and the change deletes more lines than it adds.
+- acceptance: A unit test pins the schedule (spin rounds, then yield); each site keeps its measured budget; a benchmark smoke run passes; `git grep -n "spin_loop()"` lists only the shared schedule and true lock spins. `enqueue` keeps its current retry count unless a benchmark shows otherwise.
+- scope: `moirai-utils/src/queue/ring.rs`, `moirai-utils/src/result_cell.rs`, `moirai-core/src/channel/{spsc/ring.rs,mpmc/block.rs,mpmc/channel.rs}`, `moirai-core/src/task/handle.rs`; not the Chase-Lev `ContentionWait` or the NUMA backoff without a recorded reason.
+- next step: Classify the `spin_loop()` sites as bounded-wait schedules or lock spins, then design the one type; the prior attempt is the head of rescue PR 506 (a public `moirai_utils::backoff` with 7 sites, no tests, changed `enqueue` retry behavior, missed the reopen wait) and is a source, not a base.
+- basis: `0a9a2a8ffcec2c07101a5475c77fa976c52ede17`
 
 <a id="MOI-REL-061"></a>
 ## MOI-REL-061 — Publish reusable Rust crates
