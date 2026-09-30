@@ -11,6 +11,8 @@ pub(crate) mod state;
 #[cfg(test)]
 mod tests;
 pub(crate) mod token;
+#[cfg(test)]
+mod token_tests;
 
 pub(crate) use registry::CancelOutcome;
 pub use registry::TaskRegistry;
