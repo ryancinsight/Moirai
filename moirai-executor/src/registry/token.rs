@@ -97,6 +97,23 @@ pub(crate) struct RunningTaskToken<L: StateLease = OwnedStateLease> {
     pub(super) completed: bool,
 }
 
+// The async task state moves these tokens between polling threads through a
+// manual `Send` impl (`hybrid::async_state`). Both tokens hold only the lease,
+// a counter, and a flag, so they are `Send` for every lease; a field that is
+// not `Send` added to either token stops compiling here rather than becoming
+// unsound there.
+const _: [fn(); 2] = {
+    const fn assert_send<T: Send>() {}
+    fn tokens_are_send<L: StateLease>() {
+        assert_send::<TaskLifecycleToken<L>>();
+        assert_send::<RunningTaskToken<L>>();
+    }
+    [
+        tokens_are_send::<OwnedStateLease>,
+        tokens_are_send::<SchedulerStateLease>,
+    ]
+};
+
 impl TaskLifecycleToken<OwnedStateLease> {
     pub(super) fn new_owned(block: Arc<TaskStateBlock>, state: NonNull<TaskState>) -> Self {
         Self {
