@@ -104,7 +104,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: The landed sharded registry either receives independent approval or a forward correction grounded in ADR 0005 and current measurements.
 - acceptance: Review the single-producer regression, multi-producer scaling, task-scheduling control, dense-block ownership, and cleanup interaction; record a verdict and any correction in ADR 0005.
 - scope: landed registry architecture and its measurement contracts; no history rewrite.
-- next step: Run a fresh independent review of the current implementation and repeat the decisive benchmark rows on a controlled host.
+- next step: The independent review is done and its registry defects are fixed (ADR 0005 carries the corrected bounds); repeat the decisive benchmark rows on deterministic counters or an isolated-core run, then record the verdict in ADR 0005.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-ASYNC-IO-COMPARISON-001"></a>
@@ -124,7 +124,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Every reachable unsafe operation has a current safety argument and the strongest executable check its platform permits.
 - acceptance: Inventory current unsafe sites, verify each `SAFETY` obligation against its safe caller boundary, run Miri where supported and sanitizer/targeted substitutes elsewhere, and file any unsound or uncovered unit as a correctness item.
 - scope: workspace unsafe blocks, public safe wrappers, FFI/platform boundaries, and their memory-safety tests; no stale 2024 count as a completion claim.
-- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations. The scheduled `Miri` job in `.github/workflows/rust-ci.yml` holds the interpreted set; triage the failures its comment lists as excluded (moirai-core mpmc deadlock, moirai-iter sorting merge undefined behavior, moirai-async worker-thread leak) and widen the set as sites are reviewed.
+- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations. The scheduled `Miri` job in `.github/workflows/rust-ci.yml` holds the interpreted set; triage what its comment lists as excluded (moirai-async worker threads that outlive their owner, tests over the per-test budget, `shm_open` and socket tests Miri cannot run) and widen the set as sites are reviewed; a survey of utils, sync, scheduler, async and core found no further undefined behavior.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-WASM-HEADLESS-TRACE-001"></a>

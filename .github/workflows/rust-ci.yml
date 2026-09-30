@@ -385,12 +385,10 @@ jobs:
   #     are unsupported operations under Miri.
   #   moirai-async executor:: and timer::: the tests pass, then Miri fails the
   #     run because worker threads outlive the main thread.
-  #   moirai-iter parallel::sorting: nested_sorts_complete_from_scheduler_
-  #     workers reports undefined behavior at the merge `ptr::copy`
-  #     (sorting.rs:335, a shared-derived pointer invalidated by the mutable
-  #     reborrow in the same call).
-  #   moirai-iter cache::tests::zero_copy_for_each_accepts_wide_elements and
-  #     parallel::sorting deep_*: did not finish in ten minutes.
+  #   moirai-iter parallel::sorting nested_sorts_complete_from_scheduler_
+  #     workers (2,710 s), the deep_* tests, and cache::tests::zero_copy_for_
+  #     each_accepts_wide_elements: over the per-test budget; the merge step
+  #     they exercise is covered by merge_interleaves_two_sorted_runs_stably.
   # The backlog item ISSUE-005 carries the triage of the failures above.
   miri:
     name: Miri (${{ matrix.borrow_model }}, ${{ matrix.suite }})
@@ -490,11 +488,12 @@ jobs:
 
       - name: Interpret the iterator slot and output tests
         if: matrix.suite == 'foundation'
-        # 11 s / 15 s in all (33 tests); slowest:
+        # About 12 s / 16 s in all (34 tests); slowest:
         # ordered_outputs_cross_geometric_blocks_and_ragged_tail 1.8 / 2.9.
         run: >-
           cargo miri test --locked -p moirai-iter --lib --
           stream::slots parallel::output parallel::adapters
+          parallel::sorting::tests::merge_interleaves_two_sorted_runs_stably
           -Zunstable-options --report-time --test-threads=1
 
       - name: Interpret the async synchronization tests
