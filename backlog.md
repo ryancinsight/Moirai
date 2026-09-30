@@ -124,7 +124,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Every reachable unsafe operation has a current safety argument and the strongest executable check its platform permits.
 - acceptance: Inventory current unsafe sites, verify each `SAFETY` obligation against its safe caller boundary, run Miri where supported and sanitizer/targeted substitutes elsewhere, and file any unsound or uncovered unit as a correctness item.
 - scope: workspace unsafe blocks, public safe wrappers, FFI/platform boundaries, and their memory-safety tests; no stale 2024 count as a completion claim.
-- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations.
+- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations. The scheduled `Miri` job in `.github/workflows/rust-ci.yml` holds the interpreted set; triage the failures its comment lists as excluded (moirai-core mpmc deadlock, moirai-iter sorting merge undefined behavior, moirai-async worker-thread leak) and widen the set as sites are reviewed.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-WASM-HEADLESS-TRACE-001"></a>

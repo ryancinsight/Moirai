@@ -16,7 +16,7 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
   schedule:
-    # Weekly parser-fuzz campaign (MOI-SEC-001-B); runs on main only.
+    # Weekly parser-fuzz campaign (MOI-SEC-001-B) and Miri run; main only.
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
@@ -365,6 +365,147 @@ jobs:
           done
           exit "$status"
 
+  # Miri interprets the unsafe-heavy library tests under both borrow-model
+  # checkers, so the pointer-provenance defect classes fixed in the executor
+  # registry lease, the scoped-job completion, and the queue and deque storage
+  # stay fixed. Scheduled and dispatch-only: interpretation is far slower than
+  # native execution, so it is not a pull-request gate. A skipped job passes
+  # the verdict below.
+  #
+  # Each group below is the set that passed under Miri on the Linux target at
+  # nightly-2026-08-01 (revision 3c78f661), with the wall time measured for it
+  # under stacked-borrows and, in the tree-borrows column of each comment,
+  # under tree-borrows. Left out, each with its cause:
+  #   moirai-executor registry::retention_tests::concurrent_producers_and_
+  #     sweeps_keep_every_task_observable_as_completed (about 307 s) and
+  #     moirai-sync test_sharded_resource_pool_concurrent_recycle_respects_
+  #     total_cap (over 400 s): over the per-test budget of about 60 s.
+  #   moirai-core mpmc tests: test_mpmc_capacity_one_multi_producer_single_
+  #     consumer passes in 292 s and the other four did not finish in nine
+  #     minutes together.
+  #   moirai-core ipc:: and moirai-async net::: shm_open and socket options
+  #     are unsupported operations under Miri.
+  #   moirai-async executor:: and timer::: the tests pass, then Miri fails the
+  #     run because worker threads outlive the main thread.
+  #   moirai-iter parallel::sorting: nested_sorts_complete_from_scheduler_
+  #     workers reports undefined behavior at the merge `ptr::copy`
+  #     (sorting.rs:335, a shared-derived pointer invalidated by the mutable
+  #     reborrow in the same call).
+  #   moirai-iter cache::tests::zero_copy_for_each_accepts_wide_elements and
+  #     parallel::sorting deep_*: did not finish in ten minutes.
+  # The backlog item ISSUE-005 carries the triage of the failures above.
+  miri:
+    name: Miri (${{ matrix.borrow_model }}, ${{ matrix.suite }})
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    # The slowest cell is the executor suite under tree-borrows: 669 s of
+    # interpretation locally, while a second Miri run shared the host. The cold
+    # Miri sysroot and dependency build add minutes and the hosted runner is
+    # slower than the measuring host, so 45 minutes is about four times the
+    # measured run.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        borrow_model: [stacked-borrows, tree-borrows]
+        suite: [executor, foundation]
+    env:
+      # Highest toolchain-selection precedence, for the reason the fuzz job
+      # gives: rust-toolchain.toml would otherwise select stable, which has no
+      # Miri. Same pinned nightly as the fuzz job.
+      RUSTUP_TOOLCHAIN: nightly-2026-08-01
+      # A fixed seed keeps the interpreter's scheduling reproducible; host
+      # isolation is off because the tests wait on real time and host services.
+      MIRIFLAGS: -Zmiri-seed=1 -Zmiri-disable-isolation ${{ matrix.borrow_model == 'tree-borrows' && '-Zmiri-tree-borrows' || '' }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned nightly Rust with Miri
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: nightly-2026-08-01
+          components: miri, rust-src
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          cache-on-failure: false
+          cache-directories: ~/.cache/miri
+
+      - name: Assert the Miri toolchain
+        run: |
+          rustc --version
+          cargo miri --version
+
+      # Each group records its wall seconds as stacked-borrows / tree-borrows
+      # and names its slowest tests.
+      - name: Interpret the executor lease, scope, and queue tests
+        if: matrix.suite == 'executor'
+        # 527 s / 660 s in all (90 tests); slowest, stacked-borrows: scope
+        # recursive_fork_join 186, hybrid retention 82 and 58.
+        # registry::tests:: includes the cancel_before_start regression, and
+        # schedule::queue includes the queue shrink tests.
+        run: >-
+          cargo miri test --locked -p moirai-executor --lib --
+          hybrid:: schedule::job schedule::queue
+          schedule::runtime::tests::scope registry::tests:: registry::state
+          -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the scheduler deque tests
+        if: matrix.suite == 'foundation'
+        # 20 s / 26 s in all (32 tests, including deque::shrink_tests);
+        # slowest: chase_lev_stealer_capacity_is_monotone 13 / 16.
+        run: >-
+          cargo miri test --locked -p moirai-scheduler --lib --
+          -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the utility queue and result-cell tests
+        if: matrix.suite == 'foundation'
+        # 19 s / 29 s including the cargo invocation (45 tests); slowest:
+        # lock_free_queue_concurrent_mpmc, about 14 s.
+        run: >-
+          cargo miri test --locked -p moirai-utils --lib --
+          -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the synchronization primitive tests
+        if: matrix.suite == 'foundation'
+        # 94 s / 120 s in all (19 tests); slowest:
+        # futex_mutex_blocking_path_no_lost_wakeup 64 / 82 (about the budget).
+        run: >-
+          cargo miri test --locked -p moirai-sync --lib --
+          --skip test_sharded_resource_pool_concurrent_recycle_respects_total_cap
+          -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the core channel, pool, and ring tests
+        if: matrix.suite == 'foundation'
+        # 66 s / 82 s in all (80 tests); slowest: hybrid
+        # recv_delivers_last_message_under_park_unpark_churn 22 / 27.
+        run: >-
+          cargo miri test --locked -p moirai-core --lib --
+          --skip mpmc --skip ipc::
+          -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the iterator slot and output tests
+        if: matrix.suite == 'foundation'
+        # 11 s / 15 s in all (33 tests); slowest:
+        # ordered_outputs_cross_geometric_blocks_and_ragged_tail 1.8 / 2.9.
+        run: >-
+          cargo miri test --locked -p moirai-iter --lib --
+          stream::slots parallel::output parallel::adapters
+          -Zunstable-options --report-time --test-threads=1
+
+      - name: Interpret the async synchronization tests
+        if: matrix.suite == 'foundation'
+        # 50 s / 115 s in all (45 tests); slowest: test_semaphore_async
+        # 9.5 / 22.
+        run: >-
+          cargo miri test --locked -p moirai-async --lib --
+          sync::
+          -Zunstable-options --report-time --test-threads=1
+
   # The one job the branch protection requires. A job that fails in this
   # workflow, or is cancelled, fails this one; a job skipped by its own
   # condition passes, so a draft pull request is failed here on purpose and
@@ -375,7 +516,7 @@ jobs:
   verdict:
     name: Verification result
     if: ${{ always() }}
-    needs: [adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz]
+    needs: [adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
