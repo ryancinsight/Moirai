@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use super::super::driver_failure::DriverFailureState;
 use super::super::metrics::ReactorMetrics;
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 use super::super::waiter_cancellation::WaiterCancellationState;
 #[cfg(all(test, windows))]
 use super::types::FdKey;
@@ -28,11 +28,12 @@ impl IoReactor {
         let driver_failure = DriverFailureState::default();
         #[cfg(windows)]
         let platform_generations = Arc::new(Mutex::new(HashMap::new()));
-        #[cfg(windows)]
+        #[cfg(any(unix, windows))]
         let waiter_cancellations = WaiterCancellationState::new(
             Arc::clone(&platform_reactor),
             Arc::clone(&running),
             Arc::clone(&registered_fds),
+            #[cfg(windows)]
             Arc::clone(&platform_generations),
             driver_failure.clone(),
         );
@@ -44,7 +45,7 @@ impl IoReactor {
             driver_failure,
             #[cfg(windows)]
             platform_generations,
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             waiter_cancellations,
             metrics: Arc::new(ReactorMetrics::default()),
         })

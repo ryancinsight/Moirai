@@ -59,6 +59,11 @@ impl KqueueReactor {
         lock_mutex(&self.registrations).is_current(event.event().fd, event.generation())
     }
 
+    #[cfg(test)]
+    pub(crate) fn has_registration(&self, fd: RawFd) -> bool {
+        lock_mutex(&self.registrations).get(fd).is_some()
+    }
+
     pub(crate) fn update_registration(
         &self,
         fd: RawFd,

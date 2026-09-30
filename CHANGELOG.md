@@ -701,6 +701,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recover poisoned GPU buffer-pool mutexes instead of propagating a prior
   worker panic into every later pool operation.
 
+- **Dropping a Unix socket or its future retires the reactor registration.**
+  On epoll and kqueue a dropped read, write, accept, connect or datagram
+  future, or a dropped `AsyncTcpStream`, left its descriptor registered with
+  the task waker, so a later socket reusing the descriptor number inherited
+  the stale interest and a readiness event dispatched after `close` failed
+  the whole reactor with `EBADF`. Each pending operation now holds the
+  per-interest cancellation Windows already used, and a removal that finds
+  the descriptor closed retires the registration instead of failing.
+
+- **`IoReactor::get_active` no longer hands out a `'static` reference to a
+  scoped reactor.** It returned `&'static IoReactor` built from the pointer
+  `with_active` installs, so safe code could return the reference out of the
+  closure, drop the reactor, and call through the dangling reference. It is
+  replaced by `IoReactor::with_current`, which passes the reactor to a
+  higher-ranked closure so the reference cannot escape; the process-global
+  reactor path is unchanged.
+
 - Validate GPU buffer write and mapping ranges with checked arithmetic, so
   invalid offsets, bounds, and overflowing spans return typed validation
   errors before reaching wgpu.

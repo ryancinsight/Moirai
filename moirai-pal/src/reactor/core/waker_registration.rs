@@ -9,17 +9,23 @@ use std::time::Instant;
 use super::super::registration::PlatformUpdateFailure;
 #[cfg(windows)]
 use super::super::socket_owner::SocketLease;
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 use super::super::waiter_cancellation::WaiterCancellation;
 use super::types::{FdInfo, FdKey, IoReactor};
 #[cfg(not(windows))]
 use crate::Reactor;
 use crate::{Interest, RawFd};
 
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 type WakerRegistration = Option<WaiterCancellation>;
-#[cfg(not(windows))]
+#[cfg(not(any(unix, windows)))]
 type WakerRegistration = ();
+
+/// Identity of the socket a waiter is bound to; `None` registers a raw waker.
+#[cfg(windows)]
+type WaiterOwner = Option<super::super::socket_owner::WeakSocketOwner>;
+#[cfg(not(windows))]
+type WaiterOwner = Option<()>;
 
 impl IoReactor {
     /// Register a task's waker for a file descriptor and interest.
@@ -29,15 +35,8 @@ impl IoReactor {
     /// Returns a platform registration error or the retained terminal driver
     /// failure after a driven event loop has stopped on an error.
     pub fn register_waker(&self, fd: RawFd, interest: Interest, waker: Waker) -> io::Result<()> {
-        #[cfg(windows)]
-        {
-            self.register_waker_with_owner(fd, interest, waker, None)
-                .map(drop)
-        }
-        #[cfg(not(windows))]
-        {
-            self.register_waker_with_owner(fd, interest, waker)
-        }
+        self.register_waker_with_owner(fd, interest, waker, None)
+            .map(drop)
     }
 
     #[cfg(windows)]
@@ -52,14 +51,29 @@ impl IoReactor {
             .ok_or_else(|| io::Error::other("owned waiter cancellation was not published"))
     }
 
+    /// Register a waker whose cancellation retires the registration.
+    ///
+    /// Dropping the returned token removes the waker and narrows or removes the
+    /// platform interest, so the caller must drop it before closing `fd`.
+    #[cfg(unix)]
+    pub(crate) fn register_owned_waker(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+        waker: Waker,
+    ) -> io::Result<WaiterCancellation> {
+        self.register_waker_with_owner(fd, interest, waker, Some(()))?
+            .ok_or_else(|| io::Error::other("owned waiter cancellation was not published"))
+    }
+
     fn register_waker_with_owner(
         &self,
         fd: RawFd,
         interest: Interest,
         waker: Waker,
-        #[cfg(windows)] owner: Option<super::super::socket_owner::WeakSocketOwner>,
+        owner: WaiterOwner,
     ) -> io::Result<WakerRegistration> {
-        #[cfg(windows)]
+        #[cfg(any(unix, windows))]
         let cancellation = owner
             .as_ref()
             .map(|_| self.waiter_cancellations.reserve(fd, interest))
@@ -158,7 +172,7 @@ impl IoReactor {
             if interest.writable {
                 fd_info.write_waker = Some(waker);
             }
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             let registration = if let Some(cancellation) = cancellation {
                 if !replaced_existing {
                     self.waiter_cancellations
@@ -186,11 +200,11 @@ impl IoReactor {
                     waker.wake();
                 }
             }
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             {
                 Ok(registration)
             }
-            #[cfg(not(windows))]
+            #[cfg(not(any(unix, windows)))]
             Ok(())
         } else {
             // Publish the waker in the same state-lock transaction as the
@@ -232,7 +246,7 @@ impl IoReactor {
             self.metrics
                 .peak_fd_count
                 .fetch_max(current_count, Ordering::Relaxed);
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             {
                 if let Some(cancellation) = cancellation {
                     self.waiter_cancellations.publish(&cancellation);
@@ -246,7 +260,7 @@ impl IoReactor {
                     Ok(None)
                 }
             }
-            #[cfg(not(windows))]
+            #[cfg(not(any(unix, windows)))]
             Ok(())
         }
     }
@@ -264,7 +278,7 @@ impl IoReactor {
             if interest.writable {
                 write_waker = fd_info.write_waker.take();
             }
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             self.waiter_cancellations.clear_interest(
                 FdKey::from(fd),
                 interest.readable,

@@ -163,14 +163,14 @@ impl IoReactor {
             .get_mut(&key)
             .expect("fd registration remained locked during readiness update");
         let read_waker = if consume_read {
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             self.waiter_cancellations.clear_interest(key, true, false);
             fd_info.read_waker.take()
         } else {
             None
         };
         let write_waker = if consume_write {
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             self.waiter_cancellations.clear_interest(key, false, true);
             fd_info.write_waker.take()
         } else {
@@ -194,7 +194,9 @@ impl IoReactor {
                 // depending on a transition that did not complete.
                 stranded_read_waker = fd_info.read_waker.take();
                 stranded_write_waker = fd_info.write_waker.take();
-                if let Some(armed_interest) = failure.armed_interest() {
+                if failure.descriptor_closed() {
+                    (true, None)
+                } else if let Some(armed_interest) = failure.armed_interest() {
                     fd_info.interest = armed_interest;
                     (false, Some(failure.into_error()))
                 } else {
@@ -209,7 +211,7 @@ impl IoReactor {
                 .unwrap_or_else(|poison| poison.into_inner())
                 .remove(&key);
             fds.remove(&key);
-            #[cfg(windows)]
+            #[cfg(any(unix, windows))]
             self.waiter_cancellations.clear_interest(key, true, true);
         }
         drop(fds);

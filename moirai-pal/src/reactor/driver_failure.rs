@@ -104,13 +104,12 @@ impl IoReactor {
         self.driver_failure
             .publish(error, &self.running, &self.registered_fds, || {
                 #[cfg(windows)]
-                {
-                    self.platform_generations
-                        .lock()
-                        .unwrap_or_else(|poison| poison.into_inner())
-                        .clear();
-                    self.waiter_cancellations.clear_all();
-                }
+                self.platform_generations
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .clear();
+                #[cfg(any(unix, windows))]
+                self.waiter_cancellations.clear_all();
             })
     }
 

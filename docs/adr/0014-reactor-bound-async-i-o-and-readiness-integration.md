@@ -48,6 +48,21 @@ not prove the cause of earlier timeouts.
 
 The driving item is
 MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17 (delivered by Moirai PR 390).
+
+Revision 2026-09-29: the per-interest waiter cancellation is the readiness
+contract on every native target, not a Windows mechanism. On epoll and kqueue
+the readiness syscalls hold no user memory, so a waiter needs no lease: its
+owner declares it before the socket, and dropping it removes the waker and the
+kernel interest while the descriptor is still open. Before this revision a
+dropped Unix future or socket left its registration and the task waker in the
+reactor tables, a later socket reusing the descriptor number inherited the stale
+interest, and an event dispatched after `close` turned `EBADF`/`ENOENT` into a
+terminal driver failure for the whole reactor. The backend now classifies
+`EBADF`/`ENOENT` from a removal or narrowing as a retired registration, not a
+driver failure. Rejected: a Unix lease type holding the descriptor open, which
+delays `close` past the cancelled operation for no memory-safety gain.
+Evidence: type-checked and clippy-clean for Linux and macOS targets; the Unix
+regression tests could not be executed on the Windows development host.
 Winsock's [closesocket remarks](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-closesocket#remarks)
 prohibit concurrent Winsock calls on the socket being closed.
 The [WSAPoll return contract](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsapoll#return-value)

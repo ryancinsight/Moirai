@@ -13,10 +13,10 @@ Status: Accepted
 2. **File Readiness and Blocking I/O Strategy**:
    - Since standard disk files do not support traditional poll-based readiness (e.g., via epoll/kqueue) on typical Unix platforms, Moirai implements a dual-path file readiness strategy:
      - **Cooperative Worker Offloading**: Standard disk file operations that would otherwise block are dispatched to the `BlockingTask` scheduler pool using `spawn_blocking` wrappers, ensuring that asynchronous worker threads remain free.
-     - **Platform Native AIO/IOCP**: On platforms supporting true non-blocking file systems (such as Windows IOCP or Linux io_uring when enabled), Moirai registers the file handle directly with the `IoReactor` to receive completion notifications.
+     - **Platform Native AIO/IOCP** (deferred, ADR 0014): completion-based file I/O through Windows IOCP or Linux io_uring is not built; every file operation runs on the blocking pool.
 3. **Cancellation Safety Contracts**:
    - All async I/O futures (e.g., `Read`, `Write`, `Flush`) must be fully cancellation-safe. If an I/O future is dropped before completion:
-     - The internal handle state must cleanly cancel the pending I/O operation (e.g., via `CancelIoEx` on Windows or cancellation queues in io_uring) to prevent dangling references to stack-allocated or heap-allocated user buffers.
+     - The pending operation must not leave kernel-visible references to user buffers: pool jobs own their buffers, socket syscalls run inside `poll`, and a dropped readiness waiter retires its reactor registration (ADR 0014). A future completion backend cancels with `CancelIoEx` or io_uring cancellation and frees a buffer only after the original completion is reaped.
      - Shared buffer ownership is structured using zero-copy primitives or Rust's ownership model so that no buffer is leaked or left in an undefined state upon early drop.
 4. **Backpressure and Resource Limits**:
    - Write streams must enforce backpressure by returning `Poll::Pending` when reactor write queues are saturated.

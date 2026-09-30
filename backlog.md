@@ -47,16 +47,6 @@ belong in [gap_audit.md](gap_audit.md).
 - re-open trigger: A maintained safe implementation is available or the dependent protocol is removed.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-ASYNC-IO-CANCELLATION-001"></a>
-## MOI-ASYNC-IO-CANCELLATION-001 — Prove native async I/O cancellation safety
-- status: todo
-- priority: correctness
-- outcome: Dropping pending native file or socket operations cannot reclaim a buffer still owned by the operating system.
-- acceptance: Windows cancellation waits for the aborted completion, Linux asynchronous cancellation waits for its completion entry, descriptor drop unregisters reactor state, and adversarial cancellation tests detect no leak, double free, or corrupted read.
-- scope: native I/O operation ownership, cancellation state, reactor unregistration, and memory-safety tests.
-- next step: Characterize current operation ownership on each supported native backend and write the cancellation state machine before adding kernel completion paths.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-WORKER-CORE-PREMISE-2026-09-01"></a>
 ## MOI-WORKER-CORE-PREMISE-2026-09-01 — Enforce worker placement
 - status: todo

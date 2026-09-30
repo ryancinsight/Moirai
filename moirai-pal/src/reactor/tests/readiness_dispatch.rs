@@ -154,3 +154,55 @@ fn stale_polled_generation_cannot_consume_replacement_registration() {
     );
     assert_eq!(&payload, b"stale");
 }
+
+#[test]
+#[cfg(unix)]
+fn readiness_dispatched_after_descriptor_close_retires_without_failing_the_reactor() {
+    let reactor = IoReactor::new().expect("reactor");
+    let receiver = UdpSocket::bind("127.0.0.1:0").expect("receiver bind");
+    receiver
+        .set_nonblocking(true)
+        .expect("receiver nonblocking");
+    let sender = UdpSocket::bind("127.0.0.1:0").expect("sender bind");
+    let fd = socket_to_raw(&receiver);
+    let count = Arc::new(WakeCount::default());
+
+    reactor
+        .register_waker(fd, Interest::READABLE, Waker::from(Arc::clone(&count)))
+        .expect("register readable interest");
+    sender
+        .send_to(b"closed", receiver.local_addr().expect("receiver address"))
+        .expect("send readiness payload");
+    let event = reactor
+        .platform_reactor
+        .poll_registered_events(Some(Duration::from_secs(1)))
+        .expect("poll readiness")
+        .into_iter()
+        .find(|event| FdKey::from(event.descriptor()) == FdKey::from(fd))
+        .expect("receiver is readable");
+
+    drop(receiver);
+    reactor
+        .handle_polled_event(event)
+        .expect("readiness for a closed descriptor must not fail the reactor");
+
+    assert_eq!(count.0.load(Ordering::Relaxed), 1);
+    assert!(
+        !reactor
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains_key(&FdKey::from(fd))
+    );
+    let replacement = UdpSocket::bind("127.0.0.1:0").expect("replacement bind");
+    replacement
+        .set_nonblocking(true)
+        .expect("replacement nonblocking");
+    reactor
+        .register_waker(
+            socket_to_raw(&replacement),
+            Interest::READABLE,
+            Waker::from(Arc::new(WakeCount::default())),
+        )
+        .expect("later registrations succeed on the same reactor");
+}

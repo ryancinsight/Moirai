@@ -1,4 +1,4 @@
-//! Reactor-bound cancellation for Windows socket readiness waiters.
+//! Reactor-bound cancellation for socket readiness waiters.
 
 use std::collections::HashMap;
 use std::io;
@@ -10,6 +10,7 @@ use std::task::Waker;
 
 use super::core::{FdInfo, FdKey};
 use super::driver_failure::DriverFailureState;
+#[cfg(windows)]
 use super::registration::RegistrationGeneration;
 use crate::{Interest, PlatformReactor, RawFd, Reactor};
 
@@ -23,6 +24,7 @@ pub(super) struct WaiterCancellationState {
     platform: Arc<PlatformReactor>,
     running: Arc<AtomicBool>,
     fds: Arc<Mutex<HashMap<FdKey, FdInfo>>>,
+    #[cfg(windows)]
     generations: Arc<Mutex<HashMap<FdKey, RegistrationGeneration>>>,
     driver_failure: DriverFailureState,
     ids: Mutex<HashMap<FdKey, WaiterIds>>,
@@ -34,13 +36,14 @@ impl WaiterCancellationState {
         platform: Arc<PlatformReactor>,
         running: Arc<AtomicBool>,
         fds: Arc<Mutex<HashMap<FdKey, FdInfo>>>,
-        generations: Arc<Mutex<HashMap<FdKey, RegistrationGeneration>>>,
+        #[cfg(windows)] generations: Arc<Mutex<HashMap<FdKey, RegistrationGeneration>>>,
         driver_failure: DriverFailureState,
     ) -> Arc<Self> {
         Arc::new(Self {
             platform,
             running,
             fds,
+            #[cfg(windows)]
             generations,
             driver_failure,
             ids: Mutex::new(HashMap::new()),
@@ -103,7 +106,7 @@ impl WaiterCancellationState {
             .clear();
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(super) fn has_interest(&self, key: FdKey, interest: Interest) -> bool {
         let ids = self.ids.lock().unwrap_or_else(|poison| poison.into_inner());
         ids.get(&key).is_some_and(|entry| {
@@ -161,11 +164,15 @@ impl WaiterCancellationState {
                     fd_info.interest = remaining;
                 } else {
                     fds.remove(&cancellation.key);
+                    #[cfg(windows)]
                     self.generations
                         .lock()
                         .unwrap_or_else(|poison| poison.into_inner())
                         .remove(&cancellation.key);
                 }
+            }
+            Err(failure) if failure.descriptor_closed() => {
+                fds.remove(&cancellation.key);
             }
             Err(failure) => {
                 platform_error = Some(failure.into_error());
@@ -185,6 +192,7 @@ impl WaiterCancellationState {
         let _ = self
             .driver_failure
             .publish(error, &self.running, &self.fds, || {
+                #[cfg(windows)]
                 self.generations
                     .lock()
                     .unwrap_or_else(|poison| poison.into_inner())

@@ -16,9 +16,13 @@
 //! other method can be running against those descriptors when they are closed.
 //!
 //! Registered descriptors are *not* owned: they belong to the sockets and pipes
-//! the caller registers. A closed descriptor is removed from the interest list
-//! by the kernel, and passing a stale one to `epoll_ctl` yields `EBADF` — an
-//! error, never memory unsafety.
+//! the caller registers. Closing the last descriptor of an open file description
+//! removes its entry from the interest list, but a description shared through
+//! `dup` keeps the entry until every descriptor closes, so a registration is
+//! retired with `update_registration` while its descriptor is still open.
+//! Passing a closed one to `epoll_ctl` yields `EBADF` or `ENOENT` — an error,
+//! never memory unsafety — which the reactor treats as an already-retired
+//! registration.
 //!
 //! # Syscall buffers
 //!
@@ -198,6 +202,11 @@ impl EpollReactor {
 
     pub(crate) fn is_current_polled_event(&self, event: &PolledEvent) -> bool {
         lock_mutex(&self.registrations).is_current(event.event().fd, event.generation())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_registration(&self, fd: RawFd) -> bool {
+        lock_mutex(&self.registrations).get(fd).is_some()
     }
 
     pub(crate) fn update_registration(
