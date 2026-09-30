@@ -1,7 +1,7 @@
 #[test]
 fn current_performance_artifacts_do_not_report_non_executable_estimates() {
     for relative in [
-        "../PERFORMANCE_RESULTS.md",
+        "../docs/performance_results.md",
         "../CHANGELOG.md",
         "benches/industry_comparison.rs",
         "benches/thread_schedule_comparison.rs",
