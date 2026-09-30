@@ -7,7 +7,7 @@ use std::{
     ptr::NonNull,
     sync::{
         Arc, RwLock,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -75,7 +75,6 @@ pub struct TaskRegistry {
     pub(super) blocks: RwLock<BlockDirectory>,
     pub(super) next_id: AtomicU64,
     pub(super) retention: Option<RetentionPolicy>,
-    pub(super) sweep_cursor: AtomicUsize,
 }
 
 impl TaskRegistry {
@@ -87,7 +86,6 @@ impl TaskRegistry {
             blocks: RwLock::new(BlockDirectory::new()),
             next_id: AtomicU64::new(1),
             retention: None,
-            sweep_cursor: AtomicUsize::new(0),
         }
     }
 
