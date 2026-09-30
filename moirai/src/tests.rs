@@ -320,3 +320,25 @@ fn distributed_feature_does_not_add_facade_remote_closure_execution() {
     assert_eq!(result, Ok("computed locally".to_string()));
     moirai.shutdown();
 }
+
+/// Pinning is verified against the operating system in `moirai-executor`; here
+/// the facade builder must deliver the policy to construction and the pinned
+/// runtime must execute work. Only Windows and Linux have a binding backend.
+#[cfg(any(windows, target_os = "linux"))]
+#[test]
+fn test_pinned_builder_runs_a_task() {
+    let moirai = Moirai::builder()
+        .worker_threads(2)
+        .worker_placement(WorkerPlacement::Pinned)
+        .build()
+        .expect("a pinned runtime starts on a host that permits its planned processors");
+
+    let handle = moirai.spawn_fn(|| (0..100).sum::<i32>());
+
+    moirai.join().unwrap();
+    assert_eq!(
+        handle.join().expect("spawned task must retain a result"),
+        Ok(4950)
+    );
+    moirai.shutdown();
+}

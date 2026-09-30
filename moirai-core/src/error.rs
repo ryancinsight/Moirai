@@ -117,6 +117,40 @@ pub enum ExecutorError {
     NoSchedulerAvailable,
     /// Scheduler error
     SchedulerError(SchedulerError),
+    /// A worker could not be confined to its planned logical processor.
+    ///
+    /// Reported by construction under
+    /// [`WorkerPlacement::Pinned`](crate::executor::WorkerPlacement::Pinned).
+    /// When several workers fail, the lowest-numbered one is named. The
+    /// scheduler was not started: no worker outlives the failed construction.
+    WorkerPlacementFailed {
+        /// Index of the worker whose binding failed.
+        worker: usize,
+        /// Flattened logical processor id the worker was planned onto.
+        processor: u32,
+        /// Why the binding did not take effect.
+        cause: PlacementFailure,
+    },
+}
+
+/// Why a worker could not be confined to a logical processor.
+///
+/// Every variant leaves the thread with the affinity it had before the attempt.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PlacementFailure {
+    /// This target has no thread-binding backend.
+    Unsupported,
+    /// The processor id is beyond what the target affinity interface can name.
+    OutOfRange,
+    /// The operating system refused the request, for example because the
+    /// processor is offline or outside the allowed set of the process.
+    Os {
+        /// Raw operating-system error code: `GetLastError` on Windows,
+        /// `errno` on Linux.
+        code: i32,
+    },
 }
 
 impl fmt::Display for ExecutorError {
@@ -135,6 +169,27 @@ impl fmt::Display for ExecutorError {
             Self::PerformanceAnomaly(msg) => write!(f, "Performance anomaly: {msg}"),
             Self::NoSchedulerAvailable => write!(f, "No scheduler available"),
             Self::SchedulerError(err) => write!(f, "Scheduler error: {err}"),
+            Self::WorkerPlacementFailed {
+                worker, processor, ..
+            } => write!(
+                f,
+                "worker {worker} could not be pinned to logical processor {processor}"
+            ),
+        }
+    }
+}
+
+impl fmt::Display for PlacementFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unsupported => write!(f, "thread binding is unsupported on this target"),
+            Self::OutOfRange => {
+                write!(f, "the processor is outside the range this target can bind")
+            }
+            Self::Os { code } => write!(
+                f,
+                "the operating system refused the binding (error code {code})"
+            ),
         }
     }
 }
@@ -184,7 +239,17 @@ pub type SchedulerResult<T> = Result<T, SchedulerError>;
 impl std::error::Error for TaskError {}
 
 #[cfg(feature = "std")]
-impl std::error::Error for ExecutorError {}
+impl std::error::Error for ExecutorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::WorkerPlacementFailed { cause, .. } => Some(cause),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PlacementFailure {}
 
 #[cfg(feature = "std")]
 impl std::error::Error for SchedulerError {}
@@ -207,6 +272,34 @@ mod tests {
         assert_eq!(
             format!("{}", SchedulerError::QueueFull),
             "Task queue is full"
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn placement_failure_names_worker_processor_and_keeps_cause_as_source() {
+        let error = ExecutorError::WorkerPlacementFailed {
+            worker: 3,
+            processor: 17,
+            cause: PlacementFailure::Os { code: 87 },
+        };
+        assert_eq!(
+            format!("{error}"),
+            "worker 3 could not be pinned to logical processor 17"
+        );
+        let source = std::error::Error::source(&error).expect("invariant: cause is the source");
+        assert_eq!(
+            format!("{source}"),
+            "the operating system refused the binding (error code 87)"
+        );
+        assert!(std::error::Error::source(&ExecutorError::ShuttingDown).is_none());
+        assert_eq!(
+            format!("{}", PlacementFailure::Unsupported),
+            "thread binding is unsupported on this target"
+        );
+        assert_eq!(
+            format!("{}", PlacementFailure::OutOfRange),
+            "the processor is outside the range this target can bind"
         );
     }
 }

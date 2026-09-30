@@ -1,5 +1,8 @@
 use crate::Moirai;
-use moirai_core::{error::ExecutorResult, executor::ExecutorConfig};
+use moirai_core::{
+    error::ExecutorResult,
+    executor::{ExecutorConfig, WorkerPlacement},
+};
 use moirai_executor::HybridExecutor;
 use std::sync::Arc;
 
@@ -21,6 +24,16 @@ impl MoiraiBuilder {
     #[must_use]
     pub fn worker_threads(mut self, count: usize) -> Self {
         self.config.worker_threads = count;
+        self
+    }
+
+    /// Set whether each worker is confined to one logical processor.
+    ///
+    /// [`WorkerPlacement::Pinned`] makes [`Self::build`] fail closed when the
+    /// operating system refuses a binding.
+    #[must_use]
+    pub fn worker_placement(mut self, placement: WorkerPlacement) -> Self {
+        self.config.worker_placement = placement;
         self
     }
 

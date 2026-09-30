@@ -1,6 +1,9 @@
 //! Executor builder implementation.
 
-use super::config::{CleanupConfig, ExecutorConfig, MemoryConfig, PreemptionConfig};
+use super::{
+    config::{CleanupConfig, ExecutorConfig, MemoryConfig, PreemptionConfig},
+    placement::WorkerPlacement,
+};
 use crate::platform::String;
 
 /// Builder for creating executors with custom configuration.
@@ -30,6 +33,19 @@ impl ExecutorBuilder {
     #[must_use]
     pub fn worker_threads(mut self, count: usize) -> Self {
         self.config.worker_threads = count;
+        self
+    }
+
+    /// Sets whether each worker is confined to one logical processor.
+    ///
+    /// # Arguments
+    /// * `placement` - The worker placement policy
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
+    pub fn worker_placement(mut self, placement: WorkerPlacement) -> Self {
+        self.config.worker_placement = placement;
         self
     }
 
@@ -141,12 +157,27 @@ impl Default for ExecutorBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::ExecutorBuilder;
+    use super::{ExecutorBuilder, WorkerPlacement};
 
     #[test]
     fn local_queue_initial_capacity_updates_the_configuration() {
         let builder = ExecutorBuilder::new().local_queue_initial_capacity(17);
 
         assert_eq!(builder.config.local_queue_initial_capacity, 17);
+    }
+
+    #[test]
+    fn worker_placement_defaults_to_unbound_and_is_settable() {
+        assert_eq!(
+            ExecutorBuilder::new().config.worker_placement,
+            WorkerPlacement::Unbound
+        );
+        assert_eq!(
+            ExecutorBuilder::new()
+                .worker_placement(WorkerPlacement::Pinned)
+                .config
+                .worker_placement,
+            WorkerPlacement::Pinned
+        );
     }
 }

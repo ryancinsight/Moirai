@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Worker pinning** (`WorkerPlacement::{Unbound, Pinned}`,
+  `ExecutorConfig::worker_placement`, and `worker_placement(..)` on
+  `MoiraiBuilder`, `ExecutorBuilder`, and `moirai_executor::ExecutorBuilder`).
+  Under `Pinned`, worker `i` binds its own thread to the `i % n`-th logical
+  processor of the detected topology (`themis::bind_current_thread`) before it
+  takes work, and the per-worker NUMA table the steal tier reads is populated
+  from that enforced assignment. Construction fails closed: a refused binding
+  returns `ExecutorError::WorkerPlacementFailed` for the lowest-numbered
+  failing worker after every started worker is joined, and an undetectable
+  topology is `InvalidConfiguration`. The default, `Unbound`, claims nothing
+  (ADR 0037).
+
 - **Browser history** (`moirai_pal::wasm::WebHistory`, `HistoryListener`).
   A client-side router reads the current path, pushes or replaces history
   entries and hears back/forward navigation. Only printable same-origin
@@ -146,6 +158,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registration. On this mechanism the apollo FFT stack will release its
   ~7.2 MB high-water worker scratch at quiescence
   (`ATLAS-APOLLO-WORKER-RETENTION-2026-09-03`).
+
+### Breaking
+
+- `ExecutorConfig` gains the public field `worker_placement`, so struct
+  literals without `..ExecutorConfig::default()` no longer compile, and
+  `ExecutorError` gains the variant `WorkerPlacementFailed { worker, processor,
+  cause: PlacementFailure }`, so exhaustive matches need an arm. Migration: add
+  the field (`WorkerPlacement::Unbound` keeps current behaviour) and handle or
+  forward the variant.
 
 ### Changed
 

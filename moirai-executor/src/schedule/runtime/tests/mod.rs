@@ -95,6 +95,7 @@ mod admission;
 mod capacity;
 mod indexed;
 mod lifecycle;
+mod pinning;
 mod placement;
 mod scope;
 mod shutdown;

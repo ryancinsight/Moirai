@@ -45,8 +45,8 @@ pub mod communication;
 pub mod ipc;
 
 // Core type definitions
-pub use error::{ExecutorError, SchedulerError, TaskError};
-pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus};
+pub use error::{ExecutorError, PlacementFailure, SchedulerError, TaskError};
+pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus, WorkerPlacement};
 pub use scheduler::SchedulerId;
 pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId};
 

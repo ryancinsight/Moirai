@@ -12,6 +12,7 @@ use super::super::job::ScheduledJob;
 use super::super::queue::WorkerQueueOwner;
 
 use super::idle_hooks::run_idle_hooks;
+use super::scheduler::placement::WorkerPin;
 use super::types::{ContendedWakePolicy, SchedulerInner, WorkerState, set_current_worker_id};
 pub(super) use indexed::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
@@ -43,9 +44,21 @@ pub(super) fn worker_loop<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT
     inner: std::sync::Arc<SchedulerInner<BLOCKING_QUEUE_CAPACITY>>,
     worker_id: usize,
     mut owner: WorkerQueueOwner,
+    pin: Option<WorkerPin>,
 ) {
     set_current_worker_id(Some(worker_id));
     let _ = inner.workers[worker_id].thread.set(thread::current());
+
+    // A pinned worker publishes its binding outcome before doing any work and
+    // never runs unbound: construction is waiting on this cell.
+    if let Some(pin) = pin {
+        let outcome = pin.bind();
+        let refused = outcome.is_err();
+        let _ = inner.workers[worker_id].placement.set(outcome);
+        if refused {
+            return;
+        }
+    }
 
     loop {
         if let Some(job) = next_job(&inner, worker_id, &mut owner) {
