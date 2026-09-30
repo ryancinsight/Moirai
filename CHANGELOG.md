@@ -673,6 +673,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teardown, including re-entrant executor destruction, while standalone
   lifecycle tokens retain their dense block. Slot reclamation and task-ID reuse
   wait for token retirement without adding production per-task ownership traffic.
+- **Indexed fan-out no longer reports `ShuttingDown` after chunks have run.** A
+  shutdown landing between two chunk admissions returned `ShuttingDown` while
+  earlier chunks were already executing, and `moirai-iter` answered by re-running
+  every chunk on the caller. A mapper panic during that second pass dropped the
+  outputs of an already-published chunk twice. The refused chunk now runs on the
+  submitting lane, as a full queue already did, so `ShuttingDown` means no item
+  was visited.
+
 - Complete saturated async wakes inline after the first rejected scheduler
   admission instead of issuing 64 spin/yield retries. Repeated self-wakes use a
   bounded non-recursive requeue and surface persistent saturation as

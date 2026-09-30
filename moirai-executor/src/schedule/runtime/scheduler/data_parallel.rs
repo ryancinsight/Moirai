@@ -40,6 +40,22 @@ use super::super::worker::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
 };
 
+/// Whether a refused chunk admission is recovered by running the chunk on the
+/// submitting lane.
+///
+/// A full queue is always recoverable. A shutdown refusal is recoverable only
+/// after an earlier chunk was admitted: that chunk may already have run, so
+/// reporting `ShuttingDown` would tell the caller nothing ran and invite a full
+/// re-run that applies the item closure twice. Refusal of the first chunk
+/// leaves nothing admitted, and `ShuttingDown` is then accurate.
+fn refusal_runs_inline(error: &ExecutorError, chunk_index: usize) -> bool {
+    match error {
+        ExecutorError::ResourceExhausted(_) => true,
+        ExecutorError::ShuttingDown => chunk_index > 1,
+        _ => false,
+    }
+}
+
 fn execute_catching_panic<T>(operation: impl FnOnce() -> T) -> ExecutorResult<T> {
     catch_unwind(AssertUnwindSafe(operation))
         .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked))
@@ -125,25 +141,22 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 chunk_task,
                 complete,
             ) {
-                match error {
-                    // Admission queue was full. The scheduler dropped the job,
-                    // which fired the completion token (scope counter correct).
-                    // Run the work inline so every item is visited exactly once.
-                    ExecutorError::ResourceExhausted(_) => {
-                        self.record_admission_caller_run();
-                        inline_result = execute_catching_panic(|| {
-                            for index in start..end {
-                                task(index);
-                            }
-                        });
-                        if inline_result.is_err() {
-                            break;
+                if refusal_runs_inline(&error, chunk_index) {
+                    // The scheduler dropped the refused job, which fired the
+                    // completion token (scope counter correct). Run the work
+                    // inline so every item is visited exactly once.
+                    self.record_admission_caller_run();
+                    inline_result = execute_catching_panic(|| {
+                        for index in start..end {
+                            task(index);
                         }
-                    }
-                    other => {
-                        schedule_result = Err(other);
+                    });
+                    if inline_result.is_err() {
                         break;
                     }
+                } else {
+                    schedule_result = Err(error);
+                    break;
                 }
             }
         }
@@ -253,26 +266,23 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 chunk_task,
                 complete,
             ) {
-                match error {
-                    // Admission queue was full. The scheduler dropped the job,
-                    // which fired the completion token (scope counter correct).
-                    // Run the reduction inline and write the result slot so the
-                    // final combine step sees every chunk's contribution.
-                    ExecutorError::ResourceExhausted(_) => {
-                        self.record_admission_caller_run();
-                        inline_result = execute_catching_panic(|| {
-                            let accumulator =
-                                map_reduce_range(start, end, identity.clone(), map, reduce);
-                            slots.write(chunk_index - 1, accumulator);
-                        });
-                        if inline_result.is_err() {
-                            break;
-                        }
-                    }
-                    other => {
-                        schedule_result = Err(other);
+                if refusal_runs_inline(&error, chunk_index) {
+                    // The scheduler dropped the refused job, which fired the
+                    // completion token (scope counter correct). Run the
+                    // reduction inline and write the result slot so the final
+                    // combine step sees every chunk's contribution.
+                    self.record_admission_caller_run();
+                    inline_result = execute_catching_panic(|| {
+                        let accumulator =
+                            map_reduce_range(start, end, identity.clone(), map, reduce);
+                        slots.write(chunk_index - 1, accumulator);
+                    });
+                    if inline_result.is_err() {
                         break;
                     }
+                } else {
+                    schedule_result = Err(error);
+                    break;
                 }
             }
         }
