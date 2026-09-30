@@ -311,16 +311,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: `git grep -n "development-history\|GAP_ANALYSIS"` for inbound links, then triage each file against the current tree.
 - basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
 
-<a id="MOI-SCOPE-DROPPED-JOB-FAILURE-2026-09-29"></a>
-## MOI-SCOPE-DROPPED-JOB-FAILURE-2026-09-29 — Make an unrun scoped job fail its scope
-- status: todo
-- priority: correctness
-- outcome: A scoped job dropped after admission without running cannot let `for_each_indexed` return `Ok` over uninitialized result slots.
-- acceptance: A test that admits a scoped job and drops it unrun observes a failed scope; `moirai-parallel` collect helpers (`ops.rs` collect paths, `melinoe_ext.rs`) are sound on every `Ok`. The rejected-at-admission drop (full queue, shutdown) keeps its inline recovery, so the failure mark distinguishes admitted from refused jobs.
-- scope: `moirai-executor/src/schedule/runtime/types.rs` (`ScopedTaskCompletion::drop`), `job/mod.rs`, `moirai-parallel/src/ops.rs`.
-- next step: Write the drop-unrun test; no path that drops an admitted job unexecuted was found at the basis, so this closes a latent hole.
-- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
-
 <a id="MOI-REL-061"></a>
 ## MOI-REL-061 — Publish reusable Rust crates
 - status: blocked

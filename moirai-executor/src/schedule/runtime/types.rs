@@ -18,6 +18,7 @@ use moirai_utils::cache::{CacheAligned, CachePad};
 
 use super::super::{class::WorkClass, job::ScheduledJob, queue::WorkerQueues};
 use super::blocking::BlockingLane;
+use super::scope_state::SchedulerScopeState;
 
 /// Point-in-time scheduler metrics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,109 +385,5 @@ impl WorkerState {
             lifo_slot: LifoSlot::new(),
             thread: OnceLock::new(),
         }
-    }
-}
-
-pub(super) struct SchedulerScopeState {
-    pub(super) pending_tasks: AtomicUsize,
-    pub(super) failed_tasks: AtomicBool,
-    pub(super) wait_lock: Mutex<()>,
-    pub(super) wait_signal: Condvar,
-}
-
-impl SchedulerScopeState {
-    pub(super) fn new() -> Self {
-        Self {
-            pending_tasks: AtomicUsize::new(0),
-            failed_tasks: AtomicBool::new(false),
-            wait_lock: Mutex::new(()),
-            wait_signal: Condvar::new(),
-        }
-    }
-
-    pub(super) fn register_task(&self) {
-        self.pending_tasks.fetch_add(1, Ordering::AcqRel);
-    }
-
-    pub(super) fn complete_task(&self) {
-        loop {
-            let pending = self.pending_tasks.load(Ordering::Acquire);
-            debug_assert!(pending > 0, "scoped completion count must not underflow");
-
-            if pending == 1 {
-                // Hold the wait lock before publishing zero. Every waiter
-                // acquires this lock after observing zero, so the stack-owned
-                // scope state cannot be destroyed until this completion token
-                // has finished its last access to the mutex and condition
-                // variable.
-                let _guard = super::worker::lock_mutex(&self.wait_lock);
-                if self
-                    .pending_tasks
-                    .compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    self.wait_signal.notify_all();
-                    return;
-                }
-                continue;
-            }
-
-            if self
-                .pending_tasks
-                .compare_exchange_weak(pending, pending - 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                return;
-            }
-        }
-    }
-
-    pub(super) fn wait(&self) {
-        // Spin-wait for a short duration before acquiring the lock and parking
-        for _ in 0..131_072 {
-            if self.pending_tasks.load(Ordering::Acquire) == 0 {
-                break;
-            }
-            core::hint::spin_loop();
-        }
-
-        // The final completion publishes zero while holding this lock. Taking
-        // it after the acquire load forms the lifetime handshake that proves
-        // the completion token no longer accesses this stack-owned state.
-        let mut guard = super::worker::lock_mutex(&self.wait_lock);
-        while self.pending_tasks.load(Ordering::Acquire) != 0 {
-            guard = self
-                .wait_signal
-                .wait(guard)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-        }
-    }
-
-    pub(super) fn mark_failed(&self) {
-        self.failed_tasks.store(true, Ordering::Release);
-    }
-}
-
-pub(super) struct ScopedTaskCompletion<'scope> {
-    state: &'scope SchedulerScopeState,
-}
-
-impl<'scope> ScopedTaskCompletion<'scope> {
-    pub(super) fn new(state: &'scope SchedulerScopeState) -> Self {
-        Self { state }
-    }
-
-    pub(super) fn mark_failed(&self) {
-        self.state().mark_failed();
-    }
-
-    pub(super) fn state(&self) -> &SchedulerScopeState {
-        self.state
-    }
-}
-
-impl Drop for ScopedTaskCompletion<'_> {
-    fn drop(&mut self) {
-        self.state().complete_task();
     }
 }

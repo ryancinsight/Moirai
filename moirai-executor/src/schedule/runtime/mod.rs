@@ -4,6 +4,7 @@ pub(super) mod blocking;
 pub(super) mod idle;
 pub mod idle_hooks;
 pub mod scheduler;
+pub(super) mod scope_state;
 pub mod types;
 pub mod worker;
 

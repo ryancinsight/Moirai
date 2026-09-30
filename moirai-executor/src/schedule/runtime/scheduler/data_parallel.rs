@@ -32,9 +32,9 @@ use moirai_core::{
 };
 
 use super::super::super::{class::WorkClass, job::ScheduledJob, reduce::ReduceSlots};
+use super::super::scope_state::{SchedulerScopeState, ScopedTaskCompletion};
 use super::super::types::{
-    IndexedRegionGuard, SchedulerScopeState, ScopedTaskCompletion, ThreadScheduler,
-    get_current_worker_id, is_in_indexed_region,
+    IndexedRegionGuard, ThreadScheduler, get_current_worker_id, is_in_indexed_region,
 };
 use super::super::worker::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
@@ -128,11 +128,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                     task(index);
                 }
             };
-            let complete = move |succeeded: bool| {
-                if !succeeded {
-                    completion.mark_failed();
-                }
-            };
+            let complete = move |succeeded: bool| completion.finish(succeeded);
 
             if let Err(error) = self.schedule_indexed_job::<C, _, _>(
                 &state,
@@ -141,6 +137,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 chunk_task,
                 complete,
             ) {
+                // Admission dropped the refused job unrun; the branches below
+                // answer that refusal, so it is not a lost job.
+                state.forgive_refused_job();
                 if refusal_runs_inline(&error, chunk_index) {
                     // The scheduler dropped the refused job, which fired the
                     // completion token (scope counter correct). Run the work
@@ -174,15 +173,13 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         self.drain_scope(&state);
 
-        if state.failed_tasks.load(Ordering::Acquire)
-            || inline_result.is_err()
-            || caller_result.is_err()
-        {
+        if state.has_panicked() || inline_result.is_err() || caller_result.is_err() {
             Err(ExecutorError::SpawnFailed(
                 moirai_core::error::TaskError::Panicked,
             ))
         } else {
-            schedule_result
+            schedule_result?;
+            state.unrun_job_result()
         }
     }
 
@@ -253,11 +250,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 let accumulator = map_reduce_range(start, end, identity_chunk, map, reduce);
                 slots_chunk.write(chunk_index - 1, accumulator);
             };
-            let complete = move |succeeded: bool| {
-                if !succeeded {
-                    completion.mark_failed();
-                }
-            };
+            let complete = move |succeeded: bool| completion.finish(succeeded);
 
             if let Err(error) = self.schedule_indexed_job::<C, _, _>(
                 &state,
@@ -266,6 +259,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 chunk_task,
                 complete,
             ) {
+                // Admission dropped the refused job unrun; the branches below
+                // answer that refusal, so it is not a lost job.
+                state.forgive_refused_job();
                 if refusal_runs_inline(&error, chunk_index) {
                     // The scheduler dropped the refused job, which fired the
                     // completion token (scope counter correct). Run the
@@ -296,12 +292,13 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         self.drain_scope(&state);
 
-        if state.failed_tasks.load(Ordering::Acquire) || inline_result.is_err() {
+        if state.has_panicked() || inline_result.is_err() {
             Err(ExecutorError::SpawnFailed(
                 moirai_core::error::TaskError::Panicked,
             ))
         } else {
             schedule_result?;
+            state.unrun_job_result()?;
             let caller_result = caller_result
                 .expect("invariant: caller reduction runs after successful scheduling")?;
             Ok(slots.reduce(caller_result, reduce))

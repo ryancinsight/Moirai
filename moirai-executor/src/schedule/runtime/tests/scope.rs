@@ -1,5 +1,6 @@
 //! Borrowing scopes: nesting, recursion, panics, and quiescence on exit.
 
+use super::super::scope_state::{SchedulerScopeState, ScopedTaskCompletion};
 use super::*;
 
 #[test]
@@ -334,4 +335,69 @@ fn scope_opened_from_another_schedulers_worker_completes() {
     assert_eq!(sum, 36);
     large.shutdown();
     small.shutdown();
+}
+
+/// A scoped job registered on `state`, holding its completion token.
+fn registered_job<'scope>(
+    state: &'scope SchedulerScopeState,
+    ran: &'scope AtomicUsize,
+) -> crate::schedule::job::ScheduledJob {
+    state.register_task();
+    let completion = ScopedTaskCompletion::new(state);
+    // SAFETY: every caller runs or drops the job before `state` and `ran` end.
+    unsafe {
+        crate::schedule::job::ScheduledJob::new_scoped_with_completion(
+            move |_| {
+                ran.fetch_add(1, Ordering::Relaxed);
+            },
+            move |succeeded| completion.finish(succeeded),
+        )
+    }
+}
+
+#[test]
+fn scoped_job_dropped_before_running_fails_its_scope() {
+    let state = SchedulerScopeState::new();
+    let ran = AtomicUsize::new(0);
+
+    drop(registered_job(&state, &ran));
+    state.wait();
+
+    assert_eq!(ran.load(Ordering::Relaxed), 0);
+    assert!(!state.has_panicked());
+    assert_eq!(
+        state.unrun_job_result(),
+        Err(ExecutorError::SpawnFailed(TaskError::Cancelled))
+    );
+}
+
+#[test]
+fn scoped_job_that_ran_leaves_its_scope_whole() {
+    let state = SchedulerScopeState::new();
+    let ran = AtomicUsize::new(0);
+
+    let _ = registered_job(&state, &ran).execute(0);
+    state.wait();
+
+    assert_eq!(ran.load(Ordering::Relaxed), 1);
+    assert!(!state.has_panicked());
+    assert_eq!(state.unrun_job_result(), Ok(()));
+}
+
+#[test]
+fn refused_scoped_job_is_forgiven_and_an_admitted_drop_is_not() {
+    let state = SchedulerScopeState::new();
+    let ran = AtomicUsize::new(0);
+
+    // Admission drops a refused job and its submitter answers the refusal.
+    drop(registered_job(&state, &ran));
+    state.forgive_refused_job();
+    // A second job is dropped after admission, and nothing answers for it.
+    drop(registered_job(&state, &ran));
+    state.wait();
+
+    assert_eq!(
+        state.unrun_job_result(),
+        Err(ExecutorError::SpawnFailed(TaskError::Cancelled))
+    );
 }
