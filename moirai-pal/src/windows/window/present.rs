@@ -14,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 
 use super::config::{allocation_error, validate_frame_dimensions};
 use super::native::NativeWindow;
-use super::state::{PresentedFrame, WindowState};
+use super::state::{PresentedFrame, SharedWindowState};
 
 /// A half-open pixel rectangle of a presented frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,11 +121,12 @@ impl NativeWindow {
                 "frame region lies outside the frame",
             ));
         }
-        let retained = self
-            .state
-            .frame
-            .as_ref()
-            .is_some_and(|frame| frame.width == width && frame.height == height);
+        let retained = self.state.with(|state| {
+            state
+                .frame
+                .as_ref()
+                .is_some_and(|frame| frame.width == width && frame.height == height)
+        });
         let whole = !retained || !self.client_matches(width, height);
         let region = if whole {
             FrameRegion::whole(width, height)
@@ -141,8 +142,7 @@ impl NativeWindow {
             // reach `StretchDIBits` in the next paint and read past the pixels.
             let mut pixels = self
                 .state
-                .frame
-                .take()
+                .with(|state| state.frame.take())
                 .map(|frame| frame.pixels)
                 .unwrap_or_default();
             pixels.clear();
@@ -150,28 +150,31 @@ impl NativeWindow {
                 .try_reserve_exact(count)
                 .map_err(|_| allocation_error())?;
             pixels.resize(count, 0);
-            self.state.frame = Some(PresentedFrame {
-                width,
-                height,
-                pixels,
+            self.state.with(|state| {
+                state.frame = Some(PresentedFrame {
+                    width,
+                    height,
+                    pixels,
+                });
             });
         }
-        let frame = self
-            .state
-            .frame
-            .as_mut()
-            .expect("invariant: a matching frame was retained or installed above");
         let stride = usize::try_from(width).map_err(|_| allocation_error())?;
         let fits = "invariant: a validated frame coordinate fits usize";
         let (left, right) = (
             usize::try_from(region.left).expect(fits),
             usize::try_from(region.right).expect(fits),
         );
-        for row in region.top..region.bottom {
-            let start = usize::try_from(row).expect(fits) * stride;
-            frame.pixels[start + left..start + right]
-                .copy_from_slice(&pixels[start + left..start + right]);
-        }
+        self.state.with(|state| {
+            let frame = state
+                .frame
+                .as_mut()
+                .expect("invariant: a matching frame was retained or installed above");
+            for row in region.top..region.bottom {
+                let start = usize::try_from(row).expect(fits) * stride;
+                frame.pixels[start + left..start + right]
+                    .copy_from_slice(&pixels[start + left..start + right]);
+            }
+        });
         let rect = region.rect()?;
         // SAFETY: `self.hwnd` is owned by this thread, and `rect` is borrowed
         // only for the synchronous call.
@@ -194,7 +197,11 @@ impl NativeWindow {
     }
 }
 
-pub(super) unsafe fn paint(hwnd: HWND, state: &WindowState) -> LRESULT {
+/// Paints the retained frame for a `WM_PAINT` message.
+///
+/// `BeginPaint` can deliver `WM_ERASEBKGND` to the window procedure, so no
+/// state is lent across it.
+pub(super) unsafe fn paint(hwnd: HWND, state: &SharedWindowState) -> LRESULT {
     unsafe {
         let mut paint = PAINTSTRUCT::default();
         // SAFETY: `paint` is writable storage and hwnd is the callback's live handle.
@@ -206,14 +213,30 @@ pub(super) unsafe fn paint(hwnd: HWND, state: &WindowState) -> LRESULT {
     }
 }
 
-pub(super) unsafe fn paint_frame(hwnd: HWND, state: &WindowState, hdc: HDC) {
-    unsafe {
-        if hdc.is_invalid() {
-            return;
+/// Stretches the retained frame onto `hdc`.
+///
+/// The frame is moved out of the state for the duration of the GDI call and
+/// restored afterwards, so a message delivered re-entrantly during the call
+/// finds the state unborrowed and no reference into it outlives a lend.
+pub(super) unsafe fn paint_frame(hwnd: HWND, state: &SharedWindowState, hdc: HDC) {
+    if hdc.is_invalid() {
+        return;
+    }
+    let Some(frame) = state.with(|state| state.frame.take()) else {
+        return;
+    };
+    // SAFETY: the caller supplies a live destination HDC and window for the
+    // synchronous call; `frame` is owned here and outlives it.
+    unsafe { stretch_frame(hwnd, hdc, &frame) };
+    state.with(|state| {
+        if state.frame.is_none() {
+            state.frame = Some(frame);
         }
-        let Some(frame) = state.frame.as_ref() else {
-            return;
-        };
+    });
+}
+
+unsafe fn stretch_frame(hwnd: HWND, hdc: HDC, frame: &PresentedFrame) {
+    unsafe {
         let mut client = RECT::default();
         // SAFETY: `client` is writable storage for this live hwnd.
         if GetClientRect(hwnd, &mut client).is_err() {

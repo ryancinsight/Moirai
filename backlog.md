@@ -16,16 +16,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Determine whether navigation, hidden-document state, or sibling-host profile sharing holds or drops `CapturePreview` completion.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-SLEEP-SYNCED-TESTS-2026-09-09"></a>
-## MOI-SLEEP-SYNCED-TESTS-2026-09-09 — Retire sleep-ordered tests
-- status: todo
-- priority: correctness
-- outcome: Concurrency tests synchronize on events, channels, barriers, or deterministic poll state rather than elapsed time.
-- acceptance: No test uses a duration to order threads; focused and workspace Nextest, strict Clippy, formatting, and lockfile checks pass without retries or larger budgets.
-- scope: channel, task, executor, iterator, PAL, synchronization, and integration tests; timer behavior tests and measurement instruments retain their domain timing.
-- next step: Rebase the recovered event-synchronized changes onto current main and rerun the focused suites.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24"></a>
 ## MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24 — Remove unnecessary notifier fences
 - status: todo
@@ -55,18 +45,6 @@ belong in [gap_audit.md](gap_audit.md).
 - acceptance: Provider-owned typed binding occurs during startup, assignments publish only after successful worker creation, typed absence is preserved, and a binding failure prevents the scheduler from escaping.
 - scope: Themis placement provider, Moirai worker startup, topology publication, tests, and ADR 0037; no fabricated fallback placement.
 - next step: Add the missing Themis current-thread processor-binding capability upstream, then consume it during Moirai worker startup.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
-<a id="MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01"></a>
-## MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 — Remove the topology mirror
-- status: blocked
-- priority: architecture
-- needs: `MOI-WORKER-CORE-PREMISE-2026-09-01`
-- outcome: Themis is the only authority for CPU, NUMA-node, cache-presence, and distance topology.
-- acceptance: Delete Moirai's public `CpuTopology`, `NumaNode`, and `CacheLevel` mirror; update all callers, source contracts, ADR 0037, migration guidance, and SemVer classification in the same breaking change.
-- scope: topology public surface and all in-repository consumers; no compatibility aliases or flattened absence semantics.
-- blocker: Worker placement must consume the provider contract before the duplicate topology surface can be removed.
-- re-open trigger: `MOI-WORKER-CORE-PREMISE-2026-09-01` merges.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-NATIVE-REACTOR-001"></a>

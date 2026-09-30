@@ -116,7 +116,7 @@ impl NativeWindow {
             destroy(previous);
         }
         self.menu_shape = bar.map(MenuBar::shape).unwrap_or_default();
-        self.state.menu_commands.clear();
+        self.state.with(|state| state.menu_commands.clear());
         // SAFETY: redraws the live window's non-client area.
         let _ = unsafe { DrawMenuBar(self.hwnd) };
         Ok(())
@@ -125,11 +125,13 @@ impl NativeWindow {
     /// Drains the chosen menu-bar items, oldest first.
     pub fn take_menu_commands(&mut self) -> Vec<MenuCommand> {
         let shape = &self.menu_shape;
-        self.state
-            .menu_commands
-            .drain(..)
-            .filter_map(|id| decode_command(id, shape))
-            .collect()
+        self.state.with(|state| {
+            state
+                .menu_commands
+                .drain(..)
+                .filter_map(|id| decode_command(id, shape))
+                .collect()
+        })
     }
 }
 

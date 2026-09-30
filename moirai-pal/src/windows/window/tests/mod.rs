@@ -7,6 +7,7 @@ mod native_window_input;
 mod native_window_lifecycle;
 mod popup_menu;
 mod present_region;
+mod state_ownership;
 mod tray_icon;
 mod value_decoding;
 mod wheel_and_modifiers;

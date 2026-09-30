@@ -51,13 +51,14 @@ fn settle(window: &NativeWindow) {
 }
 
 fn retained(window: &NativeWindow) -> Vec<u32> {
-    window
-        .state
-        .frame
-        .as_ref()
-        .expect("a retained frame")
-        .pixels
-        .clone()
+    window.state.with(|state| {
+        state
+            .frame
+            .as_ref()
+            .expect("a retained frame")
+            .pixels
+            .clone()
+    })
 }
 
 #[test]

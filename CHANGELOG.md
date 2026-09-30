@@ -557,6 +557,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Win32 window state is shared without aliasing.** The window procedure
+  wrote through a raw pointer derived from a temporary reborrow of the
+  `Box<WindowState>` that `NativeWindow` also wrote through, held a
+  `&mut WindowState` across `DefWindowProcW(WM_PRINT)` and `BeginPaint`, which
+  deliver `WM_PRINTCLIENT` and `WM_ERASEBKGND` to the same procedure
+  synchronously, and freed the state under a live window when `DestroyWindow`
+  failed. The state is now one reference-counted cell lent mutably only to
+  closures that make no native call, and the window owns its own count from
+  `WM_NCCREATE` to `WM_NCDESTROY`. Painting moves the retained frame out for the
+  GDI call and restores it afterwards.
+
 - **A WebView2 host renders the page it hosts.** `WebViewHost::new` left the
   controller at empty bounds and, under a hidden window, not visible, so
   WebView2 held `capture_preview_png`'s completion until the finite wait
