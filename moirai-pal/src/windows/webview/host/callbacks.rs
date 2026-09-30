@@ -34,7 +34,9 @@ impl WebViewHost {
             };
             let mut raw_uri = PWSTR::null();
             unsafe { args.Uri(&mut raw_uri)? };
-            let uri = read_task_mem_uri(raw_uri).map_err(|_| {
+            // SAFETY: the WebView2 getter above transferred ownership of a
+            // task-memory string (or left the pointer null) that nothing else frees.
+            let uri = unsafe { read_task_mem_uri(raw_uri) }.map_err(|_| {
                 callback_error("WebView2 navigation callback returned an invalid URI")
             })?;
             let allowed = policy.allows(&uri);
@@ -98,7 +100,9 @@ impl WebViewHost {
             };
             let mut raw_uri = PWSTR::null();
             unsafe { args.Uri(&mut raw_uri)? };
-            let uri = read_task_mem_uri(raw_uri).map_err(|_| {
+            // SAFETY: the WebView2 getter above transferred ownership of a
+            // task-memory string (or left the pointer null) that nothing else frees.
+            let uri = unsafe { read_task_mem_uri(raw_uri) }.map_err(|_| {
                 callback_error("WebView2 new-window callback returned an invalid URI")
             })?;
             unsafe { args.SetHandled(true)? };
@@ -121,7 +125,9 @@ impl WebViewHost {
             };
             let mut raw_uri = PWSTR::null();
             unsafe { args.Uri(&mut raw_uri)? };
-            let uri = read_task_mem_uri(raw_uri).map_err(|_| {
+            // SAFETY: the WebView2 getter above transferred ownership of a
+            // task-memory string (or left the pointer null) that nothing else frees.
+            let uri = unsafe { read_task_mem_uri(raw_uri) }.map_err(|_| {
                 callback_error("WebView2 permission callback returned an invalid URI")
             })?;
             let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
@@ -156,12 +162,16 @@ impl WebViewHost {
             };
             let mut raw_source = PWSTR::null();
             unsafe { args.Source(&mut raw_source)? };
-            let source = read_task_mem_uri(raw_source).map_err(|_| {
+            // SAFETY: the WebView2 getter above transferred ownership of a
+            // task-memory string (or left the pointer null) that nothing else frees.
+            let source = unsafe { read_task_mem_uri(raw_source) }.map_err(|_| {
                 callback_error("WebView2 message callback returned an invalid source URI")
             })?;
             let mut raw_message = PWSTR::null();
             unsafe { args.WebMessageAsJson(&mut raw_message)? };
-            let json = read_task_mem_message(raw_message)
+            // SAFETY: the WebView2 getter above transferred ownership of a
+            // task-memory string (or left the pointer null) that nothing else frees.
+            let json = unsafe { read_task_mem_message(raw_message) }
                 .map_err(|_| callback_error("WebView2 message exceeded the bounded JSON limit"))?;
             if !policy.allows(&source) {
                 return push_event(&state, WebViewEvent::MessageRejected { source });
