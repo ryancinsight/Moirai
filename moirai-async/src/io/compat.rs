@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 #[cfg(feature = "tokio-compat")]
-use crate::io::traits::{AsyncRead, AsyncWrite};
+use crate::io::traits::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[cfg(feature = "tokio-compat")]
 use tokio_dep as tokio;
@@ -126,6 +126,17 @@ impl<T: AsyncWrite + Unpin> tokio::io::AsyncWrite for TokioCompat<T> {
 }
 
 #[cfg(feature = "tokio-compat")]
+impl<T: AsyncBufRead + Unpin> tokio::io::AsyncBufRead for TokioCompat<T> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        Pin::new(&mut self.get_mut().inner).poll_fill_buf(cx)
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        Pin::new(&mut self.get_mut().inner).consume(amt);
+    }
+}
+
+#[cfg(feature = "tokio-compat")]
 impl<T: tokio::io::AsyncRead + Unpin> AsyncRead for MoiraiCompat<T> {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -157,5 +168,16 @@ impl<T: tokio::io::AsyncWrite + Unpin> AsyncWrite for MoiraiCompat<T> {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(feature = "tokio-compat")]
+impl<T: tokio::io::AsyncBufRead + Unpin> AsyncBufRead for MoiraiCompat<T> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        Pin::new(&mut self.get_mut().inner).poll_fill_buf(cx)
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        Pin::new(&mut self.get_mut().inner).consume(amt);
     }
 }
