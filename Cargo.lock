@@ -996,8 +996,8 @@ dependencies = [
 
 [[package]]
 name = "melinoe"
-version = "0.9.0"
-source = "git+https://github.com/ryancinsight/melinoe.git#f90e9031be3fe0acafe132d97f890c88c7223e00"
+version = "0.10.0"
+source = "git+https://github.com/ryancinsight/melinoe.git#e3d821993bce006ca1ddcb3e99721e5c3598b0b3"
 
 [[package]]
 name = "memchr"
@@ -1039,7 +1039,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-arena"
 version = "0.4.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 dependencies = [
  "libc",
  "loom",
@@ -1051,7 +1051,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-backend"
 version = "0.5.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 dependencies = [
  "mnemosyne-memory-core",
 ]
@@ -1059,12 +1059,12 @@ dependencies = [
 [[package]]
 name = "mnemosyne-build-util"
 version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 
 [[package]]
 name = "mnemosyne-decay"
 version = "0.3.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 dependencies = [
  "mnemosyne-arena",
  "mnemosyne-backend",
@@ -1074,7 +1074,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-local"
 version = "0.4.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 dependencies = [
  "melinoe",
  "mnemosyne-arena",
@@ -1089,7 +1089,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-memory"
 version = "0.7.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 dependencies = [
  "mnemosyne-arena",
  "mnemosyne-backend",
@@ -1102,7 +1102,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-memory-core"
 version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 dependencies = [
  "loom",
 ]
@@ -1110,7 +1110,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-prof"
 version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#5df82395f135e68fd29c8342256459c7588143e9"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#97ea680db0df6d7a38d55b172bdb2fa8fdb4745f"
 dependencies = [
  "backtrace",
  "mnemosyne-build-util",
@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "futures",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async-macros"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1190,7 +1190,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-crypto"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-executor"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "loom",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-gpu"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "mnemosyne-memory-core",
@@ -1238,7 +1238,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-http"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "http",
  "httparse",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-iter"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "futures",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-metrics"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "moirai-core",
@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-pal"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -1303,7 +1303,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-parallel"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "melinoe",
@@ -1316,7 +1316,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-python"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "moirai-runtime",
  "pyo3",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-runtime"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "fastrand",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-scheduler"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "loom",
@@ -1363,7 +1363,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-sync"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "libc",
@@ -1375,7 +1375,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tests"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fastrand",
  "futures",
@@ -1387,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tls"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "futures-io",
  "futures-rustls",
@@ -1400,7 +1400,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-transport"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-utils"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "proptest",
@@ -2275,9 +2275,10 @@ dependencies = [
 
 [[package]]
 name = "themis-topology"
-version = "0.10.1"
-source = "git+https://github.com/ryancinsight/themis#c62762b1cdd1c0483dd5937a5d4d164c8a9f80b8"
+version = "0.11.0"
+source = "git+https://github.com/ryancinsight/themis#e6a691e03c1da9c670f9b7d87fb559e13b8b7e5d"
 dependencies = [
+ "libc",
  "melinoe",
 ]
 
