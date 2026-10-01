@@ -44,8 +44,9 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Native file and socket operations reach task wakers through their operating system readiness or completion mechanism without a busy poll.
 - acceptance: Windows pins overlapped operations, binds handles once, and maps completions to wakers without thread contention or heap allocation in the poll loop; Linux/BSD register edge-triggered interests, wake exact tasks, and translate hangup/error flags to typed I/O errors.
 - scope: Windows completion backend, epoll/kqueue readiness, descriptor registration, and typed event translation.
-- next step: Reconcile ADR 0006 with the current Windows cooperative fallback and specify the first complete backend slice.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+- next step: Land slice 1 of ADR 0067 (Proposed): `windows/afd` port core (completion port, AFD handles bound once, fixed-address slot table, arm/cancel/poll-with-sink/wake, drain on drop) with loopback-socket tests. Then slice 2 swaps `WsaPollReactor` for it; slice 3 removes the 10 ms idle tick and the per-iteration `Vec` on every backend; slice 4 (native Windows file I/O) needs its own ADR.
+- blocker for the Linux/BSD clause: the acceptance says edge-triggered, ADR 0014 decision 3 records level-triggered plus one-shot dispatch as required by register-after-`WouldBlock`; respecify the clause (judgment tier) before Unix work.
+- basis: `3bf9b07808fd2326033f308eacbc2aa4325013fc`
 
 <a id="MOI-WASM-COOPERATIVE-EXECUTOR-001"></a>
 ## MOI-WASM-COOPERATIVE-EXECUTOR-001 — Bound browser executor turns
@@ -67,15 +68,15 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define the worker lifecycle and memory-isolation threat model before selecting the routing representation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-TOKIO-IO-COMPAT-001"></a>
-## MOI-TOKIO-IO-COMPAT-001 — Complete bidirectional async I/O trait mapping
+<a id="MOI-FUTURES-IO-COMPAT-001"></a>
+## MOI-FUTURES-IO-COMPAT-001 — Move the futures-io wrappers into the compatibility module
 - status: todo
 - priority: architecture
-- outcome: Moirai and Tokio I/O types interoperate through transparent typed wrappers without scheduling or allocation in the adapter.
-- acceptance: Both wrapper directions implement read/write traits, readiness transitions wake the correct context, layout is transparent, and native/compat behavior is value-equivalent.
-- scope: async I/O compatibility wrappers and readiness mapping; Tokio remains a comparison and interoperability dependency.
-- next step: Audit the current compatibility surface against ADR 0006 and file the smallest missing direction as the first complete slice.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+- outcome: One wrapper family in `moirai-async::io::compat` maps Moirai I/O onto every external trait family it supports, and `moirai-tls` consumes it.
+- acceptance: `ToFuturesIo` and `ToMoiraiIo` leave `moirai-tls`; the replacement wrappers are `#[repr(transparent)]`, forward the task context and vectored writes, and pass the duplex, wake, EOF, and large-transfer scenarios of `io/compat/tests.rs`.
+- scope: `moirai-tls/src/lib.rs` wrappers, `moirai-async/src/io/compat.rs`, their callers, and ADR 0006.
+- next step: Search the workspace for `ToFuturesIo` and `ToMoiraiIo` callers, then extend the compat module with the `futures::io` traits and migrate them.
+- basis: `3bf9b07808fd2326033f308eacbc2aa4325013fc`
 
 <a id="MOI-WASM-PROMISE-FUTURE-001"></a>
 ## MOI-WASM-PROMISE-FUTURE-001 — Own Promise-to-Future callback lifetimes
@@ -104,7 +105,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: The landed sharded registry either receives independent approval or a forward correction grounded in ADR 0005 and current measurements.
 - acceptance: Review the single-producer regression, multi-producer scaling, task-scheduling control, dense-block ownership, and cleanup interaction; record a verdict and any correction in ADR 0005.
 - scope: landed registry architecture and its measurement contracts; no history rewrite.
-- next step: Run a fresh independent review of the current implementation and repeat the decisive benchmark rows on a controlled host.
+- next step: The independent review is done and its registry defects are fixed (ADR 0005 carries the corrected bounds); repeat the decisive benchmark rows on deterministic counters or an isolated-core run, then record the verdict in ADR 0005.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-ASYNC-IO-COMPARISON-001"></a>
@@ -124,7 +125,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Every reachable unsafe operation has a current safety argument and the strongest executable check its platform permits.
 - acceptance: Inventory current unsafe sites, verify each `SAFETY` obligation against its safe caller boundary, run Miri where supported and sanitizer/targeted substitutes elsewhere, and file any unsound or uncovered unit as a correctness item.
 - scope: workspace unsafe blocks, public safe wrappers, FFI/platform boundaries, and their memory-safety tests; no stale 2024 count as a completion claim.
-- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations. The scheduled `Miri` job in `.github/workflows/rust-ci.yml` holds the interpreted set; triage the failures its comment lists as excluded (moirai-core mpmc deadlock, moirai-iter sorting merge undefined behavior, moirai-async worker-thread leak) and widen the set as sites are reviewed.
+- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations. The scheduled `Miri` job in `.github/workflows/rust-ci.yml` holds the interpreted set; triage what its comment lists as excluded (moirai-async worker threads that outlive their owner, tests over the per-test budget, `shm_open` and socket tests Miri cannot run) and widen the set as sites are reviewed; a survey of utils, sync, scheduler, async and core found no further undefined behavior.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-WASM-HEADLESS-TRACE-001"></a>
@@ -208,6 +209,16 @@ belong in [gap_audit.md](gap_audit.md).
 - scope: browser `fetch` and the general browser network facade; native sockets remain separate.
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+
+<a id="MOI-ASYNC-SEEK-001"></a>
+## MOI-ASYNC-SEEK-001 — Define an async seek trait for Moirai I/O
+- status: todo
+- priority: feature
+- outcome: Moirai files and in-memory cursors seek through a poll-based trait that maps onto `tokio::io::AsyncSeek`.
+- acceptance: `File::seek` is reachable through the trait, the compat wrappers forward `start_seek` and `poll_complete` with the caller's task context, and a seek in flight survives a re-poll under a new waker.
+- scope: `moirai-async::io::traits`, `moirai-async::fs::file`, `io/compat.rs`, and ADR 0006.
+- next step: Specify the trait against `File`'s pooled seek request and decide whether a seek in flight is cancellation-safe before writing it.
+- basis: `3bf9b07808fd2326033f308eacbc2aa4325013fc`
 
 <a id="MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30"></a>
 ## MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30 — One spin-then-yield schedule for bounded-wait sites

@@ -338,6 +338,14 @@ fn concurrent_senders_cannot_both_deliver() {
     // Two threads race to send distinct values through handles to one queue.
     // Exactly one wins the endpoint; every value it sends arrives exactly once
     // and in order, and the loser never enqueues.
+    //
+    // Both handles must be live when both threads attempt the claim. A claim is
+    // released when its holder drops, so a thread delayed past the other's
+    // entire send would claim a free endpoint instead of racing for a held one
+    // — the property would never be exercised, and the late claimant would spin
+    // on a full ring nobody drains. `attempted` holds each thread after its
+    // first `send`, which is the last point at which either handle can drop, so
+    // the winner is decided before either thread proceeds.
     const PER_SENDER: u32 = 500;
     let name = "/moirai_test_queue_racing_senders";
     let mut receiver = SharedQueue::<u32>::create(name, 8).expect("create must succeed");
@@ -345,23 +353,45 @@ fn concurrent_senders_cannot_both_deliver() {
         SharedQueue::<u32>::open(name, 8).expect("open must succeed"),
         SharedQueue::<u32>::open(name, 8).expect("open must succeed"),
     ];
-    let barrier = std::sync::Barrier::new(2);
+    let ready = std::sync::Barrier::new(2);
+    let attempted = std::sync::Barrier::new(2);
 
     let outcomes: Vec<bool> = std::thread::scope(|scope| {
         let workers: Vec<_> = senders
             .into_iter()
             .enumerate()
             .map(|(lane, mut queue)| {
-                let barrier = &barrier;
+                let ready = &ready;
+                let attempted = &attempted;
                 scope.spawn(move || {
-                    barrier.wait();
+                    ready.wait();
                     let base = u32::try_from(lane).expect("two lanes") * PER_SENDER;
-                    let mut sent = 0;
+                    // The claim race. Neither handle has sent yet and neither
+                    // can drop before the other has attempted, so exactly one
+                    // of these two calls returns `Ok`.
+                    let first = queue.send(base);
+                    attempted.wait();
+                    match first {
+                        Ok(()) => {}
+                        Err(SendError::EndpointInUse(_)) => return false,
+                        // The other handle has sent at most this one value into
+                        // a ring of eight, so it cannot be full.
+                        Err(SendError::Full(value)) => {
+                            unreachable!("the ring is empty at the first send, got Full({value})")
+                        }
+                        Err(SendError::Closed(_)) => unreachable!("queue is never closed"),
+                    }
+
+                    let mut sent = 1;
                     while sent < PER_SENDER {
                         match queue.send(base + sent) {
                             Ok(()) => sent += 1,
                             Err(SendError::Full(_)) => std::thread::yield_now(),
-                            Err(SendError::EndpointInUse(_)) => return false,
+                            // The claim is held for this handle's lifetime, so
+                            // it cannot be lost mid-send.
+                            Err(SendError::EndpointInUse(_)) => {
+                                unreachable!("this handle holds the sender endpoint")
+                            }
                             Err(SendError::Closed(_)) => unreachable!("queue is never closed"),
                         }
                     }

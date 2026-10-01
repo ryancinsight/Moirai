@@ -227,3 +227,97 @@ fn dropping_polled_stream_retires_waiter_before_socket() {
     assert!(!reactor_a.platform_reactor.has_registration(fd));
     drop(client);
 }
+
+/// Waker that counts wake-ups, so a test observes how often a pending
+/// operation is told to re-poll.
+struct WakeCounter(std::sync::atomic::AtomicUsize);
+
+impl WakeCounter {
+    fn new() -> Arc<Self> {
+        Arc::new(Self(std::sync::atomic::AtomicUsize::new(0)))
+    }
+
+    fn count(&self) -> usize {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl std::task::Wake for WakeCounter {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn connected_pair() -> (AsyncTcpStream, StdTcpStream) {
+    let listener = StdTcpListener::bind("127.0.0.1:0").expect("listener bind");
+    let peer = StdTcpStream::connect(listener.local_addr().expect("listener address"))
+        .expect("client connect");
+    let (server, _) = listener.accept().expect("server accept");
+    (
+        AsyncTcpStream::from_std(server).expect("async stream"),
+        peer,
+    )
+}
+
+#[test]
+fn self_wake_fallback_wakes_once_per_pending_poll() {
+    // Without an active reactor every `WouldBlock` poll re-wakes its own task:
+    // N pending polls produce N wakes however long the socket stays idle.
+    const POLLS: usize = 1_000;
+    let (mut stream, peer) = connected_pair();
+    let counter = WakeCounter::new();
+    let waker = std::task::Waker::from(Arc::clone(&counter));
+    let mut context = Context::from_waker(&waker);
+    let mut byte = [0_u8; 1];
+    IoReactor::with_reactor_disabled(|| {
+        for _ in 0..POLLS {
+            assert!(matches!(
+                stream.poll_read(&mut context, &mut byte),
+                Poll::Pending
+            ));
+        }
+    });
+    assert_eq!(counter.count(), POLLS);
+    drop(peer);
+}
+
+#[test]
+fn reactor_readiness_wakes_an_idle_read_exactly_once() {
+    // With a reactor the idle read registers once and is woken only by
+    // readiness: zero wakes over any number of idle reactor iterations, then
+    // one wake when the peer writes.
+    const IDLE_ITERATIONS: usize = 1_000;
+    let (mut stream, mut peer) = connected_pair();
+    let counter = WakeCounter::new();
+    let waker = std::task::Waker::from(Arc::clone(&counter));
+    let mut context = Context::from_waker(&waker);
+    let mut byte = [0_u8; 1];
+    let reactor = IoReactor::new().expect("reactor must build");
+    reactor.with_active(|| {
+        assert!(matches!(
+            stream.poll_read(&mut context, &mut byte),
+            Poll::Pending
+        ));
+        for _ in 0..IDLE_ITERATIONS {
+            reactor
+                .run_iteration(Some(Duration::ZERO))
+                .expect("idle iteration must succeed");
+        }
+        assert_eq!(counter.count(), 0);
+
+        peer.write_all(b"x").expect("peer write");
+        reactor
+            .run_iteration(Some(Duration::from_secs(5)))
+            .expect("readiness iteration must succeed");
+        assert_eq!(counter.count(), 1);
+        assert!(matches!(
+            stream.poll_read(&mut context, &mut byte),
+            Poll::Ready(Ok(1))
+        ));
+        assert_eq!(&byte, b"x");
+    });
+}

@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tokio I/O compatibility** (`TokioCompat`, `MoiraiCompat`). Both wrappers
+  now map `AsyncBufRead` (`poll_fill_buf`, `consume`) and vectored writes, and
+  assert at compile time that they add no size or alignment to the wrapped
+  type. `moirai_async::io::AsyncWrite` gains defaulted `poll_write_vectored`
+  (the first non-empty slice through `poll_write`) and `is_write_vectored`
+  (`false`); existing writers compile unchanged (ADR 0006).
+
 - **Worker pinning** (`WorkerPlacement::{Unbound, Pinned}`,
   `ExecutorConfig::worker_placement`, and `worker_placement(..)` on
   `MoiraiBuilder`, `ExecutorBuilder`, and `moirai_executor::ExecutorBuilder`).
