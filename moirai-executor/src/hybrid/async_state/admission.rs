@@ -122,7 +122,7 @@ where
                     Some(_depth_guard) => {
                         // Registry diagnostics report the task as running off the
                         // worker pool; `NO_WORKER` is display-only there.
-                        self.poll(crate::registry::state::NO_WORKER);
+                        self.poll(crate::registry::state::NO_WORKER as usize);
                     }
                     _ => {
                         self.complete_resource_exhausted();
