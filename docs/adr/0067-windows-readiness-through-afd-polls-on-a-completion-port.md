@@ -92,10 +92,12 @@ any replacement must still deliver readiness.
    is leaked rather than freed: the kernel may still write to it.
 8. **Start status.** `NtDeviceIoControlFile` returns before the poll
    completes. The handle is asynchronous and does not skip the port on
-   success, so every non-negative status (`STATUS_PENDING`, a synchronous
-   `STATUS_SUCCESS`, any other `NT_SUCCESS` value) leaves the request with the
-   kernel and a packet will arrive; the slot stays armed. Only a negative
-   status guarantees no packet and releases the slot at once.
+   success, so a status of success, informational, or warning severity
+   (`STATUS_PENDING`, a synchronous `STATUS_SUCCESS`, `STATUS_BUFFER_OVERFLOW`)
+   leaves the request with the kernel and a packet will arrive; the slot stays
+   armed and the packet's status is delivered as usual. Only an error-severity
+   status (top two bits set) guarantees no packet and releases the slot at
+   once.
 9. **Typed errors.** `NTSTATUS` maps through `RtlNtStatusToDosError` to
    `io::Error`; `AFD_POLL_ABORT`/`CONNECT_FAIL` map to `Event::error`,
    `DISCONNECT` to `Event::hangup`, `LOCAL_CLOSE` to error plus hangup
@@ -104,10 +106,12 @@ any replacement must still deliver readiness.
    `run_iteration`) polls the port. No second thread is added. One thread
    polls at a time: a concurrent `poll` returns `WouldBlock` immediately
    rather than waiting behind the first, so a timeout bounds every call. The
-   port is created with concurrency 0 (one running thread per processor): a
-   limit of one made a dequeue by a second thread return nothing while the
-   first, having dequeued earlier and still running, counted against it, and a
-   concurrent-poller test hung on exactly that.
+   port is created with the maximum concurrency, so it never throttles: the
+   limit counts threads that dequeued earlier and are still running, not
+   threads blocked in a dequeue, so any finite limit lets that many busy
+   threads starve a blocked poller (a limit of one hung a test; the processor
+   count delayed a wake by seconds in a reviewer's probe). The entries mutex
+   already admits one thread into the wait.
 
 ## Slices
 

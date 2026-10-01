@@ -22,14 +22,15 @@ pub(super) struct CompletionPort(OwnedHandle);
 impl CompletionPort {
     /// Create a port with no associated handles.
     pub(super) fn new() -> io::Result<Self> {
-        // Concurrency 0 admits one running thread per processor. A limit of one
-        // is a defect here: a thread that dequeued a packet and keeps running
-        // counts against the limit, and a later dequeue by another thread then
-        // waits for it even with packets queued.
+        // The concurrency limit counts threads that dequeued earlier and are
+        // still running, not threads blocked in a dequeue, so any finite
+        // limit lets that many busy threads starve a blocked poller: a limit
+        // of one or the processor count each hung it. The entries mutex
+        // already admits one thread into the wait, so the port never throttles.
         //
         // SAFETY: an invalid file handle with no existing port asks the kernel
         // to create a new port; no caller memory is involved.
-        let port = unsafe { CreateIoCompletionPort(HANDLE(-1isize as _), None, 0, 0) }
+        let port = unsafe { CreateIoCompletionPort(HANDLE(-1isize as _), None, 0, u32::MAX) }
             .map_err(io::Error::from)?;
         // SAFETY: `CreateIoCompletionPort` returned a new handle that nothing
         // else owns or closes.

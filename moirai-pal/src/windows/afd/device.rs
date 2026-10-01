@@ -42,15 +42,23 @@ pub(super) fn status_error(status: NTSTATUS) -> io::Error {
 /// returned.
 ///
 /// The handle is asynchronous and not set to skip the port on success, so the
-/// kernel queues exactly one completion packet for every request that did not
-/// fail at the call: `STATUS_PENDING` and every other `NT_SUCCESS` status
-/// (non-negative, including a synchronous `STATUS_SUCCESS`) leave the request
-/// owned by the kernel until that packet is dequeued. Only a failure status
-/// (negative) guarantees no packet and no further kernel access, so only it
-/// lets the caller release the slot at once.
+/// kernel queues one completion packet for every request that returns
+/// success, informational, or warning severity (`STATUS_PENDING`, a
+/// synchronous `STATUS_SUCCESS`, `STATUS_BUFFER_OVERFLOW`, and the like): the
+/// request stays owned by the kernel until that packet is dequeued. Only an
+/// error-severity status (the top two bits set) guarantees no packet and no
+/// further kernel access, so only it lets the caller release the slot at
+/// once.
 pub(super) fn started(status: NTSTATUS) -> io::Result<()> {
-    nt_result(status)
+    if status.0.cast_unsigned() >> 30 == SEVERITY_ERROR {
+        Err(status_error(status))
+    } else {
+        Ok(())
+    }
 }
+
+/// Severity field (bits 30 and 31) of an error status.
+const SEVERITY_ERROR: u32 = 3;
 
 /// `Ok` for an `NT_SUCCESS` status (severity success or informational, the
 /// non-negative values), otherwise the error of the Win32 equivalent.

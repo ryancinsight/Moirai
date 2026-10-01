@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::windows::io::{AsRawSocket, RawSocket};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Barrier, Mutex, mpsc};
 use std::time::Duration;
 
@@ -11,6 +12,7 @@ use windows::Win32::Foundation::{
 };
 
 use super::device::{finished, started};
+use super::port::Shutdown;
 use super::{AfdPort, Token};
 use crate::{Event, Interest, RawFd};
 
@@ -283,23 +285,21 @@ fn a_second_poller_is_refused_instead_of_waiting_behind_the_first() {
 }
 
 #[test]
-fn every_non_negative_start_status_leaves_the_request_with_the_kernel() {
-    for status in [STATUS_SUCCESS, STATUS_PENDING, STATUS_TIMEOUT] {
-        started(status).unwrap_or_else(|error| {
-            panic!("{status:?} queues a packet, so the slot must stay armed: {error}")
-        });
-    }
-}
-
-#[test]
-fn every_negative_start_status_is_an_error_without_a_packet() {
+fn only_an_error_severity_start_status_releases_the_slot() {
     for status in [
-        STATUS_INVALID_PARAMETER,
-        STATUS_CANCELLED,
+        STATUS_SUCCESS,
+        STATUS_PENDING,
+        STATUS_TIMEOUT,
+        NTSTATUS(0x4000_0000),
         STATUS_BUFFER_OVERFLOW,
         NTSTATUS(i32::MIN),
     ] {
-        started(status).expect_err("a failed start queues no packet and must release the slot");
+        started(status).unwrap_or_else(|error| {
+            panic!("{status:?} still queues a packet, so the slot must stay armed: {error}")
+        });
+    }
+    for status in [STATUS_INVALID_PARAMETER, STATUS_CANCELLED, NTSTATUS(-1)] {
+        started(status).expect_err("an error status queues no packet and must release the slot");
     }
     let error = started(STATUS_INVALID_PARAMETER).expect_err("invalid parameter");
     assert_eq!(
@@ -392,9 +392,6 @@ fn concurrent_pollers_deliver_each_completion_exactly_once() {
         for _ in 0..POLLERS {
             scope.spawn(|| {
                 start.wait();
-                // Zero-timeout polls only: a thread that keeps running on the
-                // port while another is blocked in a dequeue starves it,
-                // because the port admits one running thread at a time.
                 while port.armed() > 0 {
                     match port.poll(Some(Duration::ZERO), |token, event| {
                         let event = event.expect("a readable poll must not fail");
@@ -417,4 +414,106 @@ fn concurrent_pollers_deliver_each_completion_exactly_once() {
     let delivered = delivered.into_inner().expect("sink lock");
     assert_eq!(delivered.len(), COUNT, "no completion is lost or repeated");
     assert_eq!(delivered.into_iter().collect::<HashSet<_>>(), armed);
+}
+
+#[test]
+fn shutdown_drains_cancelled_polls_and_frees_the_records() {
+    let (first, _first_peer) = pair();
+    let (second, _second_peer) = pair();
+    let mut port = AfdPort::new(2).expect("port");
+    port.arm(socket_id(&first), Interest::READABLE)
+        .expect("arm");
+    port.arm(socket_id(&second), Interest::READABLE)
+        .expect("arm");
+    assert_eq!(port.armed(), 2);
+    assert_eq!(port.shutdown(AfdPort::cancel, WAIT), Shutdown::Drained);
+    assert_eq!(port.armed(), 0, "every cancelled packet was dequeued");
+}
+
+#[test]
+fn shutdown_leaks_the_records_when_a_cancellation_is_refused() {
+    let (server, _client) = pair();
+    let mut port = AfdPort::new(1).expect("port");
+    port.arm(socket_id(&server), Interest::READABLE)
+        .expect("arm");
+    let outcome = port.shutdown(
+        |_, _| Err(io::Error::other("the driver refused the cancellation")),
+        WAIT,
+    );
+    assert_eq!(outcome, Shutdown::Leaked);
+    assert_eq!(port.shutdown(AfdPort::cancel, WAIT), Shutdown::Leaked);
+}
+
+#[test]
+fn shutdown_leaks_the_records_when_a_cancelled_poll_never_completes() {
+    let (server, _client) = pair();
+    let mut port = AfdPort::new(1).expect("port");
+    port.arm(socket_id(&server), Interest::READABLE)
+        .expect("arm");
+    // A cancel that reports success without cancelling leaves the poll armed
+    // on an idle socket, so no packet arrives before the deadline.
+    let outcome = port.shutdown(|_, _| Ok(()), Duration::ZERO);
+    assert_eq!(outcome, Shutdown::Leaked);
+    assert_eq!(port.armed(), 1, "the poll is still the kernel's");
+}
+
+/// Releases busy threads when a test unwinds, so a failure cannot hang the
+/// scope that joins them.
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+#[test]
+fn a_blocked_poller_is_released_by_wake_beside_busy_threads_that_polled_before() {
+    // Longer than a released poller needs (milliseconds); shorter than the
+    // seconds a throttled port took to release it.
+    const RELEASE: Duration = Duration::from_secs(1);
+    let busy = std::thread::available_parallelism().map_or(2, usize::from);
+    let port = &AfdPort::new(1).expect("port");
+    let stop = &AtomicBool::new(false);
+    let (polled, polled_rx) = mpsc::channel();
+    let (released, released_rx) = mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..busy {
+            let polled = polled.clone();
+            scope.spawn(move || {
+                // One completed dequeue makes the thread count against the
+                // port's concurrency; it then keeps running.
+                loop {
+                    match port.poll(Some(Duration::ZERO), |_, _| {}) {
+                        Ok(_) => break,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            std::thread::yield_now();
+                        }
+                        Err(error) => panic!("poll failed: {error}"),
+                    }
+                }
+                polled.send(()).expect("announce");
+                while !stop.load(Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            });
+        }
+        let _stop_on_exit = StopOnDrop(stop);
+        for _ in 0..busy {
+            polled_rx.recv_timeout(WAIT).expect("a busy thread polled");
+        }
+        scope.spawn(move || {
+            let outcome = port.poll(Some(WAIT), |_, _| {});
+            released
+                .send(outcome.map_err(|error| error.kind()))
+                .expect("report");
+        });
+        port.wake().expect("wake");
+        let outcome = released_rx.recv_timeout(RELEASE);
+        stop.store(true, Ordering::Relaxed);
+        assert_eq!(
+            outcome.expect("wake must release the blocked poller within the bound"),
+            Ok(0)
+        );
+    });
 }

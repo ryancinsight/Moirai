@@ -228,29 +228,60 @@ impl AfdPort {
 
 impl Drop for AfdPort {
     fn drop(&mut self) {
-        let mut refused = false;
-        for index in 0..self.table.len() {
-            if let Some(token) = self.table.armed_token(index) {
-                refused |= self.cancel(token).is_err();
+        self.shutdown(Self::cancel, DRAIN_DEADLINE);
+    }
+}
+
+/// How an [`AfdPort`] released its poll records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Shutdown {
+    /// Every poll completed, so the records are freed with the port.
+    Drained,
+    /// A cancellation was refused or the deadline passed, so the kernel may
+    /// still write the records and they are never freed.
+    Leaked,
+}
+
+impl AfdPort {
+    /// Cancel every armed poll with `cancel` and wait up to `limit` for their
+    /// packets; leak the records if a cancellation is refused or a packet does
+    /// not arrive. Calling it again after a leak does nothing.
+    pub(super) fn shutdown(
+        &mut self,
+        cancel: impl Fn(&Self, Token) -> io::Result<()>,
+        limit: Duration,
+    ) -> Shutdown {
+        if !self.table.is_leaked() {
+            let mut refused = false;
+            for index in 0..self.table.len() {
+                if let Some(token) = self.table.armed_token(index) {
+                    refused |= cancel(self, token).is_err();
+                }
+            }
+            if refused || !self.drain(limit) {
+                // A poll the driver would not cancel may still be written and
+                // may never complete, so freeing its record is unsound.
+                self.table.leak();
             }
         }
-        if refused {
-            // A poll the driver would not cancel may still be written, and may
-            // never complete, so waiting for it is pointless and freeing its
-            // record is unsound.
-            self.table.leak();
-            return;
+        if self.table.is_leaked() {
+            Shutdown::Leaked
+        } else {
+            Shutdown::Drained
         }
-        let deadline = Instant::now() + DRAIN_DEADLINE;
+    }
+
+    /// Dequeue until no poll is armed; `false` when `limit` passes or the wait
+    /// fails first.
+    fn drain(&self, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
         while self.table.outstanding() > 0 {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() || self.poll(Some(remaining), |_, _| {}).is_err() {
-                // The kernel may still write to the records, so they are never
-                // freed.
-                self.table.leak();
-                return;
+                return false;
             }
         }
+        true
     }
 }
 

@@ -140,6 +140,11 @@ impl SlotTable {
         std::mem::forget(std::mem::take(&mut self.slots));
     }
 
+    /// Whether [`leak`](Self::leak) gave the storage up.
+    pub(super) fn is_leaked(&self) -> bool {
+        self.slots.is_empty()
+    }
+
     /// Claim a free slot, or `None` when all are in use.
     pub(super) fn claim(&self) -> Option<usize> {
         for (word_index, word) in self.claimed.iter().enumerate() {
