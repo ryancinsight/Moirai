@@ -66,7 +66,8 @@ unsafe impl Sync for TaskStateBlock {}
 /// is 64 bytes on macOS (32 on Linux, 40 on Windows), which pushed the pinned
 /// per-task state past its budget on macOS aarch64. The lock here is one flag
 /// byte plus padding, and the critical sections clone a waker, run
-/// [`Waker::will_wake`] over a short member list, or take the waker out — all
+/// [`Waker::will_wake`](std::task::Waker::will_wake) over a short member list,
+/// or take the waker out — all
 /// bounded, never blocking, so spinning with a yield is safe under any
 /// scheduler.
 pub(super) struct WakerSlot {
