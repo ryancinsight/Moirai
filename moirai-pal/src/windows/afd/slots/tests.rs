@@ -2,7 +2,11 @@
 //! writing the record through the pointers `request` hands out, then dequeue
 //! with `complete`. Nothing here calls a foreign function.
 
-use windows::Win32::Foundation::{NTSTATUS, STATUS_CANCELLED, STATUS_SUCCESS};
+use std::sync::atomic::Ordering;
+use windows::Win32::Foundation::{
+    NTSTATUS, STATUS_CANCELLED, STATUS_INVALID_PARAMETER, STATUS_SUCCESS,
+};
+
 use windows::Win32::System::IO::OVERLAPPED;
 
 use super::{Completion, SlotTable, Token};
@@ -104,4 +108,38 @@ fn stale_and_repeated_cancels_do_nothing() {
         !table.begin_cancel(live),
         "a second cancel finds the marker set"
     );
+}
+
+#[test]
+fn a_failure_status_is_reported_with_the_socket_and_releases_the_slot() {
+    let table = SlotTable::new(1);
+    let token = publish(&table, 3);
+    let Completion::Finished {
+        token: finished,
+        status,
+        ..
+    } = finish(&table, token, STATUS_INVALID_PARAMETER, 0)
+    else {
+        panic!("a failed poll must finish, not read as cancelled");
+    };
+    assert_eq!(finished, token);
+    assert_eq!(status, STATUS_INVALID_PARAMETER);
+    assert_eq!(table.outstanding(), 0);
+}
+
+#[test]
+fn the_generation_wraps_at_the_top_of_its_range() {
+    let table = SlotTable::new(1);
+    table.slots[0]
+        .word
+        .store(u64::from(u32::MAX) << 32, Ordering::Relaxed);
+    let last = publish(&table, 1);
+    assert_eq!(last.generation, 0, "u32::MAX wraps to 0 without panicking");
+    assert!(matches!(
+        finish(&table, last, STATUS_SUCCESS, RECEIVE),
+        Completion::Finished { .. }
+    ));
+    let next = publish(&table, 1);
+    assert_eq!(next.generation, 1);
+    assert_ne!(next, last);
 }

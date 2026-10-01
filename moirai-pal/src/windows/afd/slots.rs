@@ -167,7 +167,7 @@ impl SlotTable {
     /// Store the request in a claimed slot and mark it armed.
     pub(super) fn publish(&self, index: usize, socket: usize, info: AfdPollInfo) -> Token {
         let slot = &self.slots[index];
-        let generation = (slot.word.load(Ordering::Relaxed) >> 32) as u32 + 1;
+        let generation = ((slot.word.load(Ordering::Relaxed) >> 32) as u32).wrapping_add(1);
         let record = slot.record.get();
         // SAFETY: the slot is claimed and unarmed, so this thread is the only
         // one that can reach its record and the kernel holds no request on it.

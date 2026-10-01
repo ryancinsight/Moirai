@@ -14,7 +14,7 @@ use windows::Win32::System::IO::OVERLAPPED_ENTRY;
 
 use super::abi::AfdPollInfo;
 use super::completion_port::CompletionPort;
-use super::device::{AfdDevice, status_error};
+use super::device::{AfdDevice, finished};
 use super::slots::{Completion, SlotTable, Token};
 use crate::{Event, Interest};
 
@@ -191,14 +191,7 @@ impl AfdPort {
                     readiness,
                 } => {
                     polls += 1;
-                    sink(
-                        token,
-                        if status.0 < 0 {
-                            Err(status_error(status))
-                        } else {
-                            Ok(readiness)
-                        },
-                    );
+                    sink(token, finished(status, readiness));
                 }
             }
         }
@@ -235,11 +228,18 @@ impl AfdPort {
 
 impl Drop for AfdPort {
     fn drop(&mut self) {
+        let mut refused = false;
         for index in 0..self.table.len() {
             if let Some(token) = self.table.armed_token(index) {
-                let cancelled = self.cancel(token);
-                debug_assert!(cancelled.is_ok(), "the driver accepts a cancellation");
+                refused |= self.cancel(token).is_err();
             }
+        }
+        if refused {
+            // A poll the driver would not cancel may still be written, and may
+            // never complete, so waiting for it is pointless and freeing its
+            // record is unsound.
+            self.table.leak();
+            return;
         }
         let deadline = Instant::now() + DRAIN_DEADLINE;
         while self.table.outstanding() > 0 {

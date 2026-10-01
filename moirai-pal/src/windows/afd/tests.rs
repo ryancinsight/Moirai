@@ -1,9 +1,16 @@
+use std::collections::HashSet;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::windows::io::{AsRawSocket, RawSocket};
-use std::sync::{Barrier, mpsc};
+use std::sync::{Barrier, Mutex, mpsc};
 use std::time::Duration;
 
+use windows::Win32::Foundation::{
+    ERROR_INVALID_PARAMETER, NTSTATUS, STATUS_BUFFER_OVERFLOW, STATUS_CANCELLED,
+    STATUS_INVALID_PARAMETER, STATUS_PENDING, STATUS_SUCCESS, STATUS_TIMEOUT,
+};
+
+use super::device::{finished, started};
 use super::{AfdPort, Token};
 use crate::{Event, Interest, RawFd};
 
@@ -273,4 +280,141 @@ fn a_second_poller_is_refused_instead_of_waiting_behind_the_first() {
         port.wake().expect("release the long poller");
         assert_eq!(long.join().expect("long poller").expect("long poll"), 0);
     });
+}
+
+#[test]
+fn every_non_negative_start_status_leaves_the_request_with_the_kernel() {
+    for status in [STATUS_SUCCESS, STATUS_PENDING, STATUS_TIMEOUT] {
+        started(status).unwrap_or_else(|error| {
+            panic!("{status:?} queues a packet, so the slot must stay armed: {error}")
+        });
+    }
+}
+
+#[test]
+fn every_negative_start_status_is_an_error_without_a_packet() {
+    for status in [
+        STATUS_INVALID_PARAMETER,
+        STATUS_CANCELLED,
+        STATUS_BUFFER_OVERFLOW,
+        NTSTATUS(i32::MIN),
+    ] {
+        started(status).expect_err("a failed start queues no packet and must release the slot");
+    }
+    let error = started(STATUS_INVALID_PARAMETER).expect_err("invalid parameter");
+    assert_eq!(
+        error.raw_os_error(),
+        Some(ERROR_INVALID_PARAMETER.0.cast_signed())
+    );
+}
+
+#[test]
+fn a_failure_status_reaches_the_sink_as_its_win32_error() {
+    let readiness = || Event {
+        fd: std::ptr::null_mut(),
+        readable: true,
+        writable: false,
+        error: false,
+        hangup: false,
+    };
+    let reported = finished(STATUS_SUCCESS, readiness()).expect("success");
+    assert!(reported.readable && !reported.writable && !reported.error);
+    let error = finished(STATUS_INVALID_PARAMETER, readiness()).expect_err("failure");
+    assert_eq!(
+        error.raw_os_error(),
+        Some(ERROR_INVALID_PARAMETER.0.cast_signed())
+    );
+}
+
+#[test]
+fn slots_beyond_the_first_device_group_report_through_their_own_device() {
+    const COUNT: usize = 40;
+    let pairs: Vec<_> = (0..COUNT).map(|_| pair()).collect();
+    let port = AfdPort::new(COUNT).expect("port");
+    let armed: Vec<(Token, RawSocket)> = pairs
+        .iter()
+        .map(|(server, _)| {
+            let id = socket_id(server);
+            (port.arm(id, Interest::WRITABLE).expect("arm"), id)
+        })
+        .collect();
+    assert!(
+        armed.iter().any(|(token, _)| token.index() >= 32),
+        "the table must hand out slots past the first group of 32"
+    );
+    let mut seen = HashSet::new();
+    while seen.len() < COUNT {
+        let (_, finished) = dequeue(&port);
+        for (token, event) in finished {
+            let event = event.expect("a writable poll must not fail");
+            let (_, id) = armed
+                .iter()
+                .find(|(armed_token, _)| *armed_token == token)
+                .expect("a reported token was armed");
+            assert_eq!(event.fd, *id as RawFd);
+            assert!(event.writable && !event.readable && !event.error && !event.hangup);
+            assert!(seen.insert(token), "a poll reports once");
+        }
+    }
+    assert_eq!(port.armed(), 0);
+}
+
+#[test]
+fn closing_the_socket_locally_reports_error_and_hangup_with_no_direction() {
+    let (server, _client) = pair();
+    let id = socket_id(&server);
+    let port = AfdPort::new(1).expect("port");
+    let token = port.arm(id, Interest::READABLE).expect("arm");
+    drop(server);
+    let (reported, event) = single_event(&port);
+    assert_eq!(reported, token);
+    assert_eq!(event.fd, id as RawFd);
+    assert!(event.error && event.hangup && !event.readable && !event.writable);
+    assert_eq!(port.armed(), 0);
+}
+
+#[test]
+fn concurrent_pollers_deliver_each_completion_exactly_once() {
+    const COUNT: usize = 16;
+    const POLLERS: usize = 4;
+    let mut pairs: Vec<_> = (0..COUNT).map(|_| pair()).collect();
+    let port = AfdPort::new(COUNT).expect("port");
+    let armed: HashSet<Token> = pairs
+        .iter()
+        .map(|(server, _)| {
+            port.arm(socket_id(server), Interest::READABLE)
+                .expect("arm")
+        })
+        .collect();
+    let delivered = Mutex::new(Vec::new());
+    let start = Barrier::new(POLLERS + 1);
+    std::thread::scope(|scope| {
+        for _ in 0..POLLERS {
+            scope.spawn(|| {
+                start.wait();
+                // Zero-timeout polls only: a thread that keeps running on the
+                // port while another is blocked in a dequeue starves it,
+                // because the port admits one running thread at a time.
+                while port.armed() > 0 {
+                    match port.poll(Some(Duration::ZERO), |token, event| {
+                        let event = event.expect("a readable poll must not fail");
+                        assert!(event.readable);
+                        delivered.lock().expect("sink lock").push(token);
+                    }) {
+                        Ok(_) => {}
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(error) => panic!("poll failed: {error}"),
+                    }
+                    std::thread::yield_now();
+                }
+            });
+        }
+        start.wait();
+        for (_, client) in &mut pairs {
+            client.write_all(b"x").expect("peer write");
+        }
+    });
+    let delivered = delivered.into_inner().expect("sink lock");
+    assert_eq!(delivered.len(), COUNT, "no completion is lost or repeated");
+    assert_eq!(delivered.into_iter().collect::<HashSet<_>>(), armed);
 }

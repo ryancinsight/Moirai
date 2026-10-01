@@ -3,6 +3,7 @@
 
 use std::ffi::c_void;
 use std::io;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 
 use windows::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use windows::Wdk::Storage::FileSystem::{
@@ -10,8 +11,7 @@ use windows::Wdk::Storage::FileSystem::{
 };
 use windows::Wdk::System::IO::NtDeviceIoControlFile;
 use windows::Win32::Foundation::{
-    CloseHandle, HANDLE, NTSTATUS, RtlNtStatusToDosError, STATUS_NOT_FOUND, STATUS_PENDING,
-    STATUS_SUCCESS, UNICODE_STRING,
+    HANDLE, NTSTATUS, RtlNtStatusToDosError, STATUS_NOT_FOUND, STATUS_SUCCESS, UNICODE_STRING,
 };
 use windows::Win32::Storage::FileSystem::{
     FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
@@ -22,6 +22,7 @@ use windows::core::PWSTR;
 
 use super::abi::{AfdPollInfo, IOCTL_AFD_POLL};
 use super::completion_port::CompletionPort;
+use crate::Event;
 
 /// `FILE_SKIP_SET_EVENT_ON_HANDLE`: do not signal the file object on
 /// completion, which a port-bound handle never waits on.
@@ -37,14 +38,39 @@ pub(super) fn status_error(status: NTSTATUS) -> io::Error {
     io::Error::from_raw_os_error(code.cast_signed())
 }
 
-/// A handle to the AFD driver, associated with one completion port.
-pub(super) struct AfdDevice(HANDLE);
+/// Outcome of starting a poll, from the status `NtDeviceIoControlFile`
+/// returned.
+///
+/// The handle is asynchronous and not set to skip the port on success, so the
+/// kernel queues exactly one completion packet for every request that did not
+/// fail at the call: `STATUS_PENDING` and every other `NT_SUCCESS` status
+/// (non-negative, including a synchronous `STATUS_SUCCESS`) leave the request
+/// owned by the kernel until that packet is dequeued. Only a failure status
+/// (negative) guarantees no packet and no further kernel access, so only it
+/// lets the caller release the slot at once.
+pub(super) fn started(status: NTSTATUS) -> io::Result<()> {
+    nt_result(status)
+}
 
-// SAFETY: the handle is a kernel object; `NtDeviceIoControlFile` and
-// `NtCancelIoFileEx` on one handle are safe from any thread.
-unsafe impl Send for AfdDevice {}
-// SAFETY: as above, every method takes `&self`.
-unsafe impl Sync for AfdDevice {}
+/// `Ok` for an `NT_SUCCESS` status (severity success or informational, the
+/// non-negative values), otherwise the error of the Win32 equivalent.
+pub(super) fn nt_result(status: NTSTATUS) -> io::Result<()> {
+    if status.0 >= 0 {
+        Ok(())
+    } else {
+        Err(status_error(status))
+    }
+}
+
+/// A completed poll's outcome: its readiness, or the error of a failure status.
+pub(super) fn finished(status: NTSTATUS, readiness: Event) -> io::Result<Event> {
+    nt_result(status).map(|()| readiness)
+}
+
+/// A handle to the AFD driver, associated with one completion port. The owning
+/// handle is `Send + Sync`: `NtDeviceIoControlFile` and `NtCancelIoFileEx` on
+/// one handle are safe from any thread.
+pub(super) struct AfdDevice(OwnedHandle);
 
 impl AfdDevice {
     /// Open the AFD endpoint and bind it to `port` once; completions carry
@@ -85,7 +111,9 @@ impl AfdDevice {
         if status != STATUS_SUCCESS {
             return Err(status_error(status));
         }
-        let device = Self(handle);
+        // SAFETY: `NtCreateFile` returned a new handle that nothing else owns
+        // or closes.
+        let device = Self(unsafe { OwnedHandle::from_raw_handle(handle.0 as _) });
         // SAFETY: `handle` was just opened by NtCreateFile for the AFD device
         // (opened with no `FILE_FLAG_OVERLAPPED` restriction, as every AFD
         // handle is asynchronous) and belongs to no port.
@@ -94,6 +122,10 @@ impl AfdDevice {
         unsafe { SetFileCompletionNotificationModes(handle, SKIP_SET_EVENT_ON_HANDLE) }
             .map_err(io::Error::from)?;
         Ok(device)
+    }
+
+    fn raw(&self) -> HANDLE {
+        HANDLE(self.0.as_raw_handle() as _)
     }
 
     /// Start a poll request whose completion packet carries `context`.
@@ -112,7 +144,7 @@ impl AfdDevice {
         // pinned until completion; the buffer serves as input and output.
         let status = unsafe {
             NtDeviceIoControlFile(
-                self.0,
+                self.raw(),
                 None,
                 None,
                 Some(context),
@@ -124,13 +156,7 @@ impl AfdDevice {
                 size_of::<AfdPollInfo>() as u32,
             )
         };
-        // A synchronous success still queues a completion packet, so both
-        // outcomes leave the request owned by the kernel until dequeued.
-        if status == STATUS_SUCCESS || status == STATUS_PENDING {
-            Ok(())
-        } else {
-            Err(status_error(status))
-        }
+        started(status)
     }
 
     /// Request cancellation of the poll issued with `status_block`. A request
@@ -144,19 +170,12 @@ impl AfdDevice {
         let mut cancel_block = IO_STATUS_BLOCK::default();
         // SAFETY: the caller guarantees `status_block` is live; `cancel_block`
         // is a local the kernel fills before returning.
-        let status = unsafe { NtCancelIoFileEx(self.0, Some(status_block), &raw mut cancel_block) };
+        let status =
+            unsafe { NtCancelIoFileEx(self.raw(), Some(status_block), &raw mut cancel_block) };
         if status == STATUS_SUCCESS || status == STATUS_NOT_FOUND {
             Ok(())
         } else {
             Err(status_error(status))
         }
-    }
-}
-
-impl Drop for AfdDevice {
-    fn drop(&mut self) {
-        // SAFETY: the handle is owned by this value and closed once.
-        let closed = unsafe { CloseHandle(self.0) };
-        debug_assert!(closed.is_ok(), "an owned AFD handle closes");
     }
 }
