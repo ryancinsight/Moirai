@@ -230,6 +230,16 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Classify the `spin_loop()` sites as bounded-wait schedules or lock spins, then design the one type; the prior attempt is the head of rescue PR 506 (a public `moirai_utils::backoff` with 7 sites, no tests, changed `enqueue` retry behavior, missed the reopen wait) and is a source, not a base.
 - basis: `0a9a2a8ffcec2c07101a5475c77fa976c52ede17`
 
+<a id="MOI-ITER-PARALLEL-ITERATOR-SEGREGATION-2026-09-30"></a>
+## MOI-ITER-PARALLEL-ITERATOR-SEGREGATION-2026-09-30 — Segregate the `ParallelIterator` trait
+- status: todo
+- priority: tightening
+- outcome: `ParallelIterator` (about 75 methods in one trait, 1,027 lines in `moirai-iter/src/parallel/traits/iterator.rs`) is composed from role traits (adapters, consumers, reductions, ordering) so no file passes the 500-line target and no single trait carries every operation.
+- acceptance: An ADR records the recommended split (supertrait chain with blanket impls over one core, versus extension traits) with the rejected alternative and the import-surface change for callers; `cargo-semver-checks` output attached; every public path either unchanged through the prelude or migrated in the same change with a `BREAKING CHANGE:` footer; sorted test names unchanged.
+- scope: `moirai-iter/src/parallel/traits/`, the prelude, and in-workspace callers; no behaviour change.
+- next step: Draft the ADR with the supertrait-chain recommendation (callers keep one `use` through the prelude), then split along the adapter, consumer, and reduction families.
+- basis: `1752c4db6e15eee041c530058e145999fef4326b`
+
 <a id="MOI-REL-061"></a>
 ## MOI-REL-061 — Publish reusable Rust crates
 - status: blocked
