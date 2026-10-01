@@ -50,8 +50,9 @@ any replacement must still deliver readiness.
 2. **Handles bind once.** AFD handles are opened with `NtCreateFile` on
    `\Device\Afd\Moirai`, associated with the port once, and set to skip the
    handle event (`FILE_SKIP_SET_EVENT_ON_HANDLE`). mio groups 32 sockets per
-   AFD handle without stating a reason in its source; slice 1 measures whether
-   grouping is needed before adopting it. Sockets are polled by their base
+   AFD handle without stating a reason in its source; slice 1 adopts the
+   grouping unmeasured and slice 2's registration-churn benchmark decides
+   whether it stays. Sockets are polled by their base
    handle (`SIO_BASE_HANDLE`, with mio's `SIO_BSP_HANDLE_*` fallbacks for
    layered providers) and are never associated with the port; a socket with no
    base handle fails registration with a typed error.
@@ -61,7 +62,7 @@ any replacement must still deliver readiness.
    released through an atomic bitmap, so neither the claim nor the dispatch
    path takes a lock. The poll loop reads completions into a preallocated
    `OVERLAPPED_ENTRY` buffer and delivers readiness through a caller-provided
-   sink (`FnMut(Token, Event)`), replacing the per-iteration `Vec`.
+   sink (`FnMut(Token, io::Result<Event>)`; a failure status reaches it as `Err`), replacing the per-iteration `Vec`.
 4. **One-shot per arm, one arm per socket.** An AFD poll completes once with
    the current readiness, matching ADR 0014 decision 2; re-arming after a
    `WouldBlock` has no lost-edge window because the poll reports state already
@@ -73,29 +74,58 @@ any replacement must still deliver readiness.
 5. **Completion-after-cancel race.** A slot returns to free only when its
    completion packet is dequeued, whether it finished or was cancelled
    (`NtCancelIoFileEx`). A cancel moves the slot `Armed -> Cancelling` for its
-   generation; a stale token (older generation) is a no-op and cannot cancel a
-   later arm of the reused slot. A cancelled slot's readiness is suppressed.
+   generation and sets a sticky `Requested` bit that no later step clears; a
+   stale token (older generation) is a no-op and cannot cancel a later arm of
+   the reused slot. A completion for a slot with `Requested` set is suppressed
+   whether its packet was queued before or after the cancel call, so a cancel
+   that loses the race to a readiness packet still reports nothing. Slot
+   generations are 32 bits and wrap; a token reused after 2^32 arms of one slot
+   would match, which a registration table holding at most one live token per
+   socket does not allow to be live.
 6. **Wake.** `PostQueuedCompletionStatus` with a reserved key replaces the
    loopback UDP socket; a wake posted before the poller blocks is not lost.
 7. **Shutdown.** Drop cancels every armed slot, then drains the port until no
-   slot is armed, bounded by a deadline derived from the driver's cancellation
-   latency. If the deadline passes, the table is leaked rather than freed: the
-   kernel may still write to it.
-8. **Typed errors.** `NTSTATUS` maps through `RtlNtStatusToDosError` to
+   slot is armed, bounded by a deadline of five seconds. The bound is chosen, not derived: the
+   driver documents no cancellation latency, and a cancelled poll completes
+   without waiting on a peer, so the deadline is reached only when the driver
+   misbehaves. If a cancellation is refused or the deadline passes, the table
+   is leaked rather than freed: the kernel may still write to it.
+8. **Start status.** `NtDeviceIoControlFile` returns before the poll
+   completes. The handle is asynchronous and does not skip the port on
+   success, so a status of success, informational, or warning severity
+   (`STATUS_PENDING`, a synchronous `STATUS_SUCCESS`, `STATUS_BUFFER_OVERFLOW`)
+   leaves the request with the kernel and a packet will arrive; the slot stays
+   armed and the packet's status is delivered as usual. Only an error-severity
+   status (top two bits set) guarantees no packet and releases the slot at
+   once.
+9. **Typed errors.** `NTSTATUS` maps through `RtlNtStatusToDosError` to
    `io::Error`; `AFD_POLL_ABORT`/`CONNECT_FAIL` map to `Event::error`,
-   `DISCONNECT` to `Event::hangup`, `LOCAL_CLOSE` to invalidation of that
-   generation.
-9. **Dispatch thread.** The existing driver (`IoReactor::run` or an executor's
-   `run_iteration`) polls the port. No second thread is added.
+   `DISCONNECT` to `Event::hangup`, `LOCAL_CLOSE` to error plus hangup
+   with neither direction set.
+10. **Dispatch thread.** The existing driver (`IoReactor::run` or an executor's
+   `run_iteration`) polls the port. No second thread is added. One thread
+   polls at a time: a concurrent `poll` returns `WouldBlock` immediately
+   rather than waiting behind the first, so a timeout bounds every call. The
+   port is created with the maximum concurrency, so it never throttles: the
+   limit counts threads that dequeued earlier and are still running, not
+   threads blocked in a dequeue, so any finite limit lets that many busy
+   threads starve a blocked poller (a limit of one hung a test; the processor
+   count delayed a wake by seconds in a reviewer's probe). The entries mutex
+   already admits one thread into the wait.
 
 ## Slices
 
-1. **Port core** (`windows/afd`): port, AFD groups, slot table, arm, cancel,
-   poll with sink, wake, drain-on-drop, tested against loopback sockets.
+1. **Port core** (`windows/afd`, delivered by the slice 1 PR): port, AFD
+   groups, fixed-capacity slot table, arm, cancel, poll with sink, wake,
+   drain-on-drop, tested against loopback sockets, with the arm-and-dispatch
+   allocation contract. The table is fixed-capacity and refuses with
+   `QuotaExceeded`; slice 2 makes it grow by appending fixed-address chunks.
 2. **Reactor swap**: `Reactor` implementation over the port replaces
    `WsaPollReactor`, `SocketLease`, `POLLNVAL` generation handling, and the
-   connect re-probe in one change; the registration table grows by appending
-   fixed-address chunks.
+   connect re-probe in one change, and `AfdPort` narrows from `pub` (kept only
+   because the lib build rejects an unused `pub(crate)` item) to `pub(crate)`; the registration table grows by appending
+   fixed-address chunks, and `AfdPort::poll` gains a distinct signal for a
+   local close, which the slice 1 `Event` mapping folds into error plus hangup.
 3. **Allocation-free dispatch and idle**: sink-based `poll_registered_events`
    on every backend; `run` blocks without a timeout since `stop` and every
    registration wake the poller.
@@ -106,13 +136,18 @@ any replacement must still deliver readiness.
 
 - Value assertions on real loopback sockets: readable after peer write,
   writable on a fresh connection, readable plus hangup after peer close.
-- Cancellation: cancel before and concurrently with readiness (barrier-
-  synchronized), either outcome accepted, every slot free afterward.
+- Cancellation: a cancel racing readiness (barrier-synchronized) and a cancel
+  after the packet was queued, for readable and writable polls, both report
+  nothing and free the slot.
+- A second device group (40 slots), local close, a refused second poller,
+  concurrent zero-timeout pollers delivering each completion once, the start
+  and failure status rules, and generation wrap.
 - Stale token cannot cancel a later arm of a reused slot (capacity one).
 - Drop with armed polls completes within the drain bound.
 - Wake posted before and after the poller blocks returns it.
-- No allocation in the poll loop, measured with the counting-allocator harness
-  of `moirai-async/tests/task_poll_allocations.rs` (slice 3).
+- No allocation in arm and dispatch, measured with a counting allocator
+  (`moirai-pal/tests/afd_poll_allocations.rs`, slice 1); the same contract over
+  `IoReactor::run_iteration` lands with slice 3.
 - No sleeps; synchronization by channels, barriers, and bounded blocking waits.
 
 ## Rejected alternatives

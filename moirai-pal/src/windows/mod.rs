@@ -1,5 +1,6 @@
 //! Windows platform implementations for async I/O.
 
+pub mod afd;
 pub mod dialog;
 pub mod poll;
 pub mod startup;
