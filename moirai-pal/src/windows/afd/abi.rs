@@ -10,7 +10,7 @@ use std::mem::{align_of, offset_of, size_of};
 
 use windows::Win32::Foundation::{HANDLE, NTSTATUS};
 
-use crate::{Event, Interest, RawFd};
+use crate::{Event, Interest};
 
 /// Control code of a poll request on an AFD device handle.
 pub(super) const IOCTL_AFD_POLL: u32 = 0x0001_2024;
@@ -54,6 +54,20 @@ const _: () = {
 };
 
 impl AfdPollInfo {
+    /// An all-zero request for a slot that holds none.
+    pub(super) fn idle() -> Self {
+        Self {
+            timeout: 0,
+            number_of_handles: 0,
+            exclusive: 0,
+            handles: [AfdPollHandle {
+                handle: HANDLE::default(),
+                events: 0,
+                status: NTSTATUS(0),
+            }],
+        }
+    }
+
     /// A request polling `base_socket` for `interest` until it reports.
     pub(super) fn new(base_socket: HANDLE, interest: Interest) -> Self {
         let mut events = POLL_LOCAL_CLOSE;
@@ -87,11 +101,17 @@ impl AfdPollInfo {
         };
         let closed = reported & POLL_LOCAL_CLOSE != 0;
         Event {
-            fd: socket as RawFd,
+            fd: std::ptr::without_provenance_mut(socket),
             readable: !closed && reported & READABLE != 0,
             writable: !closed && reported & WRITABLE != 0,
             error: closed || reported & (POLL_ABORT | POLL_CONNECT_FAIL) != 0,
             hangup: closed || reported & POLL_DISCONNECT != 0,
         }
     }
+}
+
+/// Request construction for the slot table tests.
+#[cfg(test)]
+pub(super) fn poll_info(interest: Interest) -> AfdPollInfo {
+    AfdPollInfo::new(HANDLE::default(), interest)
 }

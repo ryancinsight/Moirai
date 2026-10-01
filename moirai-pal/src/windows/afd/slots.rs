@@ -54,7 +54,10 @@ impl Token {
     }
 }
 
-/// Kernel-written request state, valid to read once the packet is dequeued.
+/// Request state shared with the kernel. While a request is armed the kernel
+/// writes `info` and `status_block` at any time, so no reference to a `Record`
+/// or to any of its fields is ever formed; every access goes through raw
+/// pointers projected from the cell.
 struct Record {
     info: AfdPollInfo,
     status_block: IO_STATUS_BLOCK,
@@ -63,13 +66,15 @@ struct Record {
 
 struct Slot {
     word: AtomicU64,
-    record: UnsafeCell<Option<Record>>,
+    record: UnsafeCell<Record>,
 }
 
-// SAFETY: `record` is written by the thread that claimed the slot before the
-// Release store that arms it, then owned by the kernel, then read by the
-// thread that dequeues the packet; the state word orders those accesses and
-// no two threads hold the record at once.
+// SAFETY: the state word grants access to `record`. The claiming thread writes
+// it before the Release store that arms the slot; from then until the packet
+// is dequeued only the kernel writes it, and other threads touch only its
+// address; the dequeuing thread then reads it, and a canceller reads only the
+// status block address while it holds the slot. All access is through raw
+// pointers, so no two threads ever hold a reference to the same bytes.
 unsafe impl Sync for Slot {}
 
 /// What dequeuing one packet produced.
@@ -106,7 +111,11 @@ impl SlotTable {
             slots: (0..capacity)
                 .map(|_| Slot {
                     word: AtomicU64::new(0),
-                    record: UnsafeCell::new(None),
+                    record: UnsafeCell::new(Record {
+                        info: AfdPollInfo::idle(),
+                        status_block: IO_STATUS_BLOCK::default(),
+                        socket: 0,
+                    }),
                 })
                 .collect(),
             claimed: (0..capacity.div_ceil(64))
@@ -159,19 +168,19 @@ impl SlotTable {
     pub(super) fn publish(&self, index: usize, socket: usize, info: AfdPollInfo) -> Token {
         let slot = &self.slots[index];
         let generation = (slot.word.load(Ordering::Relaxed) >> 32) as u32 + 1;
+        let record = slot.record.get();
         // SAFETY: the slot is claimed and unarmed, so this thread is the only
-        // one that can reach its record.
+        // one that can reach its record and the kernel holds no request on it.
+        // The writes go through field pointers without forming a reference.
         unsafe {
-            *slot.record.get() = Some(Record {
-                info,
-                status_block: IO_STATUS_BLOCK {
-                    Anonymous: IO_STATUS_BLOCK_0 {
-                        Status: STATUS_PENDING,
-                    },
-                    Information: 0,
+            (&raw mut (*record).info).write(info);
+            (&raw mut (*record).status_block).write(IO_STATUS_BLOCK {
+                Anonymous: IO_STATUS_BLOCK_0 {
+                    Status: STATUS_PENDING,
                 },
-                socket,
+                Information: 0,
             });
+            (&raw mut (*record).socket).write(socket);
         }
         self.outstanding.fetch_add(1, Ordering::AcqRel);
         slot.word
@@ -182,17 +191,15 @@ impl SlotTable {
     /// Addresses the kernel is given for a slot published by this thread.
     pub(super) fn request(&self, index: usize) -> Request {
         let slot = &self.slots[index];
-        // SAFETY: this thread published the record and the packet cannot be
-        // dequeued before the request starts; only field addresses are taken.
-        let record = unsafe {
-            (*slot.record.get())
-                .as_mut()
-                .expect("a published slot holds a record")
-        };
-        Request {
-            info: &raw mut record.info,
-            status_block: &raw mut record.status_block,
-            context: std::ptr::from_ref(slot).cast(),
+        let record = slot.record.get();
+        // SAFETY: `record` points into the live table; only field addresses are
+        // computed, nothing is read or written and no reference is formed.
+        unsafe {
+            Request {
+                info: &raw mut (*record).info,
+                status_block: &raw mut (*record).status_block,
+                context: std::ptr::from_ref(slot).cast(),
+            }
         }
     }
 
@@ -228,15 +235,12 @@ impl SlotTable {
             .is_ok()
     }
 
-    /// Address of the status block of a slot this thread marked cancelling.
+    /// Address of a slot's status block, for the canceller that marked it.
     pub(super) fn status_block(&self, index: usize) -> *const IO_STATUS_BLOCK {
-        // SAFETY: the caller holds the slot through `begin_cancel`, so the
-        // record stays in place; only a field address is taken.
-        unsafe {
-            (*self.slots[index].record.get())
-                .as_ref()
-                .map_or(std::ptr::null(), |record| &raw const record.status_block)
-        }
+        let record = self.slots[index].record.get();
+        // SAFETY: `record` points into the live table; only a field address is
+        // computed, nothing is read and no reference is formed.
+        unsafe { &raw const (*record).status_block }
     }
 
     /// The canceller left `NtCancelIoFileEx`; release the slot if the packet
@@ -273,16 +277,15 @@ impl SlotTable {
             }
             return Completion::Cancelled;
         }
+        let record = slot.record.get();
         // SAFETY: the kernel finished with the record (its packet is dequeued)
         // and no canceller holds the slot, so this thread is the only reader.
+        // Fields are copied out through pointers without forming a reference.
         let (status, readiness) = unsafe {
-            let record = (*slot.record.get())
-                .as_ref()
-                .expect("an armed slot holds a record");
-            (
-                record.status_block.Anonymous.Status,
-                record.info.readiness(record.socket),
-            )
+            let block = (&raw const (*record).status_block).read();
+            let info = (&raw const (*record).info).read();
+            let socket = (&raw const (*record).socket).read();
+            (block.Anonymous.Status, info.readiness(socket))
         };
         let token = Token::new(index, (prior >> 32) as u32);
         self.release(index);
@@ -305,3 +308,6 @@ impl SlotTable {
         self.unclaim(index);
     }
 }
+
+#[cfg(test)]
+mod tests;
