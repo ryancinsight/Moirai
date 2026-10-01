@@ -2,7 +2,7 @@
 
 use std::io;
 use std::os::windows::io::RawSocket;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock, TryLockError};
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::HANDLE;
@@ -151,19 +151,31 @@ impl AfdPort {
     /// were dequeued, including cancelled ones whose readiness is suppressed;
     /// a wake or a timeout returns `0`.
     ///
-    /// The sink may [`arm`](Self::arm) and [`cancel`](Self::cancel) but must
-    /// not call `poll`.
+    /// One thread polls at a time. A call made while another thread is inside
+    /// `poll` returns `WouldBlock` at once instead of waiting behind it, so
+    /// `timeout` bounds every call. The sink may [`arm`](Self::arm) and
+    /// [`cancel`](Self::cancel) but must not call `poll`.
     ///
     /// # Errors
     ///
-    /// The driver's error when the wait fails. A poll the driver completed
+    /// `WouldBlock` when another thread is polling, or the driver's error when
+    /// the wait fails. A poll the driver completed
     /// with a failure status is reported to the sink as `Err`.
     pub fn poll(
         &self,
         timeout: Option<Duration>,
         mut sink: impl FnMut(Token, io::Result<Event>),
     ) -> io::Result<usize> {
-        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut entries = match self.entries.try_lock() {
+            Ok(entries) => entries,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "another thread is polling this AFD port",
+                ));
+            }
+        };
         let dequeued = self.port.dequeue(&mut entries, timeout)?;
         let mut polls = 0;
         for entry in &entries[..dequeued] {

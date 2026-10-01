@@ -87,7 +87,9 @@ any replacement must still deliver readiness.
    `DISCONNECT` to `Event::hangup`, `LOCAL_CLOSE` to invalidation of that
    generation.
 9. **Dispatch thread.** The existing driver (`IoReactor::run` or an executor's
-   `run_iteration`) polls the port. No second thread is added.
+   `run_iteration`) polls the port. No second thread is added. One thread
+   polls at a time: a concurrent `poll` returns `WouldBlock` immediately
+   rather than waiting behind the first, so a timeout bounds every call.
 
 ## Slices
 

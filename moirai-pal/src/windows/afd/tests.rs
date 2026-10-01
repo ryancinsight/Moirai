@@ -240,3 +240,37 @@ fn cancel_after_the_completion_queued_still_suppresses_a_writable_poll() {
     assert!(finished.is_empty(), "the cancelled poll must not report");
     assert_eq!(port.armed(), 0);
 }
+
+#[test]
+fn a_second_poller_is_refused_instead_of_waiting_behind_the_first() {
+    let port = AfdPort::new(1).expect("port");
+    let (started, running) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let long = scope.spawn(|| {
+            started.send(()).expect("announce");
+            // The main thread's zero-timeout polls may hold the dequeue slot
+            // when this call arrives; retry until it owns the slot.
+            loop {
+                match port.poll(None, |_, _| {}) {
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::yield_now();
+                    }
+                    outcome => break outcome,
+                }
+            }
+        });
+        running.recv().expect("long poller started");
+        // The long poller takes the dequeue slot some time after announcing;
+        // every call before that returns 0 at once, every call after is refused.
+        let refused = loop {
+            match port.poll(Some(Duration::ZERO), |_, _| {}) {
+                Ok(0) => std::thread::yield_now(),
+                Ok(polls) => panic!("no poll was armed, dequeued {polls}"),
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(refused.kind(), io::ErrorKind::WouldBlock);
+        port.wake().expect("release the long poller");
+        assert_eq!(long.join().expect("long poller").expect("long poll"), 0);
+    });
+}
