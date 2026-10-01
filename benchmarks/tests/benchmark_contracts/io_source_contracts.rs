@@ -3,6 +3,8 @@ fn async_io_extension_futures_are_zero_copy_and_value_semantic() {
     let io_source = read_benchmark("../moirai-async/src/io.rs");
     let io_tests = read_benchmark("../moirai-async/src/io/tests.rs");
     let compat_tests = read_benchmark("../moirai-async/src/io/compat/tests.rs");
+    let buffered_tests = read_benchmark("../moirai-async/src/io/compat/tests/buffered.rs");
+    let vectored_tests = read_benchmark("../moirai-async/src/io/compat/tests/vectored.rs");
     let tcp_benchmark = read_benchmark("benches/async_tcp_comparison.rs");
     let compat_benchmark = read_benchmark("benches/async_io_compat_comparison.rs");
     let benchmark_manifest = read_benchmark("Cargo.toml");
@@ -30,6 +32,10 @@ fn async_io_extension_futures_are_zero_copy_and_value_semantic() {
         "impl<T: AsyncWrite + Unpin> tokio::io::AsyncWrite for TokioCompat<T>",
         "impl<T: tokio::io::AsyncRead + Unpin> AsyncRead for MoiraiCompat<T>",
         "impl<T: tokio::io::AsyncWrite + Unpin> AsyncWrite for MoiraiCompat<T>",
+        "impl<T: AsyncBufRead + Unpin> tokio::io::AsyncBufRead for TokioCompat<T>",
+        "impl<T: tokio::io::AsyncBufRead + Unpin> AsyncBufRead for MoiraiCompat<T>",
+        "fn poll_write_vectored(",
+        "fn is_write_vectored(&self) -> bool",
     ] {
         assert!(
             io_source.contains(required),
@@ -74,6 +80,30 @@ fn async_io_extension_futures_are_zero_copy_and_value_semantic() {
         assert!(
             compat_tests.contains(required),
             "async I/O compatibility tests must retain scenario {required}"
+        );
+    }
+
+    for required in [
+        "buffered_windows_match_across_native_and_wrapped_paths",
+        "tokio_line_reads_over_a_moirai_buffered_reader_keep_line_boundaries",
+        "tokio_fill_buf_registers_the_polling_context_and_consume_advances",
+        "moirai_fill_buf_registers_the_polling_context_and_consume_advances",
+    ] {
+        assert!(
+            buffered_tests.contains(required),
+            "async I/O buffered-read tests must retain scenario {required}"
+        );
+    }
+
+    for required in [
+        "tokio_vectored_write_reaches_a_vectored_moirai_writer",
+        "writers_without_vectored_support_take_the_first_non_empty_slice",
+        "moirai_vectored_write_matches_the_native_gather",
+        "moirai_vectored_capability_follows_the_tokio_writer",
+    ] {
+        assert!(
+            vectored_tests.contains(required),
+            "async I/O vectored-write tests must retain scenario {required}"
         );
     }
 

@@ -67,14 +67,14 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define the worker lifecycle and memory-isolation threat model before selecting the routing representation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-TOKIO-IO-COMPAT-001"></a>
-## MOI-TOKIO-IO-COMPAT-001 — Complete bidirectional async I/O trait mapping
+<a id="MOI-FUTURES-IO-COMPAT-001"></a>
+## MOI-FUTURES-IO-COMPAT-001 — Move the futures-io wrappers into the compatibility module
 - status: todo
 - priority: architecture
-- outcome: Moirai and Tokio I/O types interoperate through transparent typed wrappers without scheduling or allocation in the adapter.
-- acceptance: Both wrapper directions implement read/write traits, readiness transitions wake the correct context, layout is transparent, and native/compat behavior is value-equivalent.
-- scope: async I/O compatibility wrappers and readiness mapping; Tokio remains a comparison and interoperability dependency.
-- next step: Map `AsyncBufRead` (`poll_fill_buf`, `consume`) and vectored writes (`poll_write_vectored`, `is_write_vectored`) through both wrappers; read, write, flush, shutdown, layout, and waker propagation are delivered and tested.
+- outcome: One wrapper family in `moirai-async::io::compat` maps Moirai I/O onto every external trait family it supports, and `moirai-tls` consumes it.
+- acceptance: `ToFuturesIo` and `ToMoiraiIo` leave `moirai-tls`; the replacement wrappers are `#[repr(transparent)]`, forward the task context and vectored writes, and pass the duplex, wake, EOF, and large-transfer scenarios of `io/compat/tests.rs`.
+- scope: `moirai-tls/src/lib.rs` wrappers, `moirai-async/src/io/compat.rs`, their callers, and ADR 0006.
+- next step: Search the workspace for `ToFuturesIo` and `ToMoiraiIo` callers, then extend the compat module with the `futures::io` traits and migrate them.
 - basis: `3bf9b07808fd2326033f308eacbc2aa4325013fc`
 
 <a id="MOI-WASM-PROMISE-FUTURE-001"></a>
@@ -208,6 +208,16 @@ belong in [gap_audit.md](gap_audit.md).
 - scope: browser `fetch` and the general browser network facade; native sockets remain separate.
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+
+<a id="MOI-ASYNC-SEEK-001"></a>
+## MOI-ASYNC-SEEK-001 — Define an async seek trait for Moirai I/O
+- status: todo
+- priority: feature
+- outcome: Moirai files and in-memory cursors seek through a poll-based trait that maps onto `tokio::io::AsyncSeek`.
+- acceptance: `File::seek` is reachable through the trait, the compat wrappers forward `start_seek` and `poll_complete` with the caller's task context, and a seek in flight survives a re-poll under a new waker.
+- scope: `moirai-async::io::traits`, `moirai-async::fs::file`, `io/compat.rs`, and ADR 0006.
+- next step: Specify the trait against `File`'s pooled seek request and decide whether a seek in flight is cancellation-safe before writing it.
+- basis: `3bf9b07808fd2326033f308eacbc2aa4325013fc`
 
 <a id="MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30"></a>
 ## MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30 — One spin-then-yield schedule for bounded-wait sites

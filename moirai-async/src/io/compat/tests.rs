@@ -18,6 +18,9 @@ use std::task::{Context, Poll, Wake, Waker};
 use tokio_dep as tokio;
 use tokio_dep::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
+mod buffered;
+mod vectored;
+
 #[derive(Default)]
 struct PipeState {
     bytes: VecDeque<u8>,

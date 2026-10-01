@@ -1,13 +1,13 @@
 // These are used only by the `tokio-compat` trait-bridge impls below.
 #[cfg(feature = "tokio-compat")]
-use std::io;
+use std::io::{self, IoSlice};
 #[cfg(feature = "tokio-compat")]
 use std::pin::Pin;
 #[cfg(feature = "tokio-compat")]
 use std::task::{Context, Poll};
 
 #[cfg(feature = "tokio-compat")]
-use crate::io::traits::{AsyncRead, AsyncWrite};
+use crate::io::traits::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[cfg(feature = "tokio-compat")]
 use tokio_dep as tokio;
@@ -116,12 +116,35 @@ impl<T: AsyncWrite + Unpin> tokio::io::AsyncWrite for TokioCompat<T> {
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(feature = "tokio-compat")]
+impl<T: AsyncBufRead + Unpin> tokio::io::AsyncBufRead for TokioCompat<T> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        Pin::new(&mut self.get_mut().inner).poll_fill_buf(cx)
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        Pin::new(&mut self.get_mut().inner).consume(amt);
     }
 }
 
@@ -151,11 +174,34 @@ impl<T: tokio::io::AsyncWrite + Unpin> AsyncWrite for MoiraiCompat<T> {
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(feature = "tokio-compat")]
+impl<T: tokio::io::AsyncBufRead + Unpin> AsyncBufRead for MoiraiCompat<T> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        Pin::new(&mut self.get_mut().inner).poll_fill_buf(cx)
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        Pin::new(&mut self.get_mut().inner).consume(amt);
     }
 }
