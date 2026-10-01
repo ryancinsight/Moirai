@@ -72,3 +72,4 @@
 | [0064](0064-bounded-browser-text-clipboard.md) | Bounded browser text clipboard | Accepted |
 | [0065](0065-per-monitor-dpi-awareness.md) | Per-monitor DPI awareness for native windows | Accepted |
 | [0066](0066-windows-accessibility-bridge.md) | Windows accessibility bridge at the PAL boundary | Accepted |
+| [0067](0067-windows-readiness-through-afd-polls-on-a-completion-port.md) | Windows Readiness Through AFD Polls on One Completion Port | Proposed |

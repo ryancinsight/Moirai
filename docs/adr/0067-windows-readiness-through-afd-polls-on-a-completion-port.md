@@ -1,0 +1,142 @@
+# ADR 0067: Windows Readiness Through AFD Polls on One Completion Port
+
+Status: Proposed
+
+**Date**: 2026-09-30
+
+Driving item: MOI-NATIVE-REACTOR-001. Audit and claim: PR 570.
+
+## Context
+
+ADR 0014 records the as-built Windows backend: `WsaPollReactor`, a
+level-triggered `WSAPoll` loop. Against the item's Windows acceptance (pinned
+overlapped operations, handles bound once, completions mapped to wakers without
+thread contention or heap allocation in the poll loop) the audit found:
+
+| Property | As built | Location |
+| --- | --- | --- |
+| Idle behavior | Driver wakes every 10 ms (67 iterations per second measured with the 15.6 ms Windows timer tick) | `reactor/core/lifecycle.rs` `run` |
+| Poll cost | Snapshot of every registration rebuilt each iteration under two mutexes; cost O(registered sockets) | `windows/poll/polling.rs` |
+| Registration cost | Every registration sends a loopback UDP datagram to interrupt the poll and contends with the poller on the same mutexes | `windows/poll/registration.rs` |
+| Allocation in the loop | A `Vec` of events is returned per iteration; the dispatch path consumes it | `polling.rs`, `lifecycle.rs` `run_iteration` |
+| Lifetime | Weak socket owners upgraded to leases so `closesocket` cannot race `WSAPoll` | `windows/poll/types.rs` |
+| Closed-socket detection | `POLLNVAL`, generation-tagged | `polling.rs` |
+| Connect failure | `select` re-probe every 100 ms for pre-2004 `WSAPoll` | `net/connect/reprobe.rs` |
+| Files | Blocking pool; no overlapped I/O | ADR 0014 decision 9 |
+
+The "cooperative fallback" in the item is the no-reactor self-wake
+(`net.rs` `wake_without_active_reactor`: `wake_by_ref` plus `yield_now`). It is
+not a Windows mechanism and is live only when no reactor exists. Measured on
+this host with a counting waker over 2 s on an idle socket read: the fallback
+performed 2,681,402 polls and 2,681,402 wakes and consumed 1015.6 ms of process
+CPU; the reactor path performed 0 wakes from 134 driver iterations (process CPU
+below the 15.6 ms accounting quantum). Host-specific, single run; the wake
+counts are pinned as tests (ADR 0014 Verification), the CPU figure is not.
+
+An earlier IOCP backend was deleted because overlapped completions are not
+socket readiness and could not drive `net.rs`'s try-then-register futures
+(CHANGELOG entry "real readiness reactor on Windows"). That constraint stands:
+any replacement must still deliver readiness.
+
+## Decision (recommended; sign-off asynchronous)
+
+1. **Readiness is delivered by `IOCTL_AFD_POLL` requests completed through one
+   I/O completion port.** This is the mechanism of mio (`src/sys/windows/afd.rs`,
+   `selector.rs`, version 1.2.3) and wepoll. Each armed interest is one pinned
+   `IO_STATUS_BLOCK` plus `AFD_POLL_INFO` issued with `NtDeviceIoControlFile` on
+   an AFD device handle; the completion packet names that record.
+   The socket-facing `net.rs` surface and the `Reactor` trait seam are
+   unchanged, so Windows shares the readiness protocol of ADR 0014 with Unix.
+2. **Handles bind once.** AFD handles are opened with `NtCreateFile` on
+   `\Device\Afd\Moirai`, associated with the port once, and set to skip the
+   handle event (`FILE_SKIP_SET_EVENT_ON_HANDLE`). mio groups 32 sockets per
+   AFD handle without stating a reason in its source; slice 1 measures whether
+   grouping is needed before adopting it. Sockets are polled by their base
+   handle (`SIO_BASE_HANDLE`, with mio's `SIO_BSP_HANDLE_*` fallbacks for
+   layered providers) and are never associated with the port; a socket with no
+   base handle fails registration with a typed error.
+3. **Slot table, no allocation in dispatch.** Records live in a table of
+   fixed-address slots sized at registration time, never moved. A slot carries
+   a generation; a `Token` is (index, generation). Free slots are claimed and
+   released through an atomic bitmap, so neither the claim nor the dispatch
+   path takes a lock. The poll loop reads completions into a preallocated
+   `OVERLAPPED_ENTRY` buffer and delivers readiness through a caller-provided
+   sink (`FnMut(Token, Event)`), replacing the per-iteration `Vec`.
+4. **One-shot per arm, one arm per socket.** An AFD poll completes once with
+   the current readiness, matching ADR 0014 decision 2; re-arming after a
+   `WouldBlock` has no lost-edge window because the poll reports state already
+   present. mio's source states that an AFD poll cannot be modified or
+   synchronously cancelled and that only one may be active per (socket,
+   completion port); a change of interest is cancel plus re-arm with the union
+   mask, and the caller (the reactor's registration table) guarantees one armed
+   token per socket.
+5. **Completion-after-cancel race.** A slot returns to free only when its
+   completion packet is dequeued, whether it finished or was cancelled
+   (`NtCancelIoFileEx`). A cancel moves the slot `Armed -> Cancelling` for its
+   generation; a stale token (older generation) is a no-op and cannot cancel a
+   later arm of the reused slot. A cancelled slot's readiness is suppressed.
+6. **Wake.** `PostQueuedCompletionStatus` with a reserved key replaces the
+   loopback UDP socket; a wake posted before the poller blocks is not lost.
+7. **Shutdown.** Drop cancels every armed slot, then drains the port until no
+   slot is armed, bounded by a deadline derived from the driver's cancellation
+   latency. If the deadline passes, the table is leaked rather than freed: the
+   kernel may still write to it.
+8. **Typed errors.** `NTSTATUS` maps through `RtlNtStatusToDosError` to
+   `io::Error`; `AFD_POLL_ABORT`/`CONNECT_FAIL` map to `Event::error`,
+   `DISCONNECT` to `Event::hangup`, `LOCAL_CLOSE` to invalidation of that
+   generation.
+9. **Dispatch thread.** The existing driver (`IoReactor::run` or an executor's
+   `run_iteration`) polls the port. No second thread is added.
+
+## Slices
+
+1. **Port core** (`windows/afd`): port, AFD groups, slot table, arm, cancel,
+   poll with sink, wake, drain-on-drop, tested against loopback sockets.
+2. **Reactor swap**: `Reactor` implementation over the port replaces
+   `WsaPollReactor`, `SocketLease`, `POLLNVAL` generation handling, and the
+   connect re-probe in one change; the registration table grows by appending
+   fixed-address chunks.
+3. **Allocation-free dispatch and idle**: sink-based `poll_registered_events`
+   on every backend; `run` blocks without a timeout since `stop` and every
+   registration wake the poller.
+4. **Native file I/O** (separate ADR): overlapped `ReadFile`/`WriteFile` with
+   owned buffers on the same port, replacing pool offload for Windows files.
+
+## Acceptance test design
+
+- Value assertions on real loopback sockets: readable after peer write,
+  writable on a fresh connection, readable plus hangup after peer close.
+- Cancellation: cancel before and concurrently with readiness (barrier-
+  synchronized), either outcome accepted, every slot free afterward.
+- Stale token cannot cancel a later arm of a reused slot (capacity one).
+- Drop with armed polls completes within the drain bound.
+- Wake posted before and after the poller blocks returns it.
+- No allocation in the poll loop, measured with the counting-allocator harness
+  of `moirai-async/tests/task_poll_allocations.rs` (slice 3).
+- No sleeps; synchronization by channels, barriers, and bounded blocking waits.
+
+## Rejected alternatives
+
+- **Completion-model sockets (overlapped `WSARecv`/`WSASend`).** Changes buffer
+  ownership across the shared `net.rs` surface and adds the cancel race to
+  every read and write; its benefits do not reach the stated acceptance more
+  directly than readiness over the same port.
+- **Keep `WSAPoll`, remove allocations and the tick only.** Leaves the O(n)
+  snapshot, loopback wake, and lease machinery; fails "binds handles once".
+- **Zero-byte overlapped `WSARecv` for read readiness.** Documented API but no
+  write or connect readiness equivalent.
+- **Linux first.** The epoll backend implements generation-bound readiness; its
+  gap is the acceptance wording (ADR 0014 Residual Risk), a respecification
+  rather than a mechanism. Windows is the measured gap and the only target
+  executable on the development host.
+
+## Risks and overturning evidence
+
+- `IOCTL_AFD_POLL`, `AFD_POLL_INFO`, the event bits, and the device name are
+  undocumented by Microsoft. Their layout is taken from mio 1.2.3
+  (`src/sys/windows/afd.rs`, read in the local cargo registry); mio ships on
+  them. Slice 1 pins the layout with size and offset assertions and a creation
+  self-check that fails with a typed error rather than degrading.
+- Overturn if the port's completion latency or per-registration cost measures
+  worse than `WSAPoll` on the registration-churn benchmark, or if the driver
+  rejects the 32-slot grouping on supported Windows versions.
