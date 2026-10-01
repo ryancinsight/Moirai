@@ -28,7 +28,11 @@ const ARMED: u64 = 1;
 const CANCELLING: u64 = 2;
 /// The completion packet was dequeued.
 const COMPLETED: u64 = 4;
-const FLAGS: u64 = 7;
+/// A cancellation was requested for this arm. Unlike `CANCELLING` it is never
+/// cleared by the canceller, so a completion that raced the cancellation and
+/// reached the queue first is still suppressed.
+const REQUESTED: u64 = 8;
+const FLAGS: u64 = 15;
 
 /// Identity of one armed poll: slot index and the generation of that arm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -217,7 +221,7 @@ impl SlotTable {
             .word
             .compare_exchange(
                 armed,
-                armed | CANCELLING,
+                armed | CANCELLING | REQUESTED,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             )
@@ -260,7 +264,13 @@ impl SlotTable {
             prior & ARMED != 0 && prior & COMPLETED == 0,
             "a packet names an armed, uncompleted slot"
         );
-        if prior & CANCELLING != 0 {
+        if prior & REQUESTED != 0 {
+            // A canceller still inside `NtCancelIoFileEx` releases the slot in
+            // `end_cancel`; otherwise this thread does. Either way the caller
+            // asked for the poll to stop, so no readiness is reported.
+            if prior & CANCELLING == 0 {
+                self.release(index);
+            }
             return Completion::Cancelled;
         }
         // SAFETY: the kernel finished with the record (its packet is dequeued)

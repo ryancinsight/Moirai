@@ -184,7 +184,7 @@ fn dropping_the_port_with_armed_polls_returns_and_leaves_sockets_usable() {
 }
 
 #[test]
-fn cancel_racing_readiness_resolves_to_one_outcome_and_frees_the_slot() {
+fn cancel_racing_readiness_is_always_suppressed_and_frees_the_slot() {
     for _ in 0..64 {
         let (server, mut client) = pair();
         let port = AfdPort::new(1).expect("port");
@@ -202,16 +202,41 @@ fn cancel_racing_readiness_resolves_to_one_outcome_and_frees_the_slot() {
         });
         let (polls, finished) = dequeue(&port);
         assert_eq!(polls, 1);
-        match finished.as_slice() {
-            [] => {}
-            [(delivered, event)] => {
-                assert_eq!(*delivered, token);
-                assert!(event.as_ref().expect("readiness").readable);
-            }
-            other => panic!("one poll produced {} reports", other.len()),
-        }
+        assert!(
+            finished.is_empty(),
+            "a cancelled poll reports no readiness whichever side won the race"
+        );
         assert_eq!(port.armed(), 0);
         port.arm(socket_id(&server), Interest::READABLE)
             .expect("the slot must be reusable after the race");
     }
+}
+
+#[test]
+fn cancel_after_the_completion_queued_still_suppresses_a_readable_poll() {
+    let (server, mut client) = pair();
+    client.write_all(b"x").expect("peer write");
+    let port = AfdPort::new(1).expect("port");
+    let token = port
+        .arm(socket_id(&server), Interest::READABLE)
+        .expect("arm an already-readable socket");
+    port.cancel(token).expect("cancel");
+    let (polls, finished) = dequeue(&port);
+    assert_eq!(polls, 1);
+    assert!(finished.is_empty(), "the cancelled poll must not report");
+    assert_eq!(port.armed(), 0);
+}
+
+#[test]
+fn cancel_after_the_completion_queued_still_suppresses_a_writable_poll() {
+    let (_server, client) = pair();
+    let port = AfdPort::new(1).expect("port");
+    let token = port
+        .arm(socket_id(&client), Interest::WRITABLE)
+        .expect("arm a writable socket");
+    port.cancel(token).expect("cancel");
+    let (polls, finished) = dequeue(&port);
+    assert_eq!(polls, 1);
+    assert!(finished.is_empty(), "the cancelled poll must not report");
+    assert_eq!(port.armed(), 0);
 }
