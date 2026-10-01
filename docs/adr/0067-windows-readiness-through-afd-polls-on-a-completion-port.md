@@ -50,8 +50,9 @@ any replacement must still deliver readiness.
 2. **Handles bind once.** AFD handles are opened with `NtCreateFile` on
    `\Device\Afd\Moirai`, associated with the port once, and set to skip the
    handle event (`FILE_SKIP_SET_EVENT_ON_HANDLE`). mio groups 32 sockets per
-   AFD handle without stating a reason in its source; slice 1 measures whether
-   grouping is needed before adopting it. Sockets are polled by their base
+   AFD handle without stating a reason in its source; slice 1 adopts the
+   grouping unmeasured and slice 2's registration-churn benchmark decides
+   whether it stays. Sockets are polled by their base
    handle (`SIO_BASE_HANDLE`, with mio's `SIO_BSP_HANDLE_*` fallbacks for
    layered providers) and are never associated with the port; a socket with no
    base handle fails registration with a typed error.
@@ -90,12 +91,16 @@ any replacement must still deliver readiness.
 
 ## Slices
 
-1. **Port core** (`windows/afd`): port, AFD groups, slot table, arm, cancel,
-   poll with sink, wake, drain-on-drop, tested against loopback sockets.
+1. **Port core** (`windows/afd`, delivered by the slice 1 PR): port, AFD
+   groups, fixed-capacity slot table, arm, cancel, poll with sink, wake,
+   drain-on-drop, tested against loopback sockets, with the arm-and-dispatch
+   allocation contract. The table is fixed-capacity and refuses with
+   `QuotaExceeded`; slice 2 makes it grow by appending fixed-address chunks.
 2. **Reactor swap**: `Reactor` implementation over the port replaces
    `WsaPollReactor`, `SocketLease`, `POLLNVAL` generation handling, and the
    connect re-probe in one change; the registration table grows by appending
-   fixed-address chunks.
+   fixed-address chunks, and `AfdPort::poll` gains a distinct signal for a
+   local close, which the slice 1 `Event` mapping folds into error plus hangup.
 3. **Allocation-free dispatch and idle**: sink-based `poll_registered_events`
    on every backend; `run` blocks without a timeout since `stop` and every
    registration wake the poller.
@@ -111,8 +116,9 @@ any replacement must still deliver readiness.
 - Stale token cannot cancel a later arm of a reused slot (capacity one).
 - Drop with armed polls completes within the drain bound.
 - Wake posted before and after the poller blocks returns it.
-- No allocation in the poll loop, measured with the counting-allocator harness
-  of `moirai-async/tests/task_poll_allocations.rs` (slice 3).
+- No allocation in arm and dispatch, measured with a counting allocator
+  (`moirai-pal/tests/afd_poll_allocations.rs`, slice 1); the same contract over
+  `IoReactor::run_iteration` lands with slice 3.
 - No sleeps; synchronization by channels, barriers, and bounded blocking waits.
 
 ## Rejected alternatives

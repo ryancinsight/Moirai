@@ -44,7 +44,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Native file and socket operations reach task wakers through their operating system readiness or completion mechanism without a busy poll.
 - acceptance: Windows pins overlapped operations, binds handles once, and maps completions to wakers without thread contention or heap allocation in the poll loop; Linux/BSD register edge-triggered interests, wake exact tasks, and translate hangup/error flags to typed I/O errors.
 - scope: Windows completion backend, epoll/kqueue readiness, descriptor registration, and typed event translation.
-- next step: Land slice 1 of ADR 0067 (Proposed): `windows/afd` port core (completion port, AFD handles bound once, fixed-address slot table, arm/cancel/poll-with-sink/wake, drain on drop) with loopback-socket tests. Then slice 2 swaps `WsaPollReactor` for it; slice 3 removes the 10 ms idle tick and the per-iteration `Vec` on every backend; slice 4 (native Windows file I/O) needs its own ADR.
+- next step: Slice 2 of ADR 0067 (Proposed; slice 1, `windows/afd`, is delivered): a `Reactor` implementation over `AfdPort` with a growable slot table replaces `WsaPollReactor`, `SocketLease`, the `POLLNVAL` generation handling, and the connect re-probe in one change. Then slice 3 removes the 10 ms idle tick and the per-iteration `Vec` on every backend; slice 4 (native Windows file I/O) needs its own ADR.
 - blocker for the Linux/BSD clause: the acceptance says edge-triggered, ADR 0014 decision 3 records level-triggered plus one-shot dispatch as required by register-after-`WouldBlock`; respecify the clause (judgment tier) before Unix work.
 - basis: `3bf9b07808fd2326033f308eacbc2aa4325013fc`
 
