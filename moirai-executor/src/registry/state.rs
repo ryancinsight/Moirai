@@ -46,7 +46,7 @@ pub(super) enum Retirement {
 /// to outlive the job and make their final access to the state when they retire.
 ///
 /// The flags live apart from the states: a flag beside its state would pad every
-/// 72-byte state to 80 bytes, and the retirement scan reads flags without
+/// 64-byte state to 72 bytes, and the retirement scan reads flags without
 /// touching state lines.
 pub(super) struct TaskStateBlock {
     published: Box<[AtomicBool]>,
@@ -62,10 +62,11 @@ unsafe impl Sync for TaskStateBlock {}
 /// The waker slot of a [`TaskState`]: an `Option<Waker>` behind a tiny
 /// self-contained spin lock.
 ///
-/// [`std::sync::Mutex`] was rejected for this slot: its POSIX `pthread_mutex_t`
-/// is 64 bytes on macOS (32 on Linux, 40 on Windows), which pushed the pinned
-/// per-task state past its budget on macOS aarch64. The lock here is one flag
-/// byte plus padding, and the critical sections clone a waker, run
+/// [`std::sync::Mutex`] was rejected for this slot: `Mutex<Option<Waker>>` is
+/// 32 bytes on macOS, where std reaches its `pthread_mutex_t` through a lazily
+/// boxed pointer, against 24 on the futex targets (Linux, Windows), and with it
+/// the per-task state was 80 bytes on macOS. The lock here is one flag byte
+/// plus padding, and the critical sections clone a waker, run
 /// [`Waker::will_wake`](std::task::Waker::will_wake) over a short member list,
 /// or take the waker out — all
 /// bounded, never blocking, so spinning with a yield is safe under any
@@ -141,12 +142,11 @@ pub(crate) struct TaskState {
 }
 
 // A registry block holds 1,024 of these plus one flag byte each; the size is
-// pinned because retained memory per task is this figure. The budget binds on
-// x86_64 (8-aligned `Instant`, 72 bytes); macOS aarch64's 16-aligned `Instant`
-// lands at 64 bytes. `worker_id` is `u32` and the waker slot carries its own
-// spin lock because a `std::sync::Mutex`'s POSIX `pthread_mutex_t` is 64 bytes
-// on macOS and would not fit under either alignment.
-const _: () = assert!(size_of::<TaskState>() <= 72);
+// pinned because retained memory per task is this figure: 64 bytes on every
+// 64-bit target (`Instant` is 16 bytes, 8-aligned, on each), 56 on wasm32.
+// `worker_id` is `u32` and the waker slot carries its own spin lock (see
+// `WakerSlot`) to stay within it.
+const _: () = assert!(size_of::<TaskState>() <= 64);
 
 impl std::fmt::Debug for TaskState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
