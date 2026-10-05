@@ -6,29 +6,51 @@
 //! is one extra executor poll, so the allocation difference between the runs,
 //! divided by the yield difference, is the per-poll allocation cost of the
 //! executor's poll path (waker mint, run-queue re-entry, reactor iteration).
+//!
+//! The counter is per-thread. `block_on` polls on the calling thread
+//! (`moirai-async/src/executor/core.rs`), so the calling thread's count is
+//! exactly the poll path's cost and excludes every other thread. A
+//! process-wide counter would also book the libtest harness thread, which
+//! allocates inside the window at an unpredictable rate, so the longer
+//! `LONG` window would read more than the shorter `SHORT` one and the
+//! assertion would be flaky rather than wrong.
 
 use moirai_async::AsyncExecutor;
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
 struct CountingAllocator;
 
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+// `const` initialization keeps this slot allocation-free and free of lazy
+// registration, so reading it from inside `alloc` cannot recurse.
+thread_local! {
+    static THREAD_ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+}
+
+#[inline]
+fn count_allocation() {
+    // `try_with` tolerates a destroyed TLS slot during thread teardown.
+    let _ = THREAD_ALLOCATIONS.try_with(|count| count.set(count.get() + 1));
+}
+
+fn allocations_this_thread() -> usize {
+    THREAD_ALLOCATIONS.with(Cell::get)
+}
 
 // SAFETY: every operation delegates unchanged pointers and layouts to the
 // system allocator; the counter observes calls without altering allocation.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        count_allocation();
         // SAFETY: `layout` is forwarded unchanged to the system allocator.
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        count_allocation();
         // SAFETY: `layout` is forwarded unchanged to the system allocator.
         unsafe { System.alloc_zeroed(layout) }
     }
@@ -39,7 +61,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        count_allocation();
         // SAFETY: the arguments are forwarded unchanged to the system
         // allocator that created `pointer`.
         unsafe { System.realloc(pointer, layout, new_size) }
@@ -69,9 +91,9 @@ impl Future for YieldThenReady {
 
 fn allocations_to_complete(yields: usize) -> usize {
     let executor = AsyncExecutor::new().expect("a fresh AsyncExecutor must build");
-    let before = ALLOCATIONS.load(Ordering::Relaxed);
+    let before = allocations_this_thread();
     executor.block_on(YieldThenReady { remaining: yields });
-    ALLOCATIONS.load(Ordering::Relaxed) - before
+    allocations_this_thread() - before
 }
 
 #[test]
