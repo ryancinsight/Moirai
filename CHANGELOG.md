@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
+### Changed
+
+- Release the workspace as 0.7.0 on the mnemosyne-memory 0.9.0 requirement.
+  Mnemosyne published 0.9.0 and its git default branch moved with it, so any
+  fresh resolution of `moirai-core`'s `mnemosyne-memory ^0.8` requirement
+  against the git source fails — breaking `cargo update` in the release gate
+  and in every downstream placeholder build (leto's Crates.io Release). The
+  requirements move to the 0.9 line; `mnemosyne-memory-core` stays on 0.3.0.
+
+### Breaking
+
+- The optional Mnemosyne integration now requires mnemosyne-memory 0.9.0;
+  consumers must update their dependency graph to the 0.9 provider line.
+
 ## [0.6.1] - 2026-10-02
 
 ### Added
