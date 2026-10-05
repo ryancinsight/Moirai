@@ -5,7 +5,7 @@
 This report compares Moirai with Rayon and Tokio using repository-local evidence from:
 
 - `README.md`
-- `docs/performance_results.md`
+- `PERFORMANCE_RESULTS.md`
 - `docs/rayon_tokio_gap_audit.md`
 - `docs/rayon_adapter_surface_audit.md`
 - `benchmarks/Cargo.toml`
@@ -417,7 +417,7 @@ Use Tokio over Moirai when:
 
 ## Benchmark Evidence
 
-The current repository records benchmark evidence in `docs/performance_results.md`, `docs/rayon_tokio_gap_audit.md`, and `docs/rayon_adapter_surface_audit.md`. The latest documented comparison rows include:
+The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `docs/rayon_tokio_gap_audit.md`, and `docs/rayon_adapter_surface_audit.md`. The latest documented comparison rows include:
 
 | Benchmark group | Moirai result | Reference result | Interpretation |
 | --- | ---: | ---: | --- |

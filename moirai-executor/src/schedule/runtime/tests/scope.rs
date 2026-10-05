@@ -371,30 +371,6 @@ fn scoped_job_dropped_before_running_fails_its_scope() {
     );
 }
 
-/// The waiter returns and destroys the stack-owned state as soon as the last
-/// release publishes zero, while the releasing thread is still inside its own
-/// call. Run under Miri with many seeds: a reference to the state held across
-/// the release is reported as a deallocation while protected.
-#[test]
-fn the_waiter_may_destroy_the_state_while_the_last_release_returns() {
-    let state = Box::new(SchedulerScopeState::new());
-    state.register_task();
-    // SAFETY: the lifetime is extended only so the token can move to another
-    // thread. The token reads the state only until its release publishes zero,
-    // and `wait` returns after that, which is the point the state is destroyed.
-    let extended: &'static SchedulerScopeState = unsafe { &*std::ptr::from_ref(&*state) };
-    let completion = ScopedTaskCompletion::new(extended);
-    let releaser = std::thread::spawn(move || completion.finish(true));
-
-    state.wait();
-    assert!(!state.has_panicked());
-    drop(state);
-
-    releaser
-        .join()
-        .expect("the releasing thread must not panic");
-}
-
 #[test]
 fn scoped_job_that_ran_leaves_its_scope_whole() {
     let state = SchedulerScopeState::new();

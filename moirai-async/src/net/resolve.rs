@@ -34,8 +34,7 @@ pub(super) const RESOLVER_WORKERS: usize = 4;
 /// admission wait, which costs no thread, into the channel.
 pub(super) const RESOLVER_QUEUE_DEPTH: usize = RESOLVER_WORKERS;
 
-/// The process-wide resolver pool; its workers run for the process lifetime
-/// (see the worker-lifetime section of `blocking`).
+/// The process-wide resolver pool.
 pub(super) fn pool() -> &'static BlockingPool {
     static POOL: OnceLock<BlockingPool> = OnceLock::new();
     POOL.get_or_init(|| BlockingPool::new("moirai-resolve", RESOLVER_WORKERS, RESOLVER_QUEUE_DEPTH))

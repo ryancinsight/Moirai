@@ -8,21 +8,11 @@ use super::state::{TaskState, TaskStateBlock};
 ///
 /// # Safety
 ///
-/// Implementations must keep the state at a stable address, valid to read
-/// through [`Self::state`], from construction until [`Self::retire`] clears
-/// its `token_active` flag. Clearing the flag lets the registry free a block
-/// whose lease holds no owner, so `retire` makes that store its last access
-/// and keeps no reference to the state live across it. The state may be shared
-/// across threads and accessed only through its atomic and mutex fields.
+/// Implementations must keep the returned state at a stable address until the
+/// lease is dropped. The state may be shared across threads and accessed only
+/// through its atomic and mutex fields.
 pub(crate) unsafe trait StateLease: Debug + Send + 'static {
-    /// The leased state, valid until the lease retires or drops.
     fn state(&self) -> &TaskState;
-
-    /// Release the lease's claim on the state.
-    ///
-    /// Consuming the lease ends every borrow [`Self::state`] handed out, so no
-    /// `&TaskState` is live when the block becomes free to retire.
-    fn retire(self);
 }
 
 /// Owning lease for lifecycle state that may outlive its executor.
@@ -38,9 +28,7 @@ unsafe impl Send for OwnedStateLease {}
 
 // SAFETY: the block Arc keeps every slot address stable until this lease drops;
 // the registry retires a block only after every slot in it has released its
-// token, which `token_active` records. `retire` clears that flag through a
-// pointer and drops the Arc afterwards, so the store is not the last access to
-// the allocation but holds no reference to the state.
+// token, which `token_active` records.
 unsafe impl StateLease for OwnedStateLease {
     fn state(&self) -> &TaskState {
         // Reading the owner documents and preserves the lifetime dependency;
@@ -49,12 +37,6 @@ unsafe impl StateLease for OwnedStateLease {
         // SAFETY: the block Arc keeps the allocation alive, and the registry
         // retires no block that holds an active token.
         unsafe { self.state.as_ref() }
-    }
-
-    fn retire(self) {
-        // SAFETY: the lease is consumed, so the flag is cleared once, and the
-        // block Arc keeps the state allocated until `self` drops after the store.
-        unsafe { TaskState::retire_token(self.state) };
     }
 }
 
@@ -71,19 +53,12 @@ unsafe impl Send for SchedulerStateLease {}
 
 // SAFETY: the constructor's registry-lifetime obligation keeps `state` valid;
 // the registry retires no block holding a slot whose `token_active` flag is set,
-// and `retire` makes the flag store its last access, through a pointer, with no
-// reference to the state live across it.
+// and a lease makes its last access to the state when it retires that flag.
 unsafe impl StateLease for SchedulerStateLease {
     fn state(&self) -> &TaskState {
         // SAFETY: discharged by `SchedulerStateLease::new` and preserved by
         // ownership of this lease until the lifecycle token retires.
         unsafe { self.state.as_ref() }
-    }
-
-    fn retire(self) {
-        // SAFETY: the lease is consumed, so the flag is cleared once, and the
-        // registry frees the block only after observing the cleared flag.
-        unsafe { TaskState::retire_token(self.state) };
     }
 }
 
@@ -170,16 +145,6 @@ impl<L: StateLease> TaskLifecycleToken<L> {
             .state()
     }
 
-    /// Give up lifecycle authority without recording an outcome.
-    ///
-    /// The task stays queued for whoever holds its id to drive through the
-    /// registry; dropping the token would instead record it cancelled.
-    pub(super) fn release(mut self) {
-        if let Some(lease) = self.lease.take() {
-            lease.retire();
-        }
-    }
-
     /// Record the spawn priority on the task state.
     #[inline]
     pub(crate) fn set_priority(&self, priority: Priority) {
@@ -201,7 +166,7 @@ impl<L: StateLease> TaskLifecycleToken<L> {
             .take()
             .expect("invariant: lifecycle token retains its state lease");
         lease.state().mark_cancelled();
-        lease.retire();
+        lease.state().retire_token();
     }
 
     /// Start the task unless it was cancelled while queued.
@@ -234,59 +199,44 @@ impl<L: StateLease> Drop for TaskLifecycleToken<L> {
     fn drop(&mut self) {
         if let Some(lease) = self.lease.take() {
             // A token reaches Drop only when admission or queued execution ends
-            // before `start`: the body never ran and its result sender drops
-            // with it, so the handle resolves to `TaskError::Cancelled` and the
-            // task is recorded the same way. Publish that terminal state before
-            // retiring the lease so block retirement cannot reclaim the slot
-            // during publication.
-            lease.state().mark_cancelled();
-            lease.retire();
+            // before `start`; publish terminal completion before retiring its
+            // lease so block retirement cannot reclaim the slot during publication.
+            lease.state().mark_completed();
+            lease.state().retire_token();
         }
     }
 }
 
 impl<L: StateLease> RunningTaskToken<L> {
-    /// Abandon a started task whose body will not finish: record it cancelled
-    /// and completed (waking any registered waiter), as its handle reports.
-    #[inline]
-    pub(crate) fn cancel(mut self) {
-        self.abandon();
-    }
-
     /// Mark the task as completed exactly once.
     #[inline]
     pub(crate) fn complete(mut self) -> Duration {
-        let execution_time = self
-            .lease
-            .as_ref()
-            .expect("invariant: running token retains its state lease")
-            .state()
-            .mark_completed_since(self.started_after_ns);
-        self.completed = true;
-        execution_time
+        self.complete_once()
+            .expect("invariant: consuming completion runs exactly once")
     }
 
-    /// Record a task that never reported completion as cancelled.
-    fn abandon(&mut self) {
+    #[inline]
+    pub(super) fn complete_once(&mut self) -> Option<Duration> {
         if !self.completed {
-            self.lease
+            let execution_time = self
+                .lease
                 .as_ref()
                 .expect("invariant: running token retains its state lease")
                 .state()
-                .mark_cancelled();
+                .mark_completed_since(self.started_after_ns);
             self.completed = true;
+            Some(execution_time)
+        } else {
+            None
         }
     }
 }
 
 impl<L: StateLease> Drop for RunningTaskToken<L> {
     fn drop(&mut self) {
-        // Every path that finishes the body calls `complete`; reaching Drop
-        // without it means the task was discarded mid-run, and its result
-        // sender drops with it.
-        self.abandon();
+        self.complete_once();
         if let Some(lease) = self.lease.take() {
-            lease.retire();
+            lease.state().retire_token();
         }
     }
 }

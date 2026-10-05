@@ -87,11 +87,8 @@ mod tests {
         );
     }
 
-    /// A token dropped before `start` means the job was discarded unrun, and
-    /// its result sender drops with it, so the handle resolves to `Cancelled`.
-    /// The registry records the same outcome rather than a completion.
     #[test]
-    fn unstarted_lifecycle_token_drop_records_the_task_cancelled() {
+    fn unstarted_lifecycle_token_drop_publishes_rejection_completion() {
         let before = Instant::now();
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
@@ -102,7 +99,7 @@ mod tests {
             .get_metadata(task_id)
             .expect("registered task metadata must remain readable");
         assert_eq!(metadata.started_at, None);
-        assert!(metadata.cancelled);
+        assert!(!metadata.cancelled);
         // Dropping an unstarted token still closes the task out.
         assert!(
             metadata.completed_at >= Some(before),
@@ -113,100 +110,12 @@ mod tests {
     }
 
     #[test]
-    fn running_lifecycle_token_dropped_unfinished_records_the_task_cancelled() {
+    fn running_lifecycle_token_completes_on_drop() {
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
         drop(lifecycle.start(1));
 
-        let metadata = registry.get_metadata(task_id).unwrap();
-        assert!(registry.is_completed(task_id));
-        assert!(metadata.cancelled);
-        assert_eq!(metadata.worker_id, Some(1));
-    }
-
-    #[test]
-    fn running_lifecycle_token_cancel_records_cancelled_and_completed() {
-        let registry = TaskRegistry::new();
-        let (task_id, lifecycle) = registry.register_next_task();
-
-        lifecycle.start(2).cancel();
-
-        let metadata = registry.get_metadata(task_id).unwrap();
-        assert!(metadata.cancelled);
-        assert!(registry.is_completed(task_id));
-        let started_at = metadata.started_at.expect("start() stamps started_at");
-        let completed_at = metadata.completed_at.expect("cancel stamps completed_at");
-        assert!(completed_at >= started_at);
-        assert_eq!(metadata.worker_id, Some(2));
-    }
-
-    #[test]
-    fn completed_lifecycle_token_is_not_recorded_cancelled() {
-        let registry = TaskRegistry::new();
-        let (task_id, lifecycle) = registry.register_next_task();
-
-        lifecycle.start(0).complete();
-
-        let metadata = registry.get_metadata(task_id).unwrap();
-        assert!(registry.is_completed(task_id));
-        assert!(!metadata.cancelled);
-    }
-
-    /// `register_task` hands the caller an id to drive by hand; the task must
-    /// not already be completed, or `mark_started` and `mark_completed` would
-    /// be recording a lifecycle that had ended before it began.
-    #[test]
-    fn register_task_leaves_the_task_queued_for_the_caller_to_drive() {
-        let registry = TaskRegistry::new();
-        let task_id = registry.register_task();
-
-        let queued = registry.get_metadata(task_id).unwrap();
-        assert!(!registry.is_completed(task_id));
-        assert_eq!(queued.started_at, None);
-        assert_eq!(queued.completed_at, None);
-        assert!(!queued.cancelled);
-        assert_eq!(registry.active_count(), 1);
-
-        registry.mark_started(task_id, 6);
-        assert_eq!(registry.get_metadata(task_id).unwrap().worker_id, Some(6));
-        assert!(!registry.is_completed(task_id));
-
-        registry.mark_completed(task_id);
-        let finished = registry.get_metadata(task_id).unwrap();
-        assert!(registry.is_completed(task_id));
-        let started_at = finished.started_at.expect("mark_started stamps started_at");
-        let completed_at = finished
-            .completed_at
-            .expect("mark_completed stamps completed_at");
-        assert!(completed_at >= started_at);
-        assert!(!finished.cancelled);
-        assert_eq!(registry.active_count(), 0);
-    }
-
-    /// The last task of a full block, registered by id, keeps the block
-    /// resident until the caller completes it; a sweep that retired the block
-    /// first would make the later `mark_started`/`mark_completed` no-ops.
-    #[test]
-    fn register_task_pins_its_block_until_the_caller_completes_it() {
-        use std::time::Duration;
-
-        use super::super::state::TASK_STATE_BLOCK_SIZE;
-
-        let registry = TaskRegistry::new();
-        for _ in 1..TASK_STATE_BLOCK_SIZE - 1 {
-            let (_, lifecycle) = registry.register_next_task();
-            lifecycle.start(0).complete();
-        }
-        let task_id = registry.register_task();
-        assert_eq!(task_id, (TASK_STATE_BLOCK_SIZE - 1) as u64);
-
-        assert_eq!(registry.cleanup_completed(Duration::ZERO), 0);
-        registry.mark_started(task_id, 3);
-        assert_eq!(registry.get_metadata(task_id).unwrap().worker_id, Some(3));
-
-        registry.mark_completed(task_id);
-        assert_eq!(registry.cleanup_completed(Duration::ZERO), 1);
         assert!(registry.is_completed(task_id));
     }
 

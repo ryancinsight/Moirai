@@ -1,8 +1,13 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::{
     ptr::NonNull,
     sync::{
         Arc, RwLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -70,6 +75,7 @@ pub struct TaskRegistry {
     pub(super) blocks: RwLock<BlockDirectory>,
     pub(super) next_id: AtomicU64,
     pub(super) retention: Option<RetentionPolicy>,
+    pub(super) sweep_cursor: AtomicUsize,
 }
 
 impl TaskRegistry {
@@ -81,6 +87,7 @@ impl TaskRegistry {
             blocks: RwLock::new(BlockDirectory::new()),
             next_id: AtomicU64::new(1),
             retention: None,
+            sweep_cursor: AtomicUsize::new(0),
         }
     }
 
@@ -103,15 +110,10 @@ impl TaskRegistry {
     }
 
     /// Register a new task and return its ID.
-    ///
-    /// The task stays queued until the caller drives it by id:
-    /// [`TaskRegistry::mark_started`], then [`TaskRegistry::mark_completed`].
-    /// Until it completes, its block is never retired, so both calls reach the
-    /// task. Executor code that owns the task's lifecycle uses a token instead.
     pub fn register_task(&self) -> u64 {
         let id = self.issue_id();
         let task_id = id.get();
-        self.register_owned(id).release();
+        self.register_owned(id);
         task_id
     }
 
@@ -197,21 +199,10 @@ impl TaskRegistry {
     /// A task whose block was released under the retention policy is completed.
     #[must_use]
     pub fn is_completed(&self, task_id: u64) -> bool {
-        self.completion(task_id) == Some(true)
-    }
-
-    /// Report whether a task completed, from one observation of the registry.
-    ///
-    /// `None` is an id that was never registered. A task whose block was
-    /// released under the retention policy is `Some(true)`. A caller that must
-    /// tell an unknown id from a finished one reads this once: two separate
-    /// lookups can straddle the release of the task's block.
-    #[must_use]
-    pub fn completion(&self, task_id: u64) -> Option<bool> {
         match self.observe(task_id, TaskState::is_completed) {
-            Observation::Retired => Some(true),
-            Observation::Unregistered => None,
-            Observation::Registered(completed) => Some(completed),
+            Observation::Retired => true,
+            Observation::Unregistered => false,
+            Observation::Registered(completed) => completed,
         }
     }
 
@@ -334,14 +325,30 @@ impl TaskRegistry {
     }
 
     /// Register a waker to be notified when the task completes.
-    ///
-    /// Every distinct waker registered before completion is woken by it; a
-    /// waker that `will_wake` one already registered is normally not added
-    /// again (`Waker::will_wake` is best-effort). A task that already completed
-    /// wakes the waker at once and keeps nothing. Returns `false` for an id the registry does not hold.
     pub fn register_waker(&self, task_id: u64, waker: &std::task::Waker) -> bool {
-        self.with_state(task_id, |state| state.register_waker(waker))
-            .is_some()
+        self.with_state(task_id, |state| {
+            {
+                let mut guard = state.waker.lock().unwrap();
+                *guard = Some(waker.clone());
+            }
+            // Store first, then re-check completion, mirroring the ordering
+            // `mark_completed_since` publishes: it stores the completion offset
+            // before taking the waker. A task that completed before this store
+            // has already taken the absent waker and will never take again, so
+            // the one just stored would be held for the life of the slot —
+            // along with whatever it owns, typically an `Arc` to async task
+            // state. Reclaiming it here is race-free in both directions: if
+            // completion lands after the store, it takes and wakes; if it
+            // landed before, this take wins and wakes instead. Only one take
+            // can succeed, and a spurious wake is always permitted.
+            if state.is_completed() {
+                let stranded = state.waker.lock().unwrap().take();
+                if let Some(stranded) = stranded {
+                    stranded.wake();
+                }
+            }
+        })
+        .is_some()
     }
 }
 

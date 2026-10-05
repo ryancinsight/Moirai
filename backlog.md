@@ -104,7 +104,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: The landed sharded registry either receives independent approval or a forward correction grounded in ADR 0005 and current measurements.
 - acceptance: Review the single-producer regression, multi-producer scaling, task-scheduling control, dense-block ownership, and cleanup interaction; record a verdict and any correction in ADR 0005.
 - scope: landed registry architecture and its measurement contracts; no history rewrite.
-- next step: The independent review is done and its registry defects are fixed (ADR 0005 carries the corrected bounds); repeat the decisive benchmark rows on deterministic counters or an isolated-core run, then record the verdict in ADR 0005.
+- next step: Run a fresh independent review of the current implementation and repeat the decisive benchmark rows on a controlled host.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-ASYNC-IO-COMPARISON-001"></a>
@@ -124,7 +124,7 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Every reachable unsafe operation has a current safety argument and the strongest executable check its platform permits.
 - acceptance: Inventory current unsafe sites, verify each `SAFETY` obligation against its safe caller boundary, run Miri where supported and sanitizer/targeted substitutes elsewhere, and file any unsound or uncovered unit as a correctness item.
 - scope: workspace unsafe blocks, public safe wrappers, FFI/platform boundaries, and their memory-safety tests; no stale 2024 count as a completion claim.
-- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations. The scheduled `Miri` job in `.github/workflows/rust-ci.yml` holds the interpreted set; triage what its comment lists as excluded (moirai-async worker threads that outlive their owner, tests over the per-test budget, `shm_open` and socket tests Miri cannot run) and widen the set as sites are reviewed; a survey of utils, sync, scheduler, async and core found no further undefined behavior.
+- next step: Generate a current revision inventory by crate and rank reachable trust-boundary sites before reviewing implementations.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-WASM-HEADLESS-TRACE-001"></a>
@@ -165,6 +165,16 @@ belong in [gap_audit.md](gap_audit.md).
 - acceptance: A paired benchmark records hot and 0.1/1/10-millisecond idle-gap distributions, attributes wake order, per-worker wake cost, and caller work, and accepts a change only when latency falls within a stated idle-CPU budget.
 - scope: worker park/wake policy, submitter participation, and the fixed-region benchmark; no unmeasured spin extension.
 - next step: Add the gap-controlled benchmark and profile the first region before selecting batched wake, prewake, or spin-policy changes.
+- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+
+<a id="MOI-QUEUE-PLANE-SHRINK-2026-09-02"></a>
+## MOI-QUEUE-PLANE-SHRINK-2026-09-02 — Reclaim drained queue-plane growth
+- status: todo
+- priority: tightening
+- outcome: A drained local priority plane returns retained storage to its configured capacity after a one-off burst.
+- acceptance: The allocation oracle observes configured capacity after drain, a Loom model proves quiescence excludes in-flight steals, and priority, stealing, saturation, and wake-progress behavior remains unchanged.
+- scope: local queue-plane growth, retired arrays, scheduler quiescence, allocation contract, and Loom model; no per-steal shared epoch counter.
+- next step: Model scheduler quiescence against `steal_batch`, then reclaim retired storage only at the proven boundary.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="MOI-NUMA-STEAL-BENCH-001"></a>
@@ -209,15 +219,25 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30"></a>
-## MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30 — One spin-then-yield schedule for bounded-wait sites
+<a id="MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29"></a>
+## MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29 — Settle destroy-after-unlock of the stack scope state
+- status: todo
+- priority: correctness
+- outcome: The last completer's mutex unlock is shown not to touch a scope state the waiter has already popped, or the state moves behind shared ownership.
+- acceptance: Miri (many seeds) on a scope with one job completed by a worker while the caller waits in `SchedulerScopeState::wait` reports no protected-reference deallocation inside `Mutex::unlock`/`futex_wake`, for `scope`, `for_each_indexed`, and `map_reduce_indexed`; otherwise the state is reference-counted.
+- scope: `moirai-executor/src/schedule/runtime/types.rs` (`SchedulerScopeState`), `data_parallel.rs`.
+- next step: Get mnemosyne building under Miri, then write the one-job scope reproducer.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
+<a id="MOI-RESCUE-RING-BRANCHES-2026-09-29"></a>
+## MOI-RESCUE-RING-BRANCHES-2026-09-29 — Complete or drop the parked ring-unification branches
 - status: todo
 - priority: tightening
-- outcome: The spin-then-yield schedules in `LockFreeQueue::enqueue`, the SPSC ring (`SPSC_BLOCK_SPINS`), the MPMC channel (`backoff_step`), `ResultCell`, and the task-handle waits derive from one schedule type whose spin budget is a const-generic parameter, and the change deletes more lines than it adds.
-- acceptance: A unit test pins the schedule (spin rounds, then yield); each site keeps its measured budget; a benchmark smoke run passes; `git grep -n "spin_loop()"` lists only the shared schedule and true lock spins. `enqueue` keeps its current retry count unless a benchmark shows otherwise.
-- scope: `moirai-utils/src/queue/ring.rs`, `moirai-utils/src/result_cell.rs`, `moirai-core/src/channel/{spsc/ring.rs,mpmc/block.rs,mpmc/channel.rs}`, `moirai-core/src/task/handle.rs`; not the Chase-Lev `ContentionWait` or the NUMA backoff without a recorded reason.
-- next step: Classify the `spin_loop()` sites as bounded-wait schedules or lock spins, then design the one type; the prior attempt is the head of rescue PR 506 (a public `moirai_utils::backoff` with 7 sites, no tests, changed `enqueue` retry behavior, missed the reopen wait) and is a source, not a base.
-- basis: `0a9a2a8ffcec2c07101a5475c77fa976c52ede17`
+- outcome: The unlanded work in rescue PRs 506 (`refactor/moirai-ring-backoff-shards-uncommitted`), 507 (`rescue/one-ring-core-adr-0016`), 508 (`rescue/spsc-over-canonical-ring`), and 509 (`rescue/mpmc-block-policy`) is rebased onto current main, gated, and merged, or each PR is closed with the landed-work proof.
+- acceptance: The PR diff resolved against main is either integrated with its tests and benchmark comparison, or empty; the local and remote branches are gone.
+- scope: the ring buffer, SPSC, and MPMC block-policy code named by the four rescue branches, ADR 0016, and `moirai-core` ring tests.
+- next step: Fetch each `pull/<N>/head`, review its diff against the merge base, and port the branch closest to done first.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
 
 <a id="MOI-REL-061"></a>
 ## MOI-REL-061 — Publish reusable Rust crates

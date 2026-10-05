@@ -6,7 +6,7 @@
 //! in place and hand the global executor one Melinoe partition view per buffer,
 //! reconstructing each task's disjoint run from its index. That shape lives here
 //! once — [`drive_chunks`] for the fixed-width chunk operators, and
-//! `unit_tasks::driver::drive_unit_tasks` for the byte-sized unit-task
+//! [`super::unit_tasks::driver::drive_unit_tasks`] for the byte-sized unit-task
 //! operators, both over the [`ChunkShards`] buffer-set trait — so each public
 //! entry point is a thin wrapper that names its buffer signature and adapts its
 //! closure, rather than restating the skeleton per arity.

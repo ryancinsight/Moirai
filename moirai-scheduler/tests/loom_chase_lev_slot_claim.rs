@@ -1,7 +1,7 @@
 //! Bounded Loom model of the Chase-Lev deque's slot-claim protocol, with the
 //! owner's fence-free pop fast path forced.
 //!
-//! The production deque (`moirai-scheduler/src/deque/chase_lev/`) arbitrates
+//! The production deque (`moirai-scheduler/src/deque/chase_lev.rs`) arbitrates
 //! every slot between the owner and the thieves with a per-slot state word: a
 //! taker moves `state == index` to `!index` (the claim), moves the value out,
 //! then either restores `index` (`publish`, the slot reads as ready again) or

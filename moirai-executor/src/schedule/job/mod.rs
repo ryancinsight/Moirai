@@ -232,11 +232,8 @@ where
 {
     // SAFETY: `InlineJob::new_scoped` initialized the storage with this exact
     // scoped wrapper type and execution consumes it once.
-    let ScopedJob { task, complete } =
-        unsafe { ptr::read((*storage).as_mut_ptr::<ScopedJob<F, Complete>>()) };
-    let succeeded = run_scoped_task(task, worker_id);
-    complete(succeeded);
-    succeeded
+    let scoped = unsafe { ptr::read((*storage).as_mut_ptr::<ScopedJob<F, Complete>>()) };
+    execute_scoped(scoped, worker_id)
 }
 
 unsafe fn execute_boxed_scoped<F, Complete>(
@@ -250,25 +247,18 @@ where
     // SAFETY: `InlineJob::new_scoped` initialized the storage with a box of
     // this exact scoped wrapper type and execution consumes it once.
     let scoped = unsafe { ptr::read((*storage).as_mut_ptr::<Box<ScopedJob<F, Complete>>>()) };
-    let ScopedJob { task, complete } = *scoped;
-    let succeeded = run_scoped_task(task, worker_id);
-    complete(succeeded);
-    succeeded
+    execute_scoped(*scoped, worker_id)
 }
 
-/// Run a scoped job's task and drop its captures, reporting whether it returned.
-///
-/// The completion callback is deliberately not a parameter. `complete` releases
-/// the scope waiter, which may then free the frame the task borrows from; a
-/// by-value argument holding those borrows stays protected until its function
-/// returns, so calling `complete` from inside this function would free the
-/// borrowed frame while the protection is live. The callers invoke `complete`
-/// after this returns, when nothing borrowing the scope remains.
-fn run_scoped_task<F>(task: F, worker_id: usize) -> bool
+fn execute_scoped<F, Complete>(scoped: ScopedJob<F, Complete>, worker_id: usize) -> bool
 where
     F: FnOnce(usize) + Send,
+    Complete: FnOnce(bool) + Send,
 {
-    run_caught(move || task(worker_id))
+    let ScopedJob { task, complete } = scoped;
+    let succeeded = run_caught(move || task(worker_id));
+    complete(succeeded);
+    succeeded
 }
 
 unsafe fn drop_inline<F>(storage: *mut InlineJobStorage) {

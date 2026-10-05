@@ -2,8 +2,7 @@
 //!
 //! Defines the sealed [`DequeReclaimPolicy`] / [`DequeReclaimState`] trait pair
 //! and the two concrete policy types:
-//! - [`DeferredReclaim`] — defer reclamation until the final endpoint drops or
-//!   the owner shrinks the deque (ZST)
+//! - [`DeferredReclaim`] — defer reclamation until the final endpoint drops (ZST)
 //! - [`SharedEpochReclaim`] — shared epoch-counter reclamation (ZST)
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -61,8 +60,7 @@ impl DequeReclaimState for DeferredState {
 }
 
 /// Zero-sized policy retaining retired arrays until the final owner or stealer
-/// endpoint drops or the owner shrinks the deque (`ChaseLevDeque::shrink_to`).
-/// This adds no operation-path synchronization.
+/// endpoint drops. This adds no operation-path synchronization.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DeferredReclaim;
 
