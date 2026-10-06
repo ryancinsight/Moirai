@@ -1125,6 +1125,7 @@ dependencies = [
  "futures",
  "libc",
  "loom",
+ "mnemosyne-memory",
  "moirai-async-macros",
  "moirai-core",
  "moirai-executor",

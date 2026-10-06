@@ -1,53 +1,32 @@
 //! Allocation contract for polling a spawned async task.
 //!
-//! This binary installs a counting global allocator, so it stays isolated from
-//! the ordinary async test harness. A task that yields `YIELDS` times is driven
-//! to completion twice with different yield counts; every poll beyond the first
-//! is one extra executor poll, so the allocation difference between the runs,
-//! divided by the yield difference, is the per-poll allocation cost of the
-//! executor's poll path (waker mint, run-queue re-entry, reactor iteration).
+//! This binary installs the mnemosyne per-thread counting allocator,
+//! so it stays isolated from the ordinary async test harness. A task
+//! that yields `YIELDS` times is driven to completion twice with
+//! different yield counts; every poll beyond the first is one extra
+//! executor poll, so the allocation difference between the runs,
+//! divided by the yield difference, is the per-poll allocation cost
+//! of the executor's poll path (waker mint, run-queue re-entry,
+//! reactor iteration).
+//!
+//! The counter is per-thread. `block_on` polls on the calling thread
+//! (`moirai-async/src/executor/core.rs`), so the calling thread's
+//! count is exactly the poll path's cost and excludes every other
+//! thread. A process-wide counter would also book the libtest
+//! harness thread, which allocates inside the window at an
+//! unpredictable rate, so the longer `LONG` window would read more
+//! than the shorter `SHORT` one and the assertion would be flaky
+//! rather than wrong.
 
 use moirai_async::AsyncExecutor;
-use std::alloc::{GlobalAlloc, Layout, System};
+use mnemosyne::counting::{CountingAllocator, measure};
+use std::alloc::System;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
-struct CountingAllocator;
-
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-
-// SAFETY: every operation delegates unchanged pointers and layouts to the
-// system allocator; the counter observes calls without altering allocation.
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: `layout` is forwarded unchanged to the system allocator.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: `layout` is forwarded unchanged to the system allocator.
-        unsafe { System.alloc_zeroed(layout) }
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        // SAFETY: `pointer` and `layout` came from this delegated allocator.
-        unsafe { System.dealloc(pointer, layout) };
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: the arguments are forwarded unchanged to the system
-        // allocator that created `pointer`.
-        unsafe { System.realloc(pointer, layout, new_size) }
-    }
-}
-
 #[global_allocator]
-static ALLOCATOR: CountingAllocator = CountingAllocator;
+static ALLOCATOR: CountingAllocator<System> = CountingAllocator::new(System);
 
 /// Re-wakes itself and returns `Pending` for `remaining` polls, then completes.
 struct YieldThenReady {
@@ -69,9 +48,13 @@ impl Future for YieldThenReady {
 
 fn allocations_to_complete(yields: usize) -> usize {
     let executor = AsyncExecutor::new().expect("a fresh AsyncExecutor must build");
-    let before = ALLOCATIONS.load(Ordering::Relaxed);
-    executor.block_on(YieldThenReady { remaining: yields });
-    ALLOCATIONS.load(Ordering::Relaxed) - before
+    let ((), delta) = measure(|| {
+        executor.block_on(YieldThenReady { remaining: yields });
+    });
+    // The budget counts allocation and reallocation calls -- the calls
+    // the process-global counter this test replaced counted. Deallocations
+    // were never part of it.
+    delta.allocations + delta.reallocations
 }
 
 #[test]
