@@ -18,8 +18,8 @@
 //! than the shorter `SHORT` one and the assertion would be flaky
 //! rather than wrong.
 
-use moirai_async::AsyncExecutor;
 use mnemosyne::counting::{CountingAllocator, measure};
+use moirai_async::AsyncExecutor;
 use std::alloc::System;
 use std::future::Future;
 use std::pin::Pin;
