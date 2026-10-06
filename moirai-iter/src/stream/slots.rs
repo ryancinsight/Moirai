@@ -1,6 +1,7 @@
 //! Retained bounded storage for in-flight futures.
 
 use core::future::Future;
+use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use futures::stream::Stream;
@@ -16,7 +17,7 @@ pub(crate) use unordered::retained_unordered;
 
 use wake::WakeBlock;
 
-use cell::SlotSlab;
+use cell::FutureSlot;
 
 const VACANT_END: usize = usize::MAX;
 const ORDER_END: usize = usize::MAX;
@@ -37,7 +38,7 @@ struct SlotKey {
 
 /// One independently pinned block in a lazily growing slot set.
 struct SlotBlock<Fut> {
-    slots: SlotSlab<Fut>,
+    slots: Pin<Box<[FutureSlot<Fut>]>>,
     wake: Arc<WakeBlock>,
     ready_cursor: usize,
     vacant_head: usize,
@@ -53,8 +54,19 @@ impl<Fut> SlotBlock<Fut> {
     }
 
     fn new(len: usize, wake: Arc<WakeBlock>) -> Self {
+        let slots = (0..len)
+            .map(|index| {
+                let next = if index + 1 == len {
+                    VACANT_END
+                } else {
+                    index + 1
+                };
+                FutureSlot::empty(next)
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         Self {
-            slots: SlotSlab::new(len),
+            slots: Box::into_pin(slots),
             wake,
             ready_cursor: 0,
             vacant_head: 0,
@@ -62,28 +74,49 @@ impl<Fut> SlotBlock<Fut> {
     }
 
     fn is_pollable(&self, index: usize) -> bool {
-        self.slots.is_pollable(index)
+        self.slots
+            .get(index)
+            .expect("invariant: retained slot index is in bounds")
+            .is_pollable()
+    }
+
+    fn slot_mut(
+        slots: &mut Pin<Box<[FutureSlot<Fut>]>>,
+        index: usize,
+    ) -> Pin<&mut FutureSlot<Fut>> {
+        // SAFETY: `slots` owns a pinned boxed slice and never exposes an
+        // unpinned mutable reference. Selecting one element does not move it.
+        let slots = unsafe { slots.as_mut().get_unchecked_mut() };
+        let slot = slots
+            .get_mut(index)
+            .expect("invariant: retained slot index is in bounds");
+        // SAFETY: the selected element remains inside the pinned boxed slice
+        // for the returned borrow.
+        unsafe { Pin::new_unchecked(slot) }
     }
 
     fn insert(&mut self, index: usize, future: Fut) {
-        self.slots.insert(index, future);
+        Self::slot_mut(&mut self.slots, index).insert(future);
         self.wake.set(index);
     }
 
     fn set_order_next(&mut self, index: usize, next: usize) {
-        self.slots.set_order_next(index, next);
+        Self::slot_mut(&mut self.slots, index).set_order_next(next);
     }
 
     fn order_next(&self, index: usize) -> usize {
-        self.slots.order_next(index)
+        self.slots
+            .get(index)
+            .expect("invariant: retained slot index is in bounds")
+            .order_next()
     }
 
     fn mark_completed(&mut self, index: usize) {
-        self.slots.mark_completed(index);
+        Self::slot_mut(&mut self.slots, index).mark_completed();
     }
 
     fn take_completed_next(&mut self, index: usize) -> Option<usize> {
-        self.slots.take_completed_next(index)
+        Self::slot_mut(&mut self.slots, index).take_completed_next()
     }
 
     fn take_ready(&mut self) -> Option<usize> {
@@ -95,13 +128,13 @@ impl<Fut> SlotBlock<Fut> {
             return None;
         }
         let index = self.vacant_head;
-        self.vacant_head = self.slots.take_vacant_next(index);
+        self.vacant_head = Self::slot_mut(&mut self.slots, index).take_vacant_next();
         Some(index)
     }
 
     fn return_vacant(&mut self, index: usize) {
         let next = self.vacant_head;
-        self.slots.return_to_vacant(index, next);
+        Self::slot_mut(&mut self.slots, index).return_to_vacant(next);
         self.vacant_head = index;
     }
 
@@ -117,7 +150,7 @@ where
     fn poll(&mut self, index: usize) -> Poll<Fut::Output> {
         let waker = WakeBlock::waker(&self.wake, index);
         let mut context = Context::from_waker(&waker);
-        self.slots.poll(index, &mut context)
+        Self::slot_mut(&mut self.slots, index).poll(&mut context)
     }
 }
 

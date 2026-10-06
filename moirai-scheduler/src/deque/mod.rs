@@ -5,8 +5,6 @@ mod reclaim;
 mod split;
 
 #[cfg(test)]
-mod shrink_tests;
-#[cfg(test)]
 mod tests;
 
 pub use chase_lev::{

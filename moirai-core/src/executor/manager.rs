@@ -128,15 +128,11 @@ pub enum TaskStatus {
     /// - Resources have been cleaned up
     Completed,
 
-    /// Task ended without a result
-    ///
-    /// Reached when a cancel request is honored, or when the executor discards
-    /// the task before it finishes (for example at shutdown). The task's handle
-    /// resolves to `TaskError::Cancelled` in both cases.
+    /// Task was cancelled
     ///
     /// # Guarantees
     /// - Task did not complete normally
-    /// - Cancellation was requested and honored, or the task was discarded
+    /// - Cancellation was requested and honored
     /// - Resources have been cleaned up
     Cancelled,
 

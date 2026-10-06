@@ -1,13 +1,9 @@
 //! Accounting for the jobs of one borrowing scope: how many are pending, whether
 //! one panicked, and whether one was dropped without running.
 
-use std::{
-    marker::PhantomData,
-    ptr::NonNull,
-    sync::{
-        Condvar, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Condvar, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use moirai_core::{
@@ -41,26 +37,9 @@ impl SchedulerScopeState {
         self.pending_tasks.fetch_add(1, Ordering::AcqRel);
     }
 
-    /// Releases one registered job.
-    ///
-    /// The last release publishes zero, after which the waiter may return and
-    /// destroy the stack-owned state while this call is still unwinding its own
-    /// frames. Nothing here therefore holds a reference to the whole state, or
-    /// to any field's padding, across that point: every borrow covers one field
-    /// for one call, and the final borrows are the wait lock, released as the
-    /// last access, and the condition variable, used while the lock is held.
-    ///
-    /// # Safety
-    ///
-    /// `this` points to a live state whose pending count includes one job
-    /// registered for the caller, which this call releases exactly once.
-    pub(super) unsafe fn complete_task(this: NonNull<Self>) {
-        let state = this.as_ptr();
-        // SAFETY: the caller's registered job keeps the state alive until the
-        // release below publishes zero.
-        let pending_tasks = unsafe { &(*state).pending_tasks };
+    pub(super) fn complete_task(&self) {
         loop {
-            let pending = pending_tasks.load(Ordering::Acquire);
+            let pending = self.pending_tasks.load(Ordering::Acquire);
             debug_assert!(pending > 0, "scoped completion count must not underflow");
 
             if pending == 1 {
@@ -69,22 +48,20 @@ impl SchedulerScopeState {
                 // scope state cannot be destroyed until this completion token
                 // has finished its last access to the mutex and condition
                 // variable.
-                //
-                // SAFETY: the count is still nonzero, so the state is live.
-                let _guard = lock_mutex(unsafe { &(*state).wait_lock });
-                if pending_tasks
+                let _guard = lock_mutex(&self.wait_lock);
+                if self
+                    .pending_tasks
                     .compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire)
                     .is_ok()
                 {
-                    // SAFETY: the wait lock is held, so the waiter cannot
-                    // destroy the state before the guard drops.
-                    unsafe { &(*state).wait_signal }.notify_all();
+                    self.wait_signal.notify_all();
                     return;
                 }
                 continue;
             }
 
-            if pending_tasks
+            if self
+                .pending_tasks
                 .compare_exchange_weak(pending, pending - 1, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
@@ -156,26 +133,13 @@ impl SchedulerScopeState {
 /// A token dropped without [`Self::finish`] belongs to a job that never ran, so
 /// the scope it guards cannot claim its work happened.
 pub(super) struct ScopedTaskCompletion<'scope> {
-    // A pointer, not a reference: a reference field is protected for every call
-    // that receives the token by value, and the release in `Drop` lets the
-    // waiter destroy the state before `finish` returns.
-    state: NonNull<SchedulerScopeState>,
+    state: &'scope SchedulerScopeState,
     ran: bool,
-    _scope: PhantomData<&'scope SchedulerScopeState>,
 }
-
-// SAFETY: the token only reaches the state through its atomics, mutex and
-// condition variable, all of which are `Sync`, and the state outlives every
-// token by construction (the scope waits for its pending count to reach zero).
-unsafe impl Send for ScopedTaskCompletion<'_> {}
 
 impl<'scope> ScopedTaskCompletion<'scope> {
     pub(super) fn new(state: &'scope SchedulerScopeState) -> Self {
-        Self {
-            state: NonNull::from(state),
-            ran: false,
-            _scope: PhantomData,
-        }
+        Self { state, ran: false }
     }
 
     /// Records that the job ran, successfully or by panicking, and releases it.
@@ -186,10 +150,8 @@ impl<'scope> ScopedTaskCompletion<'scope> {
         self.ran = true;
     }
 
-    fn state(&self) -> &SchedulerScopeState {
-        // SAFETY: this token's registered job is pending until it drops, so the
-        // scope has not returned and the state is live.
-        unsafe { self.state.as_ref() }
+    pub(super) fn state(&self) -> &SchedulerScopeState {
+        self.state
     }
 }
 
@@ -198,7 +160,6 @@ impl Drop for ScopedTaskCompletion<'_> {
         if !self.ran {
             self.state().unrun_jobs.fetch_add(1, Ordering::AcqRel);
         }
-        // SAFETY: this token owns one registered job and releases it once.
-        unsafe { SchedulerScopeState::complete_task(self.state) };
+        self.state().complete_task();
     }
 }

@@ -25,9 +25,6 @@ pub mod registry;
 pub mod schedule;
 pub mod task;
 
-#[cfg(test)]
-mod counting_wake;
-
 // Re-export key types for clean API
 pub use hybrid::HybridExecutor;
 pub use metrics::ExecutorMetrics;

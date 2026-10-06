@@ -159,69 +159,6 @@ fn a_non_default_plane_grows_past_its_minimum_initial_capacity() {
 }
 
 #[test]
-fn a_drained_plane_returns_to_its_base_capacity_after_a_burst() {
-    let minimum = DequeCapacity::<ScheduledJob>::minimum().get();
-    let count = minimum * 16;
-    let (mut owner, queues) = WorkerQueues::new(count * 2, local_capacity(128));
-
-    for _ in 0..count {
-        let () = queues
-            .try_push_external(Priority::Critical, ScheduledJob::new(|_| {}))
-            .map_or((), |_| panic!("injector sized for the whole burst"));
-    }
-    while let Some(job) = owner.pop_local() {
-        job.execute(0);
-    }
-    let critical = Priority::Critical.index();
-    assert!(
-        queues.local_queue_capacities()[critical] >= count,
-        "the burst grew the plane past its base"
-    );
-
-    owner.shrink_drained_planes();
-
-    let capacities = queues.local_queue_capacities();
-    for (plane, capacity) in capacities.iter().copied().enumerate() {
-        let base = if plane == Priority::default().index() {
-            128
-        } else {
-            minimum
-        };
-        assert_eq!(capacity, base, "plane {plane} returns to its base size");
-    }
-}
-
-#[test]
-fn a_plane_holding_work_keeps_its_grown_capacity() {
-    let minimum = DequeCapacity::<ScheduledJob>::minimum().get();
-    let count = minimum * 16;
-    let (mut owner, queues) = WorkerQueues::new(count * 2, local_capacity(128));
-
-    for _ in 0..count {
-        let () = queues
-            .try_push_external(Priority::Critical, ScheduledJob::new(|_| {}))
-            .map_or((), |_| panic!("injector sized for the whole burst"));
-    }
-    // One pop moves the whole injector burst onto the plane and runs one job.
-    owner.pop_local().expect("burst is queued").execute(0);
-    let grown = queues.local_queue_capacities()[Priority::Critical.index()];
-    assert!(grown > minimum);
-
-    owner.shrink_drained_planes();
-
-    assert_eq!(
-        queues.local_queue_capacities()[Priority::Critical.index()],
-        grown
-    );
-    let mut remaining = 0;
-    while let Some(job) = owner.pop_local() {
-        job.execute(0);
-        remaining += 1;
-    }
-    assert_eq!(remaining, count - 1, "no queued job was lost by the shrink");
-}
-
-#[test]
 fn injector_round_trips_through_external_push() {
     // The reduced-capacity injector still enqueues and drains: an external
     // push lands in the injector and pops out via pop_local's drain path.

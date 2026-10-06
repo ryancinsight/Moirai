@@ -1,7 +1,7 @@
 //! Bounded Loom model of the Chase-Lev work-stealing deque's
 //! steal/pop ordering protocol.
 //!
-//! The production [`ChaseLevDeque`] (`moirai-scheduler/src/deque/chase_lev/`)
+//! The production [`ChaseLevDeque`] (`moirai-scheduler/src/deque/chase_lev.rs`)
 //! backs its slots with a raw, custom-allocator `UnsafeCell` array that loom
 //! cannot instrument. This file models the *ordering protocol* — the `bottom`
 //! (owner) / `top` (thief) indices, the `SeqCst` separating fence, and the

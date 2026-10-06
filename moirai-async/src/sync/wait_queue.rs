@@ -18,12 +18,12 @@
 //! Grant semantics (verified by the pre-consolidation sync-primitive tests,
 //! which pass unmodified against this implementation):
 //! - a grant marks the entry with its payload and leaves it in the queue; the
-//!   entry is removed when the waiter consumes it ([`WaitQueue::poll_waiter`]
+//!   entry is removed when the waiter consumes it ([`Self::poll_waiter`]
 //!   returning [`WaiterPoll::Granted`]) or is cancelled
-//!   ([`WaitQueue::deregister`]);
-//! - [`WaitQueue::deregister`] returns the unconsumed grant payload so the caller
+//!   ([`Self::deregister`]);
+//! - [`Self::deregister`] returns the unconsumed grant payload so the caller
 //!   can restore it (re-grant a permit, release a lock) instead of losing it;
-//! - [`WaitQueue::grant_all`] marks every pending waiter, returning their wakers,
+//! - [`Self::grant_all`] marks every pending waiter, returning their wakers,
 //!   for batch admission (reader batches, `notify_waiters`).
 
 use std::collections::{BTreeMap, VecDeque};

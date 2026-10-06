@@ -1,60 +1,57 @@
 # ADR 0016: One Ring-Buffer Core and One Channel Family in moirai-core
 
-Status: Accepted
+Status: Proposed
 
-- Date: 2026-07-02
+- Status note: awaiting sign-off; implements the 2026-07-02 structural audit's
+  S1/S2 findings
 - Change class: [arch]
-- Revision: 2026-09-30 — rewritten to the as-built decision. The 2026-07-02
-  proposal (five sibling rings, three error enums, blocking-policy strategy
-  types) was implemented in part by #429, #430 and #433; the record now states
-  what the tree holds and what was not adopted.
 
-## Context
+### Context
 
-`moirai-core` shipped five sibling implementations of one ring-buffer
-algorithm family (an SPSC Lamport ring, an SPSC channel that cloned it, a
-mutex-locked "unified" ring, a CAS-spin-locked "memory-mapped" ring, and a
-Vyukov-style MPMC ring) and three channel error enums that each repeated
-`Full`/`Empty`/`Closed`/`WouldBlock`. The variation between them is exactly
-producer/consumer cardinality and blocking policy, a bounded set that needs no
-cloned implementation.
+moirai-core ships five sibling implementations of the same ring-buffer
+algorithm family: `communication::RingBuffer` (lock-free SPSC, CachePadded
+sequences, MaybeUninit slots), `channel::spsc::SpscChannel` (a line-for-line
+clone of that Lamport ring plus a `closed` flag and spin-blocking),
+`memory::UnifiedRingBuffer` (the same ring, mutex-locked — its "lock-free
+zero-copy" doc is false), `communication::zero_copy::MemoryMappedRing` (the
+same ring behind CAS spin-locks; not memory-mapped despite the name), and
+`channel::mpmc::BoundedMpmcQueue` (Vyukov — the one genuinely distinct
+algorithm). Above them sit four channel bounded-contexts (`channel/`,
+`unified_channel/`, `communication::zero_copy/`, plus the bare
+`communication::RingBuffer`) with three duplicated error enums
+(`ChannelError`, `UnifiedChannelError`, `ZeroCopyError`) all repeating
+Full/Empty/Closed/WouldBlock. Only `MpmcChannel` is consumed by the live
+runtime (`moirai/src/runtime.rs`, moirai-transport); `unified_channel` is
+consumed solely by `moirai-iter::advanced_patterns` (itself a prune candidate,
+ADR-017); `HybridChannel` and `zero_copy` are consumed only by benchmarks and
+contract tests. `ipc::SharedQueue` is a justified separate ring (cross-process
+Pod contract) and stays.
 
-## Decision
+### Decision (proposed)
 
-1. Two algorithm cores remain, one per cardinality: the SPSC Lamport ring
-   `communication::RingBuffer` (`moirai-core/src/communication/ring_buffer.rs`)
-   and the sequence-numbered bounded ring `moirai_utils::queue::LockFreeQueue`
-   (`moirai-utils/src/queue/ring.rs`) behind the MPMC channel.
-2. `channel::spsc::SpscChannel` (crate-private, `channel/spsc/ring.rs`)
-   composes `RingBuffer` with a `closed` flag and a spin-then-yield schedule;
-   it holds no second copy of the Lamport protocol. The public halves
-   (`SpscSender`/`SpscReceiver`, `SpscRing::split`) are the ADR 0024 capability
-   wrappers over it.
-3. One channel error enum, `channel::error::ChannelError`. The duplicate
-   ring types (`UnifiedRingBuffer`, `MemoryMappedRing`), the `zero_copy`
-   subsystem, and the extra error enums (`UnifiedChannelError`,
-   `ZeroCopyError`) are deleted, with every call site updated in the same
-   change and no alias kept.
-4. `channel::unified::UnifiedChannel` stays as a channel over `LockFreeQueue`
-   with an overflow queue; its remaining consumer is `moirai-iter`'s
-   `advanced_patterns`. `ipc::SharedQueue` stays a separate ring because of its
-   cross-process `Pod` contract.
+The variation dimensions across the five rings are exactly producer/consumer
+cardinality and blocking policy — a bounded set expressible without cloning:
 
-## Not adopted
+1. Keep TWO algorithm cores: the SPSC Lamport ring (canonical home:
+   `communication::RingBuffer`) and the Vyukov MPMC (`BoundedMpmcQueue`).
+2. Express blocking policy as a ZST strategy over those cores (the crate
+   already has this exact pattern in `task::handle::ResultWaitPolicy`):
+   `NonBlocking` / `SpinThenPark`, monomorphized so the non-blocking path
+   compiles to the bare ring.
+3. `SpscChannel` becomes a thin `RingBuffer + closed-flag + policy`
+   composition (the shape `HybridChannel` already proves); delete
+   `UnifiedRingBuffer` and `MemoryMappedRing`, retargeting `unified_channel`
+   (or deleting it with moirai-iter's advanced_patterns per ADR-017) and
+   `zero_copy` consumers onto the canonical cores.
+4. ONE channel error enum in `channel::error`; the other two enums' extra
+   variants (InvalidConfig, the zero-copy set) become variants or per-call
+   typed errors. Every call site updated in the same change; no aliases.
 
-The proposed `NonBlocking`/`SpinThenPark` zero-sized blocking-policy types over
-the cores do not exist. Each channel keeps its own measured schedule
-(`SPSC_BLOCK_SPINS` in the SPSC channel, `MPMC_BLOCK_SPINS` with a condvar
-fallback in the MPMC channel, a retry loop in `LockFreeQueue::enqueue`).
-Consolidating the schedules is tracked by
-`MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30` in `backlog.md`, which starts from
-the shared spin budget rather than from policy types on the channels, because
-the schedules differ by design and by measured fallback path.
+### Consequences
 
-## Consequences
-
-The parallel ring implementations and two error enums are gone; the MPMC wake
-protocol is unchanged (its Dekker pair is documented at
-`channel/mpmc/channel.rs` and modeled in `moirai-core/tests/loom_mpmc_waiter.rs`). Adding a
-new cardinality or blocking policy means extending one of the two cores, not
-cloning one.
+Deletes roughly 1.5-2k lines of parallel implementations while keeping every
+live capability; the 18-round-audited MPMC/hybrid protocols are preserved
+as-is (this ADR relocates and dedups shells, it does not restructure the
+verified CAS protocols). Consumers to update: moirai (runtime), transport,
+benchmarks/contract tests, and moirai-iter's advanced_patterns (interlocks
+with ADR-017 — implement after that decision).

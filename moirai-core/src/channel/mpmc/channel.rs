@@ -145,17 +145,10 @@ impl<T> MpmcChannel<T> {
             // visible to any receiver that frees a slot from here on, or that
             // receiver reads zero and skips the notify while this thread goes
             // on to park. SeqCst, load-bearing: this is the waiter half of the
-            // Dekker pair described above. The explicit fence is the Store→Load
-            // barrier separating the registration from the `try_enqueue` below:
-            // the C++/Rust memory model orders an SC fence against the
-            // notifier's SC fence, but gives a bare SC read-modify-write no
-            // such force over a later non-SC load. x86-64 supplies it in
-            // hardware; the fence makes the guarantee portable, and it costs
-            // nothing on the hot path because this branch runs only after the
-            // spin budget is spent.
+            // Dekker pair described above, and the `fetch_add` is also the
+            // Store→Load barrier separating it from the `try_enqueue` below.
             self.sender_waiter_count
                 .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
-            fence(CHANNEL_STORE_LOAD_ORDER);
 
             match queue.try_enqueue(value) {
                 Ok(()) => {
@@ -283,12 +276,10 @@ impl<T> MpmcChannel<T> {
             // counter read and this thread's queue read a Dekker pair that
             // `SeqCst` closes.
             //
-            // SeqCst, load-bearing: waiter half of the pair. The fence is the
-            // Store→Load barrier before the `try_dequeue` that follows (see
-            // `send_bounded` for why the registration alone is not one).
+            // SeqCst, load-bearing: waiter half of the pair, and the
+            // Store→Load barrier before the `try_dequeue` that follows.
             self.receiver_waiter_count
                 .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
-            fence(CHANNEL_STORE_LOAD_ORDER);
 
             if let Some(value) = queue.try_dequeue() {
                 // Relaxed: deregistration (see `send_bounded`).

@@ -39,8 +39,7 @@ pub(crate) const FS_WORKERS: usize = 4;
 /// through admission.
 pub(crate) const FS_QUEUE_DEPTH: usize = FS_WORKERS;
 
-/// The process-wide file-system pool; its workers run for the process
-/// lifetime (see the worker-lifetime section of `blocking`).
+/// The process-wide file-system pool.
 pub(crate) fn pool() -> &'static BlockingPool {
     static POOL: OnceLock<BlockingPool> = OnceLock::new();
     POOL.get_or_init(|| BlockingPool::new("moirai-fs", FS_WORKERS, FS_QUEUE_DEPTH))

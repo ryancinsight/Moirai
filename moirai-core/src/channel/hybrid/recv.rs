@@ -24,7 +24,7 @@ impl<T: Send> HybridReceiver<T> {
     /// Register the calling thread for sender unparks.
     ///
     /// The sequentially-consistent increment is half of the Dekker pair on
-    /// [`notify_consumers`]; the caller must
+    /// [`notify_consumers`](super::notify::notify_consumers); the caller must
     /// execute the matching fence and re-check the ring (and `closed`) before
     /// parking, or a concurrent send can miss this registration while the
     /// re-check misses its message — the last-message hang.

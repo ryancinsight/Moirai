@@ -23,7 +23,7 @@
 | [0012](0012-parallel-slice-sorting-boundary.md) | Parallel Slice Sorting Boundary | Accepted |
 | [0013](0013-async-i-o-facade-audit-boundary.md) | Async I/O Facade Audit Boundary | Accepted |
 | [0014](0014-reactor-bound-async-i-o-and-readiness-integration.md) | Reactor-Bound Async I/O and Readiness Integration | Accepted |
-| [0016](0016-one-ring-buffer-core-and-one-channel-family-in-moirai-core.md) | One Ring-Buffer Core and One Channel Family in moirai-core | Accepted |
+| [0016](0016-one-ring-buffer-core-and-one-channel-family-in-moirai-core.md) | One Ring-Buffer Core and One Channel Family in moirai-core | Proposed |
 | [0017](0017-moirai-iter-disposition-prune-vs-continue.md) | moirai-iter Disposition (prune vs continue) | Accepted |
 | [0018](0018-streaming-asynciterator-poll-next-to-remove-into-vec-block-on.md) | Streaming AsyncIterator (poll_next) to remove into_vec block_on | Proposed |
 | [0019](0019-help-while-waiting-scheduler-scope-nested-scope-soundness.md) | Help-while-waiting scheduler scope (nested-scope soundness) | Accepted |

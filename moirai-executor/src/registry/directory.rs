@@ -20,20 +20,11 @@ pub(super) enum BlockLookup<'directory> {
 /// running task) is a `None` entry. Retirement therefore costs one directory
 /// word per retired block until the oldest resident block also retires, at
 /// which point the leading run of `None` entries collapses into `base`.
-///
-/// The retirement sweep does not walk `entries`, whose span a pinned block
-/// stretches without bound. It rotates through `sweep_queue`, which holds only
-/// resident block indices, so the work of a sweep step depends on the resident
-/// count and never on the span.
 #[derive(Debug, Default)]
 pub(super) struct BlockDirectory {
     base: usize,
     entries: VecDeque<Option<Arc<TaskStateBlock>>>,
     resident: usize,
-    /// Resident blocks no sweep has checked out, in examination order: creation
-    /// order, with each examined block that stayed resident moved behind the
-    /// blocks created while it was examined.
-    sweep_queue: VecDeque<usize>,
 }
 
 impl BlockDirectory {
@@ -42,7 +33,6 @@ impl BlockDirectory {
             base: 0,
             entries: VecDeque::new(),
             resident: 0,
-            sweep_queue: VecDeque::new(),
         }
     }
 
@@ -51,8 +41,8 @@ impl BlockDirectory {
         self.base + self.entries.len()
     }
 
-    /// Number of blocks whose storage is still resident, including those a
-    /// sweep has checked out.
+    /// Number of blocks whose storage is still resident.
+    #[cfg(test)]
     pub(super) fn resident(&self) -> usize {
         self.resident
     }
@@ -87,7 +77,6 @@ impl BlockDirectory {
         let offset = block_index.checked_sub(self.base)?;
         let mut created = false;
         while self.entries.len() <= offset {
-            self.sweep_queue.push_back(self.end());
             self.entries
                 .push_back(Some(Arc::new(TaskStateBlock::new())));
             self.resident += 1;
@@ -97,90 +86,68 @@ impl BlockDirectory {
         Some((Arc::clone(block), created))
     }
 
-    /// Resident blocks with their indices, in index order.
-    pub(super) fn resident_indexed(&self) -> impl Iterator<Item = (usize, &Arc<TaskStateBlock>)> {
-        (self.base..)
-            .zip(&self.entries)
-            .filter_map(|(index, entry)| Some((index, entry.as_ref()?)))
-    }
-
-    /// Blocks awaiting examination.
-    #[cfg(test)]
-    pub(super) fn queued(&self) -> usize {
-        self.sweep_queue.len()
-    }
-
-    /// Check out up to `N` queued blocks for one sweep step.
+    /// The resident blocks among the next `N` entries from `cursor`.
     ///
-    /// A checked-out block stays resident and readable but is absent from the
-    /// queue, so concurrent sweeps examine disjoint blocks, until its sweep
-    /// settles it with [`Self::retire`] or [`Self::requeue`]. Each checkout
-    /// costs one queue pop however many retired entries the directory span
-    /// holds.
-    pub(super) fn check_out<const N: usize>(&mut self) -> SweepWindow<N> {
+    /// A cursor outside the directory restarts at the watermark. Retired
+    /// entries inside the window cost one step each, so the window bounds the
+    /// work however long a pinned block's retirement span grows.
+    pub(super) fn window<const N: usize>(&self, cursor: usize) -> SweepWindow<N> {
+        let end = self.end();
+        let start = if cursor < self.base || cursor >= end {
+            self.base
+        } else {
+            cursor
+        };
         let mut blocks = [const { None }; N];
-        for slot in &mut blocks {
-            let Some(index) = self.sweep_queue.pop_front() else {
-                break;
-            };
-            let block = self
-                .entries
-                .get(index - self.base)
-                .and_then(Option::as_ref)
-                .expect("invariant: a queued index names a resident block");
-            *slot = Some((index, Arc::clone(block)));
+        let stop = start.saturating_add(N).min(end);
+        for (slot, index) in blocks.iter_mut().zip(start..stop) {
+            if let Some(Some(block)) = self.entries.get(index - self.base) {
+                *slot = Some((index, Arc::clone(block)));
+            }
         }
+        let wrapped = stop >= end;
         SweepWindow {
+            next: if wrapped { self.base } else { stop },
+            wrapped,
             blocks,
             resident: self.resident,
         }
     }
 
-    /// Return a checked-out block to the back of the sweep queue, unless
-    /// [`Self::cleanup`] retired it while it was checked out.
-    pub(super) fn requeue(&mut self, block_index: usize) {
-        if matches!(self.lookup(block_index), BlockLookup::Live(_)) {
-            self.sweep_queue.push_back(block_index);
+    /// Retire `block_index` if it still holds `expected`, returning the block so
+    /// the caller drops it outside the directory lock.
+    pub(super) fn retire(
+        &mut self,
+        block_index: usize,
+        expected: &Arc<TaskStateBlock>,
+    ) -> Option<Arc<TaskStateBlock>> {
+        let offset = block_index.checked_sub(self.base)?;
+        let entry = self.entries.get_mut(offset)?;
+        if !entry
+            .as_ref()
+            .is_some_and(|block| Arc::ptr_eq(block, expected))
+        {
+            return None;
         }
-    }
-
-    /// Retire a block, returning it so the caller drops it outside the
-    /// directory lock, or `None` when it already retired.
-    pub(super) fn retire(&mut self, block_index: usize) -> Option<Arc<TaskStateBlock>> {
-        let entry = block_index
-            .checked_sub(self.base)
-            .and_then(|offset| self.entries.get_mut(offset))?;
-        let retired = entry.take()?;
+        let retired = entry.take();
         self.resident -= 1;
         while matches!(self.entries.front(), Some(None)) {
             self.entries.pop_front();
             self.base += 1;
         }
-        Some(retired)
-    }
-
-    /// Retire every listed block that is still resident, checked out or
-    /// queued, and drop the retired ones from the sweep queue. Returns the
-    /// retired blocks for the caller to drop outside the directory lock.
-    pub(super) fn cleanup(&mut self, block_indices: &[usize]) -> Vec<Arc<TaskStateBlock>> {
-        let retired: Vec<_> = block_indices
-            .iter()
-            .filter_map(|&index| self.retire(index))
-            .collect();
-        let (base, entries) = (self.base, &self.entries);
-        self.sweep_queue.retain(|&index| {
-            index
-                .checked_sub(base)
-                .is_some_and(|offset| matches!(entries.get(offset), Some(Some(_))))
-        });
         retired
     }
 }
 
-/// A bounded run of queued blocks checked out for one sweep step.
+/// A bounded run of directory entries examined by one sweep step.
 pub(super) struct SweepWindow<const N: usize> {
-    /// The checked-out blocks with their block indices.
+    /// Cursor for the following window: the watermark once this window reached
+    /// the end of the directory.
+    pub(super) next: usize,
+    /// Whether this window reached the end of the directory.
+    pub(super) wrapped: bool,
+    /// The resident blocks in the window, with their block indices.
     pub(super) blocks: [Option<(usize, Arc<TaskStateBlock>)>; N],
-    /// Resident blocks across the whole directory at checkout.
+    /// Resident blocks across the whole directory when the window was taken.
     pub(super) resident: usize,
 }

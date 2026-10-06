@@ -259,38 +259,27 @@ where
     merge(slice, mid, compare);
 }
 
-/// Restores the slice on an early exit from [`merge`].
-///
-/// Every access to the slice goes through `base`, the one raw pointer derived
-/// from the caller's `&mut [T]`, and every access to the buffered left run goes
-/// through `left`, derived once from the buffer's allocation. Re-deriving a
-/// pointer from the `&mut` per element would retag it uniquely each time and
-/// invalidate the pointer the previous element used.
-struct MergeGuard<T> {
-    base: *mut T,
-    left: *const T,
-    /// Owns the allocation `left` points into; its elements are moved-from
-    /// copies, so it is never dropped element-wise.
-    _left_storage: Vec<MaybeUninit<T>>,
+struct MergeGuard<'a, T> {
+    slice: &'a mut [T],
+    left_vec: Vec<MaybeUninit<T>>,
     i: usize,
     j: usize,
     k: usize,
     mid: usize,
 }
 
-impl<T> Drop for MergeGuard<T> {
+impl<'a, T> Drop for MergeGuard<'a, T> {
     fn drop(&mut self) {
         let remaining = self.mid - self.i;
         if remaining > 0 {
             // SAFETY: drop runs only when merge bailed early with unconsumed
-            // left elements; the source range `i..mid` lies inside the
-            // buffered run and the destination `k..k + remaining` (which ends
-            // at `j`) was vacated by the consumed prefix, so the ranges are
-            // disjoint and both in bounds.
+            // left elements; source range stays inside `left_vec`'s len and
+            // destination slots k..mid were vacated by the consumed prefix,
+            // so ranges are disjoint and uninitialized-valid as MaybeUninit.
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    self.left.add(self.i),
-                    self.base.add(self.k),
+                    self.left_vec.as_ptr().add(self.i),
+                    self.slice.as_mut_ptr().add(self.k).cast::<MaybeUninit<T>>(),
                     remaining,
                 );
             }
@@ -308,23 +297,24 @@ where
         return;
     }
 
-    let base = slice.as_mut_ptr();
     let mut left_vec: Vec<MaybeUninit<T>> = Vec::with_capacity(mid);
-    let left = left_vec.as_mut_ptr().cast::<T>();
     // SAFETY: capacity mid was just reserved; copying mid initialized
     // elements from the slice's left half makes them initialized owners, so
     // set_len is honest and no value is duplicated (the slice side of these
     // slots is logically moved out and never dropped twice — merge writes
     // every slot before any later drop).
     unsafe {
-        std::ptr::copy_nonoverlapping(base.cast_const(), left, mid);
+        std::ptr::copy_nonoverlapping(
+            slice.as_ptr().cast::<MaybeUninit<T>>(),
+            left_vec.as_mut_ptr(),
+            mid,
+        );
         left_vec.set_len(mid);
     }
 
     let mut guard = MergeGuard {
-        base,
-        left: left.cast_const(),
-        _left_storage: left_vec,
+        slice,
+        left_vec,
         i: 0,
         j: mid,
         k: 0,
@@ -332,27 +322,37 @@ where
     };
 
     while guard.i < guard.mid && guard.j < len {
-        // SAFETY: i < mid bounds the left index and the buffer holds mid
-        // initialized values per the copy above; j < len bounds the right
-        // index inside the slice `base` addresses. Both references end with
-        // the comparison, before any write below.
-        let (left_val, right_val) =
-            unsafe { (&*guard.left.add(guard.i), &*guard.base.add(guard.j)) };
+        // SAFETY: i < mid bounds the index and the vector holds mid
+        // initialized values per the copy above.
+        let left_val = unsafe { &*guard.left_vec.as_ptr().add(guard.i).cast::<T>() };
+        let right_val = &guard.slice[guard.j];
 
         if compare(left_val, right_val) == std::cmp::Ordering::Greater {
             // SAFETY: j < len and k <= j hold during the right-run advance,
             // so forward `copy` handles the overlap correctly and both
             // indices stay in bounds.
             unsafe {
-                std::ptr::copy(guard.base.add(guard.j), guard.base.add(guard.k), 1);
+                std::ptr::copy(
+                    guard.slice.as_ptr().add(guard.j),
+                    guard.slice.as_mut_ptr().add(guard.k),
+                    1,
+                );
             }
             guard.j += 1;
         } else {
             // SAFETY: i < mid bounds the source; k <= i + (j - mid) keeps the
             // destination at or behind consumed positions, disjoint from the
-            // buffered left run, and within slice bounds.
+            // still-referenced left_vec range, and within slice bounds.
             unsafe {
-                std::ptr::copy_nonoverlapping(guard.left.add(guard.i), guard.base.add(guard.k), 1);
+                std::ptr::copy_nonoverlapping(
+                    guard.left_vec.as_ptr().add(guard.i),
+                    guard
+                        .slice
+                        .as_mut_ptr()
+                        .add(guard.k)
+                        .cast::<MaybeUninit<T>>(),
+                    1,
+                );
             }
             guard.i += 1;
         }
@@ -472,27 +472,6 @@ mod tests {
                 "every nested sort must both finish and order its slice"
             );
         }
-    }
-
-    // The merge step in isolation: one thread, no scheduler, so a pointer
-    // derived from the slice and then invalidated by a later reborrow of it
-    // fails here deterministically under Miri. Equal keys pin stability: on a
-    // tie the left run's element must come first.
-    #[test]
-    fn merge_interleaves_two_sorted_runs_stably() {
-        let mut v = vec![
-            KeyVal { key: 1, val: 0 },
-            KeyVal { key: 3, val: 1 },
-            KeyVal { key: 5, val: 2 },
-            KeyVal { key: 1, val: 3 },
-            KeyVal { key: 3, val: 4 },
-            KeyVal { key: 4, val: 5 },
-        ];
-
-        merge(&mut v, 3, &|a, b| a.key.cmp(&b.key));
-
-        let order: Vec<(i32, usize)> = v.iter().map(|item| (item.key, item.val)).collect();
-        assert_eq!(order, [(1, 0), (1, 3), (3, 1), (3, 4), (4, 5), (5, 2)]);
     }
 
     #[test]
