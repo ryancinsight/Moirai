@@ -5,9 +5,16 @@ use std::{
     time::Duration,
 };
 
+// A single selected libtest fixture prints its partial test-name prefix.
+// Protocol markers start on a new line so that prefix cannot consume them.
 fn fixture(mode: &str) -> ProcessSpec {
     ProcessSpec::new(std::env::current_exe().expect("test binary"))
-        .args(["--exact", "process::tests::child_entry", "--nocapture"])
+        .args([
+            "--exact",
+            "process::tests::child_entry",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env_clear()
         .env("MOIRAI_PROCESS_FIXTURE", mode)
         .piped_stdio()
@@ -27,7 +34,7 @@ fn child_entry() {
                 .read_line(&mut input)
                 .expect("fixture input");
             std::io::stdout()
-                .write_all(format!("ECHO:{input}").as_bytes())
+                .write_all(format!("\nECHO:{input}").as_bytes())
                 .expect("fixture output");
         }
         "stderr" => {
@@ -37,7 +44,7 @@ fn child_entry() {
         }
         "wait" => {
             std::io::stdout()
-                .write_all(b"READY\n")
+                .write_all(b"\nREADY\n")
                 .expect("ready output");
             let mut input = [0];
             std::io::stdin()
@@ -50,14 +57,19 @@ fn child_entry() {
                 reason = "the test intentionally exits the root; its job or process group terminates the descendant"
             )]
             let child = std::process::Command::new(std::env::current_exe().expect("fixture path"))
-                .args(["--exact", "process::tests::child_entry", "--nocapture"])
+                .args([
+                    "--exact",
+                    "process::tests::child_entry",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
                 .env("MOIRAI_PROCESS_FIXTURE", "wait")
                 .stdin(std::process::Stdio::inherit())
                 .stdout(std::process::Stdio::inherit())
                 .spawn()
                 .expect("descendant");
             std::io::stdout()
-                .write_all(format!("DESCENDANT:{}\n", child.id()).as_bytes())
+                .write_all(format!("\nDESCENDANT:{}\n", child.id()).as_bytes())
                 .expect("descendant identity");
         }
         "exit" => std::process::exit(7),
