@@ -1,19 +1,15 @@
-#![expect(
-    clippy::unwrap_used,
-    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
-)]
-
 use std::{
     cell::UnsafeCell,
     mem::MaybeUninit,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
 use moirai_core::Priority;
 
 use super::super::task::TaskMetadata;
+use super::fan_out;
 
 /// Inverse of [`Priority::index`]: `PRIORITY_FROM_INDEX[p.index()] == p` for
 /// every variant (asserted by `priority_index_round_trips` in the registry tests).
@@ -24,7 +20,7 @@ pub(crate) const PRIORITY_FROM_INDEX: [Priority; Priority::Critical.index() + 1]
     Priority::Critical,
 ];
 
-pub(crate) const NO_WORKER: usize = usize::MAX;
+pub(crate) const NO_WORKER: u32 = u32::MAX;
 pub(crate) const TIMESTAMP_NOT_RECORDED: u64 = u64::MAX;
 pub(crate) const TASK_STATE_BLOCK_SIZE: usize = 1024;
 
@@ -50,7 +46,7 @@ pub(super) enum Retirement {
 /// to outlive the job and make their final access to the state when they retire.
 ///
 /// The flags live apart from the states: a flag beside its state would pad every
-/// 72-byte state to 80 bytes, and the retirement scan reads flags without
+/// 64-byte state to 72 bytes, and the retirement scan reads flags without
 /// touching state lines.
 pub(super) struct TaskStateBlock {
     published: Box<[AtomicBool]>,
@@ -58,29 +54,100 @@ pub(super) struct TaskStateBlock {
 }
 
 // SAFETY: a state is written only before its `published` flag is set, by the one
-// registration that owns the slot, and only read after an acquire load observes
+// registration that owns its slot, and only read after an acquire load observes
 // the flag. `TaskState` is `Send + Sync`, so sharing published states across
 // threads is sound.
 unsafe impl Sync for TaskStateBlock {}
+
+/// The waker slot of a [`TaskState`]: an `Option<Waker>` behind a tiny
+/// self-contained spin lock.
+///
+/// [`std::sync::Mutex`] was rejected for this slot: `Mutex<Option<Waker>>` is
+/// 32 bytes on macOS, where std reaches its `pthread_mutex_t` through a lazily
+/// boxed pointer, against 24 on the futex targets (Linux, Windows), and with it
+/// the per-task state was 80 bytes on macOS. The lock here is one flag byte
+/// plus padding, and the critical sections clone a waker, run
+/// [`Waker::will_wake`](std::task::Waker::will_wake) over a short member list,
+/// or take the waker out — all
+/// bounded, never blocking, so spinning with a yield is safe under any
+/// scheduler.
+pub(super) struct WakerSlot {
+    locked: AtomicBool,
+    slot: UnsafeCell<Option<std::task::Waker>>,
+}
+
+impl WakerSlot {
+    const fn new() -> Self {
+        Self {
+            locked: AtomicBool::new(false),
+            slot: UnsafeCell::new(None),
+        }
+    }
+
+    /// Run `body` with exclusive access to the slot.
+    fn with_slot<R>(&self, body: impl FnOnce(&mut Option<std::task::Waker>) -> R) -> R {
+        let mut spins = 0_usize;
+        while self
+            .locked
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            // Bounded spin first, then yield: the critical sections are short,
+            // but a preempted holder must never deadlock the contender.
+            if spins < 16 {
+                std::hint::spin_loop();
+            } else {
+                std::thread::yield_now();
+            }
+            spins += 1;
+        }
+        // SAFETY: the `locked` flag is held by this call, so this borrow is the
+        // only slot access; it ends before the flag is released.
+        let slot = unsafe { &mut *self.slot.get() };
+        let result = body(slot);
+        self.locked.store(false, Ordering::Release);
+        result
+    }
+}
+
+// SAFETY: the slot is reached only through `with_slot`, which serializes access
+// with the `locked` flag; a `Waker` is `Send`, so moving one between threads
+// through the slot is sound.
+unsafe impl Send for WakerSlot {}
+unsafe impl Sync for WakerSlot {}
 
 /// Shared lifecycle state for one task.
 pub(crate) struct TaskState {
     pub(crate) created_at: Instant,
     pub(super) started_after_ns: AtomicU64,
     pub(super) completed_after_ns: AtomicU64,
-    pub(super) worker_id: AtomicUsize,
-    pub(super) waker: std::sync::Mutex<Option<std::task::Waker>>,
-    /// True while a lifecycle token can still access this slot.
+    /// Worker index at start, or [`NO_WORKER`]. `u32` keeps the struct within
+    /// its pinned budget on every supported pointer width; no scheduler this
+    /// executor builds approaches 2^32 workers.
+    pub(super) worker_id: AtomicU32,
+    /// Waker slot behind its own tiny spin lock — see [`WakerSlot`] for why
+    /// this is not a [`std::sync::Mutex`].
+    pub(super) waker: WakerSlot,
+    /// True while a lifecycle token can still access this slot; clearing it is
+    /// the token's last access ([`TaskState::retire_token`]).
     token_active: AtomicBool,
     /// Spawn priority stored as its [`Priority::index`] discriminant.
     pub(super) priority: AtomicU8,
     /// Set by `cancel_task`; observed cooperatively at job start.
     pub(super) cancel_requested: AtomicBool,
-    /// Set when a cancel request was honored (the job body never ran).
+    /// Set when the task ended without a result: a cancel request was honored,
+    /// or its lifecycle token was dropped before completing. The task's handle
+    /// reports `TaskError::Cancelled` in both cases.
     pub(super) cancelled: AtomicBool,
 }
 
-// A registry block holds 1,024 of these plus one flag byte each; the size is// pinned because retained memory per task is this figure.const _: () = assert!(size_of::<TaskState>() <= 72);
+// A registry block holds 1,024 of these plus one flag byte each; the size is
+// pinned because retained memory per task is this figure: 64 bytes on every
+// 64-bit target (`Instant` is 16 bytes, 8-aligned, on each), 56 on wasm32.
+// `worker_id` is `u32` and the waker slot carries its own spin lock (see
+// `WakerSlot`) to stay within it.
+const _: () = assert!(size_of::<TaskState>() <= 64);
+
 impl std::fmt::Debug for TaskState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TaskState")
@@ -88,7 +155,10 @@ impl std::fmt::Debug for TaskState {
             .field("started_after_ns", &self.started_after_ns)
             .field("completed_after_ns", &self.completed_after_ns)
             .field("worker_id", &self.worker_id)
-            .field("waker_registered", &self.waker.lock().unwrap().is_some())
+            .field(
+                "waker_registered",
+                &self.waker.with_slot(|slot| slot.is_some()),
+            )
             .finish()
     }
 }
@@ -100,8 +170,8 @@ impl TaskState {
             created_at: Instant::now(),
             started_after_ns: AtomicU64::new(TIMESTAMP_NOT_RECORDED),
             completed_after_ns: AtomicU64::new(TIMESTAMP_NOT_RECORDED),
-            worker_id: AtomicUsize::new(NO_WORKER),
-            waker: std::sync::Mutex::new(None),
+            worker_id: AtomicU32::new(NO_WORKER),
+            waker: WakerSlot::new(),
             token_active: AtomicBool::new(true),
             // Lossless enum-to-int cast: Priority discriminants are 0..=3.
             priority: AtomicU8::new(Priority::Normal as u8),
@@ -144,9 +214,27 @@ impl TaskState {
         self.token_active.load(Ordering::Acquire)
     }
 
+    /// Clear the token-active flag, releasing a lease's claim on the state.
+    ///
+    /// This is a lease's last access. Once the flag is clear a retention sweep
+    /// may free the whole block, and it does not wait for the store to return.
+    /// A `&TaskState` passed to a method stays valid until that method returns,
+    /// so retiring through one lets the block be freed under a live reference;
+    /// this takes the state by pointer, projects the flag by address, and
+    /// borrows only the one-byte atomic.
+    ///
+    /// # Safety
+    ///
+    /// `state` points to a live `TaskState` whose flag the calling lease has
+    /// not yet cleared, and the caller makes no further access to it.
     #[inline]
-    pub(super) fn retire_token(&self) {
-        self.token_active.store(false, Ordering::Release);
+    pub(super) unsafe fn retire_token(state: NonNull<Self>) {
+        // SAFETY: the caller guarantees `state` is live; `&raw const` projects
+        // the field address without creating a reference to the `TaskState`.
+        let flag = unsafe { &raw const (*state.as_ptr()).token_active };
+        // SAFETY: the flag is a live `AtomicBool` for the same reason. The
+        // borrow covers this one byte and ends with the store.
+        unsafe { (*flag).store(false, Ordering::Release) };
     }
 
     /// Publish that a cancel request was honored: the task completes without
@@ -161,7 +249,12 @@ impl TaskState {
         let started_after_ns = elapsed_nanos_since(self.created_at);
         self.started_after_ns
             .store(started_after_ns, Ordering::Release);
-        self.worker_id.store(worker_id, Ordering::Release);
+        // A real scheduler never reaches `u32::MAX` workers; on a hypothetical
+        // wider pool, report "no worker" rather than mis-attribute one.
+        self.worker_id.store(
+            u32::try_from(worker_id).unwrap_or(NO_WORKER),
+            Ordering::Release,
+        );
         started_after_ns
     }
 
@@ -174,12 +267,11 @@ impl TaskState {
         self.completed_after_ns
             .store(completed_after_ns, Ordering::Release);
 
-        // The guard is released before the waker runs. `if let Some(waker) =
-        // self.waker.lock().unwrap().take()` would satisfy that only through
-        // edition 2024's scrutinee rescoping (RFC 3606); binding the waker out
-        // first keeps the rule visible at the site and independent of the
-        // edition. Same discipline as `moirai-async`'s sync primitives.
-        let waker = self.waker.lock().unwrap().take();
+        // The lock is released before the waker runs: `with_slot` takes the
+        // waker out and releases the spin lock, and only then does it wake —
+        // so a waker that waits on this task cannot deadlock against the
+        // slot. Same discipline as `moirai-async`'s sync primitives.
+        let waker = self.waker.with_slot(|slot| slot.take());
         if let Some(waker) = waker {
             waker.wake();
         }
@@ -197,6 +289,30 @@ impl TaskState {
         self.mark_completed_since(started_after_ns);
     }
 
+    /// Register a waker to be notified when the task completes.
+    ///
+    /// Wakers that do not `will_wake` the held one accumulate in the slot
+    /// ([`fan_out`]), so every waiter is woken by completion.
+    pub(super) fn register_waker(&self, waker: &std::task::Waker) {
+        self.waker.with_slot(|slot| fan_out::register(slot, waker));
+        // Store first, then re-check completion, mirroring the ordering
+        // `mark_completed_since` publishes: it stores the completion offset
+        // before taking the waker. A task that completed before this store
+        // has already taken the absent waker and will never take again, so
+        // the one just stored would be held for the life of the slot —
+        // along with whatever it owns, typically an `Arc` to async task
+        // state. Reclaiming it here is race-free in both directions: if
+        // completion lands after the store, it takes and wakes; if it
+        // landed before, this take wins and wakes instead. Only one take
+        // can succeed, and a spurious wake is always permitted.
+        if self.is_completed() {
+            let stranded = self.waker.with_slot(|slot| slot.take());
+            if let Some(stranded) = stranded {
+                stranded.wake();
+            }
+        }
+    }
+
     pub(super) fn is_completed(&self) -> bool {
         self.completed_after_ns.load(Ordering::Acquire) != TIMESTAMP_NOT_RECORDED
     }
@@ -211,7 +327,9 @@ impl TaskState {
     pub(super) fn snapshot(&self, id: u64) -> TaskMetadata {
         let worker_id = match self.worker_id.load(Ordering::Acquire) {
             NO_WORKER => None,
-            worker_id => Some(worker_id),
+            // Lossless widening: `usize` is at least 32 bits on every
+            // supported target.
+            worker_id => Some(worker_id as usize),
         };
 
         TaskMetadata {
@@ -268,8 +386,14 @@ impl TaskStateBlock {
         // yet published, so no reader touches the cell and this is the only
         // access to it. The address is stable: the boxed slice never moves or
         // shrinks and a published state is never replaced.
-        let state = unsafe { (*cell).write(TaskState::new()) };
-        let address = NonNull::from(&*state);
+        unsafe { (*cell).write(TaskState::new()) };
+        // SAFETY: `UnsafeCell::get` never returns null. The address derives
+        // from the cell itself, as `get` does, and not from the `&mut` that
+        // `write` returns: a pointer reborrowed from that transient reference
+        // sits above it in the borrow stack, and the shared reads and atomic
+        // stores that later readers make through the cell would invalidate it
+        // before the lease uses it.
+        let address = unsafe { NonNull::new_unchecked(cell.cast::<TaskState>()) };
         self.published[slot].store(true, Ordering::Release);
         address
     }

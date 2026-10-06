@@ -5,7 +5,7 @@
 This report compares Moirai with Rayon and Tokio using repository-local evidence from:
 
 - `README.md`
-- `PERFORMANCE_RESULTS.md`
+- `docs/performance_results.md`
 - `docs/rayon_tokio_gap_audit.md`
 - `docs/rayon_adapter_surface_audit.md`
 - `benchmarks/Cargo.toml`
@@ -353,7 +353,7 @@ Use Rayon over Moirai when:
 | Bounded async iterator pipeline | `moirai-iter::AsyncParallelIterator` bounded `par_map`/`par_filter` | Tokio bounded `JoinSet` fan-out | Covered |
 | Timer fanout | Moirai async sleep fanout | Tokio sleep fanout | Covered for benchmarked fanout |
 | Native I/O extension futures | `moirai_async::io::{AsyncReadExt, AsyncWriteExt}` | Tokio-style `read_exact`, `write_all`, and `shutdown` extension semantics | Covered native trait slice |
-| Tokio I/O trait adapters | `TokioCompat<T>` and `MoiraiCompat<T>` transparent wrappers under `tokio-compat` | `tokio::io::{AsyncRead, AsyncWrite}` | Covered trait slice through value tests and `async_io_compat_comparison` |
+| Tokio I/O trait adapters | `TokioCompat<T>` and `MoiraiCompat<T>` transparent wrappers under `tokio-compat` | `tokio::io::{AsyncRead, AsyncBufRead, AsyncWrite}` including vectored writes | Covered trait slice through value tests and `async_io_compat_comparison` |
 | File facade read | `moirai_async::fs::read` | `tokio::fs::read` | Covered |
 | File facade write | `moirai_async::fs::write` through PAL platform write | `tokio::fs::write` | Covered |
 | File facade append | `moirai_async::fs::append` through PAL platform append | `tokio::fs::OpenOptions::append` plus `write_all` | Covered |
@@ -417,7 +417,7 @@ Use Tokio over Moirai when:
 
 ## Benchmark Evidence
 
-The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `docs/rayon_tokio_gap_audit.md`, and `docs/rayon_adapter_surface_audit.md`. The latest documented comparison rows include:
+The current repository records benchmark evidence in `docs/performance_results.md`, `docs/rayon_tokio_gap_audit.md`, and `docs/rayon_adapter_surface_audit.md`. The latest documented comparison rows include:
 
 | Benchmark group | Moirai result | Reference result | Interpretation |
 | --- | ---: | ---: | --- |

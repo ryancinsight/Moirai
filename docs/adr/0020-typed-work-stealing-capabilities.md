@@ -17,7 +17,7 @@ endpoints remain alive.
 and cloneable `Send + Sync` stealers over private `Arc` storage. Owner
 operations require `&mut self`; steal operations exist only on stealers. The
 default `DeferredReclaim` ZST retains resized arrays until the final endpoint
-drops; shared live array reclamation remains opt-in through the Moirai-owned
+drops or the owner calls `shrink_to` (which frees them under the resize gate); shared live array reclamation remains opt-in through the Moirai-owned
 access-counted policy. Batch
 steal returns an allocation-free owning iterator whose destructor drops an
 unconsumed tail, so panic cannot leak transferred values.

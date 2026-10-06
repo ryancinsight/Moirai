@@ -4,101 +4,121 @@ Status: Accepted
 
 **Date**: 2026-05-25
 
-**Revision 2026-09-23**: Decision 3 is replaced. File syscalls have no
-readiness model, and the cooperative `AsyncFile` ran them inside `poll`.
-Yielding once before a syscall does not make the syscall non-blocking, so a
-slow disk stalled the executor thread and a dropped future could not be
-cancelled (MOI-ASYNC-FS-BLOCKING-2026-09-23). `moirai-pal::fs` now exposes
-blocking primitives, and `moirai-async::fs` runs them on a bounded blocking
-pool. That pool is the facility hostname resolution already used (Moirai
-#446, #448), now one implementation in `moirai-async::blocking`. Decision 5
-is revised to match.
+**Revision 2026-09-30**: Rewritten to the as-built state audited under
+MOI-NATIVE-REACTOR-001 (PR 570). The Windows gaps against that item move to ADR 0067;
+the Unix level-triggered/edge-triggered conflict is recorded under Residual Risk.
 
-**Revision 2026-09-16**: Windows `POLLNVAL` cleanup now crosses both ownership
-stores. `WSAPoll` reports the removed registration generation to `IoReactor`,
-which wakes and removes its central waiters. Re-registration after platform
-removal starts a fresh interest set and wakes the retired waiters; central
-generation identity prevents an older delayed invalidation from consuming a
-newer invalidated generation for the same reused socket value.
+**Revision 2026-09-29**: Waiter cancellation is the readiness contract on every
+native target; Unix removal treats `EBADF`/`ENOENT` as a retired registration.
 
-**Revision 2026-09-16**: A driven event loop now treats a platform iteration
-error as terminal. It retains the first `io::Error`, removes every central
-waiter and Windows generation while registration is serialized, then wakes the
-removed waiters after releasing every lock. The cached process-global reactor
-remains discoverable so later socket polls receive an error whose source is the
-retained failure. The driver does not retry, restart, or switch to cooperative
-polling after terminal failure. This failure contract does not establish the
-cause of a downstream HTTP timeout.
+**Revision 2026-09-23**: File syscalls run on a bounded blocking pool, never
+inside `poll` (MOI-ASYNC-FS-BLOCKING-2026-09-23).
 
-**Revision 2026-09-17**: Windows PAL sockets now store their OS socket in an
-`Arc`. The platform registration keeps only a weak owner and each `WSAPoll`
-snapshot upgrades it to a strong lease held until the kernel call returns.
-Socket retirement removes its exact per-interest waiter and wakes the poll;
-the last socket owner can therefore close only before snapshot acquisition or
-after the active Winsock call. TCP streams, TCP listeners, and UDP sockets use
-this path. Waiter identities are published in the same central-state
-transaction as their wakers; replaced wakers and cancellation owners are
-destroyed only after that state lock is released. Raw descriptor registration
-retains its caller-owned lifetime contract. The `poll_read`/`poll_write`
-surface stores cancellation with the TCP stream because a borrowing `Future`
-is external to that API; the named async read/write/flush, accept, and UDP
-operations own cancellation for their future lifetime. A surfaced
-`WSAENOTSOCK` in a downstream release test motivates this correction but does
-not prove the cause of earlier timeouts.
+**Revision 2026-09-17**: Windows poll snapshots hold socket leases through
+`WSAPoll` (PR 390).
 
-The driving item is
-MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17 (delivered by Moirai PR 390).
+**Revision 2026-09-16**: `POLLNVAL` invalidation is generation-tagged and a
+platform iteration error is terminal.
 
-Revision 2026-09-29: the per-interest waiter cancellation is the readiness
-contract on every native target, not a Windows mechanism. On epoll and kqueue
-the readiness syscalls hold no user memory, so a waiter needs no lease: its
-owner declares it before the socket, and dropping it removes the waker and the
-kernel interest while the descriptor is still open. Before this revision a
-dropped Unix future or socket left its registration and the task waker in the
-reactor tables, a later socket reusing the descriptor number inherited the stale
-interest, and an event dispatched after `close` turned `EBADF`/`ENOENT` into a
-terminal driver failure for the whole reactor. The backend now classifies
-`EBADF`/`ENOENT` from a removal or narrowing as a retired registration, not a
-driver failure. Rejected: a Unix lease type holding the descriptor open, which
-delays `close` past the cancelled operation for no memory-safety gain.
-Evidence: type-checked and clippy-clean for Linux and macOS targets; the Unix
-regression tests could not be executed on the Windows development host.
-Winsock's [closesocket remarks](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-closesocket#remarks)
-prohibit concurrent Winsock calls on the socket being closed.
-The [WSAPoll return contract](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsapoll#return-value)
-requires `WSAGetLastError` after `SOCKET_ERROR`. Real-socket tests retire owners
-before and after snapshot acquisition, preserve replacement waiters, and
-exercise failed-poll lease release. These selected interleavings are behavioral
-evidence, not an exhaustive proof of every OS scheduling order.
+## Context
 
-**Context**: We needed to complete the transition from a cooperative/blocking async I/O simulation to a true event-driven, reactor-backed asynchronous I/O and execution architecture. The busy-polling loop in the async executor consumed excessive CPU, and file/socket operations lacked real readiness integration.
+Socket futures perform a non-blocking syscall and, on `WouldBlock`, register the
+task waker with a reactor. Earlier revisions of this record claimed the reactor
+removed idle CPU use and that Windows used "readiness structures". The audit
+found the Windows backend is `WSAPoll`, not IOCP (an earlier IOCP backend was
+deleted because completions are not socket readiness; CHANGELOG "real readiness reactor on Windows" entry), and
+that the reactor thread wakes on a timer while idle.
 
-### Decision
+## Decision
 
-1. **Reactor-Bound Event Loop**: Integrate a thread-safe `IoReactor` that manages OS-level handles (using `epoll` on Linux, `kqueue` on macOS, and readiness structures on Windows). Establish thread-local `ACTIVE_REACTOR` bindings.
-2. **Readiness-Driven Sockets**: Implement non-blocking `AsyncTcpStream` and `AsyncTcpListener` in `moirai-pal::net` that register wakers with the `IoReactor` on `WouldBlock` errors and self-wake when no active reactor is present.
-3. **Pooled File Operations**: File syscalls block on every platform. `moirai-pal::fs::File` exposes them as blocking `&self` primitives, and `moirai-async::fs` runs each on a bounded blocking pool: fixed workers, a bounded queue, and async admission. No file syscall runs inside `poll`. A handle keeps one stream operation in flight and settles it before the next, so stream order survives cancellation.
-4. **Executor Run-Queue Scheduling**: Replace the task-queue busy-polling loop in `moirai-async::executor::AsyncExecutor` with a thread-safe run-queue and block-on notification powered by a platform-specific `ExecutorWaker`.
-5. **Clean Modular Delegation**: `moirai-async::net` delegates to the readiness-driven `moirai-pal::net` sockets. `moirai-async::fs` owns the async boundary for files and delegates only the blocking syscalls to `moirai-pal::fs`. Both stay within the 500-line structural limit.
-6. **Generation-Bound Windows Cleanup**: Treat `POLLNVAL` as a generation-tagged invalidation. Remove its platform registration, then wake and remove the corresponding central waiters only while no replacement generation exists.
-7. **Terminal Driver Failure**: Retain the first error returned by a driven platform iteration. Serialize failure publication with descriptor and waiter registration, remove all central waiters and Windows generations, wake those waiters outside locks, and reject later registrations with the retained error as their source. A direct `run_iteration` call remains caller-owned; normal `stop` and an attempted second `run` do not publish terminal platform failure.
-8. **Owned Windows Poll Snapshots**: Register weak owners for PAL network sockets and upgrade them while constructing a `WSAPoll` snapshot. Keep the strong leases through the call, release them after all poll and registration locks, and cancel waiters by originating reactor plus per-interest identity. Never recover from a genuine `WSAPoll` error by retrying or changing drivers.
-9. **Atomic Waiter Replacement**: Publish or clear per-interest cancellation identities while holding the same central-state lock that replaces the waker and platform generation. Release that lock before destroying or waking displaced values so reentrant destructors cannot cancel a replacement or deadlock.
+1. **One central reactor.** `IoReactor` (`moirai-pal/src/reactor/core`) owns the
+   platform backend chosen by the compile target (`PlatformReactor`,
+   `moirai-pal/src/lib.rs`): `EpollReactor` on Linux, `KqueueReactor` on
+   macOS/BSD, `WsaPollReactor` on Windows, `WebReactor` on wasm32 (cooperative,
+   ADR 0007). It is driven by `IoReactor::run` on the process-global thread
+   `moirai-global-reactor` (started on first use, `reactor/tls.rs`) or by an
+   executor calling `run_iteration`, which blocks without a timeout when its
+   run queue is empty (`moirai-async/src/executor/core.rs`).
+2. **Registration after `WouldBlock`, one-shot delivery.** A socket operation
+   registers (descriptor, interest, waker) only after its syscall reports
+   `WouldBlock`. Dispatch consumes exactly the interest an event reports,
+   narrows the platform registration, and wakes the wakers registered for that
+   descriptor and interest (`reactor/core/event_dispatch.rs`). A task still
+   blocked re-registers on its next poll.
+3. **Backends are level-triggered.** `EPOLLET` and `EV_CLEAR` are not used: a
+   waker armed after `WouldBlock` would miss readiness that arrived in the
+   window, and an earlier edge-triggered revision hung tasks that way (CHANGELOG
+   lost-edge entry). Level-triggering plus one-shot narrowing at dispatch gives
+   edge-like delivery without the window.
+4. **Flags are wake reasons, errors come from the retried syscall.** Backends
+   report `Event { error, hangup }`; dispatch treats both as readiness for every
+   registered direction. The woken task retries its syscall, which returns the
+   typed `std::io::Error` (`ECONNRESET`, `EPIPE`) or a zero-length read at end of
+   stream. No error is synthesized from a flag.
+5. **Generation-bound registrations.** Every platform registration carries a
+   generation; a polled event applies only while its generation is current, so a
+   reused descriptor value never inherits a stale interest or consumes a
+   replacement (`reactor/registration.rs`). Waiter replacement publishes the
+   waker and its cancellation identity under one lock and destroys displaced
+   values after releasing it.
+6. **Waiter cancellation.** A waiter owner retires its waker and platform
+   interest on drop while the descriptor is still open (`WaiterCancellation`,
+   `reactor/waiter_cancellation.rs`), so its owner declares the waiter before
+   the socket. Unix readiness syscalls hold no user memory, so no lease is
+   needed; a lease type holding the descriptor open is rejected because it
+   delays `close` past the cancelled operation without a memory-safety gain.
+7. **Windows `WSAPoll` ownership.** PAL sockets store the OS socket in an `Arc`;
+   registrations keep a weak owner and each poll snapshot upgrades it to a lease
+   held through the kernel call, excluding concurrent `closesocket` (Winsock
+   prohibits it). A closed raw socket surfaces as `POLLNVAL` and invalidates
+   exactly its generation, waking and removing its waiters. A pending connect
+   re-probes with `select` every 100 ms because `WSAPoll` before Windows 10
+   2004 never reports a failed connect (`net/connect/reprobe.rs`).
+8. **Terminal driver failure.** A driven iteration error is retained once,
+   every waiter and generation is removed and woken outside locks, and later
+   registrations fail with the retained error as source. There is no retry and
+   no driver switch (`reactor/driver_failure.rs`).
+9. **Files use a bounded blocking pool.** File syscalls block on every
+   platform. `moirai-pal::fs::File` exposes blocking `&self` primitives and
+   `moirai-async::fs` runs each on a bounded pool with async admission, one
+   stream operation in flight per handle. No file syscall runs inside `poll`.
+10. **No active reactor means cooperative self-wake.** When `with_current`
+    yields no reactor (wasm32 outside `with_active`, reactor or thread
+    construction failure, test suppression), a `WouldBlock` poll wakes its own
+    task and yields the thread (`net.rs` `wake_without_active_reactor`). This is
+    a busy poll on every target, not a Windows mechanism.
 
-### Rationale
+## Rationale
 
-- **High-Performance Event Dispatch**: Eliminates unnecessary polling loops, reducing CPU utilization of idle executors to zero.
-- **Zero-Copy Readiness Integration**: Avoids buffer allocations and copies by delegating handle registration and waker updates directly to the platform reactor.
-- **Progress Guarantee**: The fallback waker yield ensures that execution progresses even when an I/O reactor is absent or when operations are synchronous.
-- **Strict Domain Boundaries**: Keeps platform-specific socket/file descriptors confined to `moirai-pal`, exposing clean traits and facades to `moirai-async`.
+- Level-triggered backends plus one-shot dispatch close the register-after-
+  `WouldBlock` race without an arm-before-syscall redesign.
+- Keeping platform descriptors inside `moirai-pal` leaves `moirai-async` with
+  the readiness-driven facade only.
 
-### Verification
+## Verification
 
-- `cargo nextest run --locked -p moirai-pal`
-- `cargo nextest run --locked -p moirai-async`
-- `cargo nextest run --locked --workspace`
-- `cargo bench -p moirai-benchmarks --test benchmark_contracts`
+- Dispatch, generation, cancellation, and terminal-failure behavior:
+  `moirai-pal/src/reactor/tests/` (`readiness_dispatch`, `socket_generation`,
+  `owned_waiter_cancellation`, `terminal_failure`, `backend_update_failure`);
+  Windows snapshot leases: `moirai-pal/src/windows/poll/tests.rs`.
+- Wake counts: `net::tests::self_wake_fallback_wakes_once_per_pending_poll`
+  (N pending polls without a reactor produce N wakes) and
+  `net::tests::reactor_readiness_wakes_an_idle_read_exactly_once` (zero wakes
+  over 1000 idle reactor iterations, one wake on peer write).
+- Unix backends are type-checked for Linux and macOS targets; their runtime
+  tests did not execute on the Windows development host.
 
-### Residual Risk
+## Residual Risk
 
-Platform-specific async file I/O (e.g., via io_uring or Windows IOCP) remains deferred in favor of cooperative standard-file abstractions. Future work must define thread-pool scheduling for file blocking operations if true non-blocking disk access is required under high load.
+- **Windows gaps** (ADR 0067): the driver wakes every 10 ms while idle
+  (`reactor/core/lifecycle.rs` `run`, about 67 loop iterations per second
+  measured on Windows 11 with the 15.6 ms timer tick); each iteration rebuilds an
+  O(n) `WSAPoll` snapshot under the registration mutex and returns a `Vec`;
+  every registration sends a loopback datagram to interrupt the poll. The
+  acceptance text "pins overlapped operations, binds handles once" is unmet.
+- **Unix acceptance conflict**: MOI-NATIVE-REACTOR-001 asks for edge-triggered
+  interests. Decision 3 rejects edge-triggering for the armed-after-`WouldBlock`
+  protocol. Satisfying the item as worded needs arm-before-syscall
+  registration, a respecification for the judgment tier.
+- Platform asynchronous file I/O (IOCP, io_uring) is not built; ADR 0067 states
+  the Windows plan.

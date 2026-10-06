@@ -135,7 +135,9 @@ fn test_mpmc_multi_producer_single_consumer() {
 fn test_mpmc_capacity_one_single_producer_consumer() {
     use std::thread;
 
-    let item_count = 32_768;
+    // Miri interprets roughly a thousand times slower than native code; the
+    // reduced count still drives the full/empty park and wake cycle.
+    let item_count = if cfg!(miri) { 128 } else { 32_768 };
     let (tx, rx) = mpmc::<usize>(1);
 
     let consumer = thread::spawn(move || {
@@ -160,8 +162,8 @@ fn test_mpmc_capacity_one_single_producer_consumer() {
 
 #[test]
 fn test_mpmc_capacity_one_repeated_single_producer_consumer() {
-    for _ in 0..8 {
-        let item_count = 4_096;
+    let (rounds, item_count) = if cfg!(miri) { (2, 128) } else { (8, 4_096) };
+    for _ in 0..rounds {
         let (tx, rx) = mpmc::<usize>(1);
 
         let consumer = std::thread::spawn(move || {
@@ -188,7 +190,7 @@ fn test_mpmc_capacity_one_repeated_single_producer_consumer() {
 #[test]
 fn test_mpmc_capacity_one_multi_producer_single_consumer() {
     let producer_count = 8;
-    let item_count = 8_192;
+    let item_count = if cfg!(miri) { 256 } else { 8_192 };
     let (tx, rx) = mpmc::<usize>(1);
 
     let consumer = std::thread::spawn(move || {

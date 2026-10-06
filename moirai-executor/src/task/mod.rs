@@ -22,7 +22,8 @@ pub struct TaskMetadata {
     pub worker_id: Option<usize>,
     /// Priority the task was spawned with.
     pub priority: Priority,
-    /// True when a cancel request was honored before the task body ran.
+    /// True when the task ended without producing a result: a cancel request
+    /// was honored before the body ran, or the task was discarded unfinished.
     pub cancelled: bool,
 }
 

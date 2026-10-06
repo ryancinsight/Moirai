@@ -65,13 +65,14 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
         let deadline = timeout.and_then(|timeout| std::time::Instant::now().checked_add(timeout));
 
         std::future::poll_fn(move |context| {
-            if registry.is_completed(id.0) {
-                return std::task::Poll::Ready(Ok(()));
-            }
-            if registry.get_metadata(id.0).is_none() {
-                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
-                    TaskError::InvalidOperation,
-                )));
+            match registry.completion(id.0) {
+                Some(true) => return std::task::Poll::Ready(Ok(())),
+                Some(false) => {}
+                None => {
+                    return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
+                        TaskError::InvalidOperation,
+                    )));
+                }
             }
             if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
                 return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(TaskError::Timeout)));

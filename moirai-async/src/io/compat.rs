@@ -1,26 +1,41 @@
 // These are used only by the `tokio-compat` trait-bridge impls below.
 #[cfg(feature = "tokio-compat")]
-use std::io;
+use std::io::{self, IoSlice};
 #[cfg(feature = "tokio-compat")]
 use std::pin::Pin;
 #[cfg(feature = "tokio-compat")]
 use std::task::{Context, Poll};
 
 #[cfg(feature = "tokio-compat")]
-use crate::io::traits::{AsyncRead, AsyncWrite};
+use crate::io::traits::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[cfg(feature = "tokio-compat")]
 use tokio_dep as tokio;
 
-/// Wrapper providing Tokio's I/O traits compatibility.
+#[cfg(all(test, feature = "tokio-compat"))]
+mod tests;
+
+/// Exposes a Moirai reader, writer, or buffered reader through the
+/// `tokio::io` traits.
+///
+/// The wrapper forwards every poll, including the task context, so the waker a
+/// Tokio caller registers is the waker the Moirai type stores. It keeps the
+/// layout of `T` and allocates nothing.
 #[repr(transparent)]
 pub struct TokioCompat<T> {
     inner: T,
 }
 
 impl<T> TokioCompat<T> {
+    /// Asserts at compile time that the wrapper adds no size or padding.
+    const TRANSPARENT: () = assert!(
+        size_of::<Self>() == size_of::<T>() && align_of::<Self>() == align_of::<T>(),
+        "compatibility wrapper must keep the layout of its inner type",
+    );
+
     /// Create a new Tokio compatibility wrapper.
     pub fn new(inner: T) -> Self {
+        let () = Self::TRANSPARENT;
         Self { inner }
     }
 
@@ -36,15 +51,27 @@ impl<T> From<T> for TokioCompat<T> {
     }
 }
 
-/// Wrapper providing Moirai's native I/O traits compatibility for Tokio types.
+/// Exposes a `tokio::io` reader, writer, or buffered reader through the Moirai
+/// I/O traits.
+///
+/// The wrapper forwards every poll, including the task context, so the waker a
+/// Moirai caller registers is the waker the Tokio type stores. It keeps the
+/// layout of `T` and allocates nothing.
 #[repr(transparent)]
 pub struct MoiraiCompat<T> {
     inner: T,
 }
 
 impl<T> MoiraiCompat<T> {
+    /// Asserts at compile time that the wrapper adds no size or padding.
+    const TRANSPARENT: () = assert!(
+        size_of::<Self>() == size_of::<T>() && align_of::<Self>() == align_of::<T>(),
+        "compatibility wrapper must keep the layout of its inner type",
+    );
+
     /// Create a new Moirai compatibility wrapper.
     pub fn new(inner: T) -> Self {
+        let () = Self::TRANSPARENT;
         Self { inner }
     }
 
@@ -89,12 +116,35 @@ impl<T: AsyncWrite + Unpin> tokio::io::AsyncWrite for TokioCompat<T> {
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(feature = "tokio-compat")]
+impl<T: AsyncBufRead + Unpin> tokio::io::AsyncBufRead for TokioCompat<T> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        Pin::new(&mut self.get_mut().inner).poll_fill_buf(cx)
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        Pin::new(&mut self.get_mut().inner).consume(amt);
     }
 }
 
@@ -124,11 +174,34 @@ impl<T: tokio::io::AsyncWrite + Unpin> AsyncWrite for MoiraiCompat<T> {
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(feature = "tokio-compat")]
+impl<T: tokio::io::AsyncBufRead + Unpin> AsyncBufRead for MoiraiCompat<T> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        Pin::new(&mut self.get_mut().inner).poll_fill_buf(cx)
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        Pin::new(&mut self.get_mut().inner).consume(amt);
     }
 }

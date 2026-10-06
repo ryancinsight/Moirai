@@ -9,6 +9,9 @@ Status: Accepted
 - Revision: 2026-08-28 — reduce the default initial capacity from 256 to 128
   after exact retained-footprint attribution and controlled queue-kernel
   measurements.
+- Revision: 2026-09-30 — a worker about to park returns each drained plane to
+  its creation size (`ChaseLevDeque::shrink_to`), so a one-off burst no longer
+  pins its peak storage.
 - Revision: 2026-09-02 — apply the configured capacity to the default-priority
   plane only; the other three planes start at the minimum and grow. The
   priority factor in this decision's own retention formula was never paid for:
@@ -146,6 +149,15 @@ plane keeps 128.
 - Local growth preserves the deque's generation and reclamation protocol.
   Exactly-once behavior is verified with real owner/thief execution because
   the fixed-capacity Loom model does not model resize.
+- A plane grown by a burst returns to its creation size when its worker finds
+  no work and is about to park (`WorkerQueueOwner::shrink_drained_planes`). The
+  owner claims the resize gate, which drains every thief, then frees the
+  displaced and all retired buffers immediately; the gate protocol is the one
+  `tests/loom_chase_lev_resize_gate.rs` models for `resize`. A plane still
+  holding work, or holding more than the base size fits with one slot of
+  headroom, is left as is. A workload that alternates a burst with idleness
+  re-grows each time and pays the doubling copies; a hysteresis is added only
+  if a measured workload shows that cost.
 - A non-default plane must still accept work past its minimum capacity. The
   queue algorithm, its stealers and their publication are unchanged by the
   2026-09-02 revision — only the initial slot count differs per plane — so that

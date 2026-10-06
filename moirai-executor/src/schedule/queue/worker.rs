@@ -35,6 +35,9 @@ pub(crate) struct WorkerQueues {
 /// Unique bottom-side queue capabilities owned by one worker thread.
 pub(crate) struct WorkerQueueOwner {
     local_queues: [ChaseLevDeque<ScheduledJob>; PRIORITY_LEVELS],
+    /// Slot count each plane was created with: the size it returns to once a
+    /// burst has drained.
+    base_capacities: [DequeCapacity<ScheduledJob>; PRIORITY_LEVELS],
     shared: Arc<WorkerQueues>,
 }
 impl WorkerQueues {
@@ -63,13 +66,14 @@ impl WorkerQueues {
         // already performs, and the same trade ADR 0035 accepted when it took
         // the default from 256 to 128.
         let default_plane = Priority::default().index();
-        let local_queues = std::array::from_fn(|plane| {
-            ChaseLevDeque::new(if plane == default_plane {
+        let base_capacities = std::array::from_fn(|plane| {
+            if plane == default_plane {
                 local_queue_capacity
             } else {
                 DequeCapacity::minimum()
-            })
+            }
         });
+        let local_queues = std::array::from_fn(|plane| ChaseLevDeque::new(base_capacities[plane]));
         let local_stealers = std::array::from_fn(|index| local_queues[index].stealer());
         let shared = Arc::new(Self {
             local_stealers,
@@ -79,6 +83,7 @@ impl WorkerQueues {
         (
             WorkerQueueOwner {
                 local_queues,
+                base_capacities,
                 shared: Arc::clone(&shared),
             },
             shared,
@@ -147,6 +152,20 @@ impl WorkerQueues {
 }
 
 impl WorkerQueueOwner {
+    /// Return every drained plane that grew past its creation size to that
+    /// size, freeing the grown and retired buffers.
+    ///
+    /// A plane grows on the owner's push and never shrinks on its own, so one
+    /// burst would otherwise pin its peak storage for the runtime's lifetime.
+    /// The worker calls this where it has found no work and is about to park.
+    /// A plane that still holds work, or holds more than the base size fits,
+    /// is left as it is, and a plane already at its base size costs one load.
+    pub(crate) fn shrink_drained_planes(&mut self) {
+        for (deque, &base) in self.local_queues.iter_mut().zip(&self.base_capacities) {
+            deque.shrink_to(base);
+        }
+    }
+
     pub(crate) fn pop_local(&mut self) -> Option<ScheduledJob> {
         if self.shared.len.load(Ordering::Relaxed) == 0 {
             return None;

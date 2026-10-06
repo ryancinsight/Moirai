@@ -78,6 +78,8 @@ pub(super) fn worker_loop<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT
         // to avoid latency overheads during active work stealing and spinning.
         run_idle_memory_maintenance();
 
+        owner.shrink_drained_planes();
+
         // Consumer-registered idle hooks run at the same quiescent point: the
         // worker found no work and is about to block, so any thread-local
         // reclamation a hook performs costs nothing on the active path.

@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
+### Changed
+
+- Release the workspace as 0.7.0 on the mnemosyne-memory 0.9.0 requirement.
+  Mnemosyne published 0.9.0 and its git default branch moved with it, so any
+  fresh resolution of `moirai-core`'s `mnemosyne-memory ^0.8` requirement
+  against the git source fails — breaking `cargo update` in the release gate
+  and in every downstream placeholder build (leto's Crates.io Release). The
+  requirements move to the 0.9 line; `mnemosyne-memory-core` stays on 0.3.0.
+
+### Breaking
+
+- The optional Mnemosyne integration now requires mnemosyne-memory 0.9.0;
+  consumers must update their dependency graph to the 0.9 provider line.
+
+## [0.6.1] - 2026-10-02
+
 ### Added
+
+- **Tokio I/O compatibility** (`TokioCompat`, `MoiraiCompat`). Both wrappers
+  now map `AsyncBufRead` (`poll_fill_buf`, `consume`) and vectored writes, and
+  assert at compile time that they add no size or alignment to the wrapped
+  type. `moirai_async::io::AsyncWrite` gains defaulted `poll_write_vectored`
+  (the first non-empty slice through `poll_write`) and `is_write_vectored`
+  (`false`); existing writers compile unchanged (ADR 0006).
 
 - **Worker pinning** (`WorkerPlacement::{Unbound, Pinned}`,
   `ExecutorConfig::worker_placement`, and `worker_placement(..)` on
@@ -167,6 +192,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cause: PlacementFailure }`, so exhaustive matches need an arm. Migration: add
   the field (`WorkerPlacement::Unbound` keeps current behaviour) and handle or
   forward the variant.
+
+- The workspace requires `melinoe` 0.10.0 and `themis-topology` 0.11.0, and both
+  appear in public signatures. `moirai_gpu::resident_blocks` and
+  `plan_persistent_launch` take `themis::GpuTopology`, and the
+  `par_partition_*` functions of `moirai_parallel::melinoe_ext` (also
+  re-exported at the `moirai` root under the `melinoe` feature and as
+  `moirai::melinoe_ext`) take `melinoe::MelinoeCell` and
+  `melinoe::region::WriterShard`; each is now the type from the new provider
+  release, so a caller on `themis-topology` 0.10 or `melinoe` 0.9 passes a type
+  these functions do not accept. `moirai::initialize()` and
+  `moirai_executor::initialize()` register Moirai's executor with `melinoe`
+  0.10 only: a crate still calling `melinoe` 0.9's `sync::partition_*`
+  directly compiles unchanged and runs on that release's scoped threads
+  instead of Moirai's pool, with the same results. Migration: move those
+  dependencies to `themis-topology` 0.11 and `melinoe` 0.10.
 
 ### Changed
 
@@ -1037,6 +1077,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   acquiring it, so a second thread polling the same executor cannot pass the
   check, wait for the lock, and then poll a future that completed meanwhile —
   which panics with "resumed after completion".
+
+### Changed
+
+- Release the workspace as 0.6.1 against mnemosyne-memory 0.8.0 and
+  mnemosyne-memory-core 0.3.0. `moirai-executor` does not compile against
+  the published 0.2 core (`periodic_defragmentation_sweep` cannot infer its
+  pool type), so the workspace requirements move to the 0.8 and 0.3 lines. No
+  `moirai-core` or `moirai-pal` public item changes (cargo-semver-checks
+  against 0.6.0 reports no required update).
 
 ## [0.5.0] - 2026-08-11
 

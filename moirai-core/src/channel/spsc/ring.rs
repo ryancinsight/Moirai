@@ -1,5 +1,5 @@
 //! The bounded ring's channel wrapper: the policy layer over
-//! [`RingBuffer`](crate::communication::RingBuffer).
+//! [`RingBuffer`].
 //!
 //! The storage, the two cursors, the publication algebra, and the drain on drop
 //! live on [`RingBuffer`] itself, which this type composes. What is left here is
@@ -30,7 +30,8 @@ const SPSC_BLOCK_SPINS: usize = 6;
 /// Deliberately crate-private. `Channel::send`/`recv` take `&self`, and the
 /// `Sync` impl below lets `&SpscChannel` cross threads, so exposing the bare
 /// channel would let safe code drive two producers into the same slot. The
-/// discipline is enforced instead by [`SpscSender`]/[`SpscReceiver`], which are
+/// discipline is enforced instead by [`SpscSender`](super::SpscSender) and
+/// [`SpscReceiver`](super::SpscReceiver), which are
 /// neither `Clone` nor `Sync`; reach them through `channel::spsc`.
 pub(crate) struct SpscChannel<T> {
     /// The ring: storage, cursors, and the publication algebra.
@@ -147,7 +148,7 @@ impl<T: Send> SpscChannel<T> {
 
     /// Blocking send.
     ///
-    /// Written as its own loop rather than through [`Self::blocking`] because
+    /// Written as its own loop rather than through [`blocking`] because
     /// `value` must survive a failed attempt: the cached send takes it by value,
     /// so a closure would move it on the first iteration. Here it stays owned by
     /// this frame and is moved exactly once, when a slot is claimed.

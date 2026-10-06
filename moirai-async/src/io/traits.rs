@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, IoSlice};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -20,6 +20,30 @@ pub trait AsyncWrite {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>>;
+
+    /// Attempt to write bytes from several buffers in one operation.
+    ///
+    /// The default writes the first non-empty buffer through
+    /// [`poll_write`](Self::poll_write) and reports `Ok(0)` when every buffer
+    /// is empty. A writer with a scatter-gather primitive overrides this and
+    /// [`is_write_vectored`](Self::is_write_vectored) together.
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let buf = bufs
+            .iter()
+            .find(|buf| !buf.is_empty())
+            .map_or(&[][..], |buf| &**buf);
+        self.poll_write(cx, buf)
+    }
+
+    /// Whether [`poll_write_vectored`](Self::poll_write_vectored) is cheaper
+    /// than one [`poll_write`](Self::poll_write) per buffer.
+    fn is_write_vectored(&self) -> bool {
+        false
+    }
 
     /// Attempt to flush pending writes.
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
