@@ -13,10 +13,10 @@ use crate::gpu_device_loss::DeviceLossStatus;
 use crate::local_task::LocalTaskHandle;
 use crate::wasm::spawn_local_with_handle;
 
-const GPU_TEXTURE_USAGE_COPY_DST: f64 = 2.0;
-const GPU_TEXTURE_USAGE_RENDER_ATTACHMENT: f64 = 16.0;
-const GPU_TEXTURE_USAGE_CANVAS: f64 =
-    GPU_TEXTURE_USAGE_COPY_DST + GPU_TEXTURE_USAGE_RENDER_ATTACHMENT;
+const GPU_TEXTURE_USAGE_COPY_DST: u32 = 2;
+const GPU_TEXTURE_USAGE_RENDER_ATTACHMENT: u32 = 16;
+const GPU_TEXTURE_USAGE_CANVAS: u32 =
+    GPU_TEXTURE_USAGE_COPY_DST | GPU_TEXTURE_USAGE_RENDER_ATTACHMENT;
 
 /// A browser canvas configured for explicit WebGPU frame presentation.
 ///
@@ -166,17 +166,9 @@ impl WebGpuCanvas {
         set_property(&destination, "colorSpace", &JsValue::from_str("srgb"))?;
         set_property(&destination, "premultipliedAlpha", &JsValue::FALSE)?;
         let copy_size = Object::new();
-        set_property(
-            &copy_size,
-            "width",
-            &JsValue::from_f64(f64::from(size.width())),
-        )?;
-        set_property(
-            &copy_size,
-            "height",
-            &JsValue::from_f64(f64::from(size.height())),
-        )?;
-        set_property(&copy_size, "depthOrArrayLayers", &JsValue::from_f64(1.0))?;
+        set_property(&copy_size, "width", &JsValue::from(size.width()))?;
+        set_property(&copy_size, "height", &JsValue::from(size.height()))?;
+        set_property(&copy_size, "depthOrArrayLayers", &JsValue::from(1_u32))?;
         call_method(
             &self.state.queue,
             "copyExternalImageToTexture",
@@ -196,7 +188,7 @@ impl WebGpuCanvas {
         set_property(
             &configuration,
             "usage",
-            &JsValue::from_f64(GPU_TEXTURE_USAGE_CANVAS),
+            &JsValue::from(GPU_TEXTURE_USAGE_CANVAS),
         )?;
         set_property(&configuration, "alphaMode", &JsValue::from_str("opaque"))?;
         call_method(&self.context, "configure", &[configuration.into()])?;
