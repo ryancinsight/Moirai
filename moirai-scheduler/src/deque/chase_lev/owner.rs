@@ -73,6 +73,9 @@ where
             }
         }
 
+        // SeqCst fence: orders the `bottom` store above before the `top` load.
+        // That is a store-to-load ordering, which no Acquire/Release pair can
+        // give; it pairs with the thief's SeqCst fence in `steal`.
         std::sync::atomic::fence(Ordering::SeqCst);
         let t = self.top.load(Ordering::Relaxed);
 
@@ -93,6 +96,9 @@ where
                 self.bottom.store(b.wrapping_add(1), Ordering::Relaxed);
                 return None;
             }
+            // SeqCst CAS: the last-element race with a thief is decided here. It
+            // stays SeqCst to match the formulation this deque follows (Lê et al.,
+            // 2013); weakening it is outside this change.
             if self
                 .top
                 .compare_exchange(t, t.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)

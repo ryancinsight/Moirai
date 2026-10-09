@@ -5,10 +5,10 @@
 //! through one encoded `resize_gate`: bit zero is the owner claim and each
 //! protected thief contributes two. The sole owner claims resize and waits for
 //! the encoded access count to drain before republishing storage. The protocol
-//! atomic uses the exact production `SeqCst` ordering. A model-only storage
-//! generation uses the production
-//! release-publish/acquire-observe ordering and must remain unchanged for the
-//! lifetime of every protected access.
+//! atomic is the production `ResizeGate`, compiled in by path, so its orderings
+//! are the production orderings under test. A model-only storage generation
+//! uses the release-publish/acquire-observe ordering and must remain unchanged
+//! for the lifetime of every protected access.
 //!
 //! A thief may speculatively increment the encoded access count after the owner
 //! has observed only its claim bit. The value returned by that same RMW rejects

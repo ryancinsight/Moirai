@@ -43,10 +43,16 @@
 //!   dereferences a stale buffer.
 //!
 //! The steal gate packs resize ownership and active thief count into one atomic:
-//! bit zero is the exclusive owner claim and each thief contributes two. One
-//! sequentially consistent read-modify-write therefore orders every admission
-//! against every owner claim without the ABA window created by separate flag
-//! and counter atomics. The gate is entered once per *access*, not once per
+//! bit zero is the exclusive owner claim and each thief contributes two. Every
+//! admission and claim is a read-modify-write on that single word, so its
+//! modification order alone decides whether an admission precedes a claim; one
+//! word also avoids the ABA window that separate flag and counter atomics would
+//! open. The data edges come from the orderings on each access, documented per
+//! site in `gate.rs`: an admission observes the Release that cleared the claim
+//! bit, and the drain observes each departing thief's Release exit. Admissions,
+//! the backoff, and the drain are SeqCst because the loom model of the gate does
+//! not close under weaker orderings on that retry path; the claim is Relaxed.
+//! The gate is entered once per *access*, not once per
 //! element: a batch steal holds it across all of its items, so `resize` waits
 //! behind a whole batch rather than a single steal, and a batch never stalls
 //! mid-flight on a resize that opens between two of its items.
