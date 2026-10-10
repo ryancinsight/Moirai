@@ -27,6 +27,9 @@ where
     /// body remains identical to the single-item path.
     fn steal_within_access(&self) -> StealResult<T> {
         let t = self.top.load(Ordering::Acquire);
+        // SeqCst fence: pairs with the owner's fence in `pop`. The owner's `bottom`
+        // store is Relaxed, so the `bottom` load below can observe it only through
+        // the total order the two fences share; an Acquire load cannot provide it.
         std::sync::atomic::fence(Ordering::SeqCst);
         let b = self.bottom.load(Ordering::Acquire);
 
@@ -51,6 +54,9 @@ where
                 return StealResult::Retry;
             }
 
+            // SeqCst CAS: the thief's side of the last-element race with `pop`. It
+            // stays SeqCst to match the owner's CAS and the fence pair above (Lê et
+            // al., 2013); weakening it is outside this change.
             if self
                 .top
                 .compare_exchange(t, t.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
