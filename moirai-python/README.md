@@ -13,6 +13,13 @@ pip install moirai-python
 Wheels are built for CPython 3.10 through 3.13 on Linux, Windows, and macOS.
 There are no runtime dependencies.
 
+## Build modes
+
+Cargo tests link the detected interpreter. Production wheels use maturin 1.14.1
+or newer, which sets `PYO3_BUILD_EXTENSION_MODULE` and supplies extension linker
+arguments. The legacy unconditional `extension-module` feature suppresses the
+interpreter link for macOS test executables and is removed.
+
 ## Use
 
 ```python

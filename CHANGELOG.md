@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Python bindings use PyO3 0.29's build-mode selection: Cargo tests link the
+  interpreter, while maturin sets `PYO3_BUILD_EXTENSION_MODULE` and supplies
+  extension linker arguments. An unconditional legacy feature suppresses the
+  interpreter link even for the workspace test executable on macOS.
 - Browser-local reactor ownership uses `Rc`; native reactor ownership retains
   `Arc`. WASM/native warning-denying PAL checks pass.
 - WebGPU device construction follows the state declaration order.
