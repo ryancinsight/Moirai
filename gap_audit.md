@@ -3,6 +3,16 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Apple packaged Fetch status — 2026-10-12 [patch]
+
+The native Metis Greet failure exposes a missing success status in the shared
+WebView response. `NSURLResponse` delivers the WASM bytes, but wasm-bindgen
+0.2.129 rejects its Fetch status zero. moirai-webview 0.1.1 returns an actual
+`NSHTTPURLResponse` with status 200 and exact MIME/length headers. The regression
+fails against the previous response; eight real resource/response tests pass
+after correction. Native macOS normal, Unicode and empty-name greetings pass.
+Remaining Apple lifecycle evidence stays in MOI-APPLE-HOST-EVIDENCE-001.
+
 <a id="MOI-GAP-STRUCTURE-001"></a>
 ## MOI-GAP-STRUCTURE-001 — Historical module-size findings are stale
 - risk: The 2024 assessment reported 18 modules above 400 lines, but later splits make that count unfit for current planning.
