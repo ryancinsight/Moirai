@@ -91,3 +91,15 @@ The iPad simulator also reports duplicate Apple accessibility classes from
 WebCore/WebKit. Application resource delivery succeeds; the interactive
 accessibility journey remains pending. No valid device-signing identity exists
 on this Mac, and the physical iPhone reports unavailable.
+
+<a id="MOI-GAP-ASYNC-STATE-LOOM-001"></a>
+## MOI-GAP-ASYNC-STATE-LOOM-001 — The async task state machine has no loom model of the production code
+- risk: Lifecycle, future, and result cells in `moirai-executor/src/hybrid/async_state/` are `UnsafeCell` accesses justified by the POLLING and QUEUED states excluding other accessors. Cancel, poll, and completion interleavings are argued in `// Safety:` comments but never model-checked against production code.
+- evidence: `completion.rs` and `polling.rs` create `&mut` to the lifecycle, future-present, and result cells; `tests/loom_task_waiters.rs` and `tests/loom_queue_handoff.rs` model their own protocol copies, not `async_state`; cancellation appears only in `async_state/tests/shutdown.rs`, which runs without an interleaving model.
+- re-open trigger: A loom model drives the production `AsyncFutureState` through poll, cancel, and completion racing on two threads and asserts exactly-once future drop and result publication.
+
+<a id="MOI-GAP-UNSAFE-SAFETY-COMMENTS-001"></a>
+## MOI-GAP-UNSAFE-SAFETY-COMMENTS-001 — Production `unsafe` blocks lack a checked SAFETY convention
+- risk: The workspace does not deny `clippy::undocumented_unsafe_blocks`, so the `// SAFETY:` convention is prose only. A four-line lookback reports 108 of 488 production `unsafe` blocks without an adjacent SAFETY comment. That count is an overestimate, since many sites carry the comment two or three lines above a `let` that wraps the block.
+- evidence: 53 of the 108 are in `moirai-pal`, mostly WebView2 and Win32 COM calls (`windows/webview/host/*.rs`, `windows/window/*.rs`) that repeat one invariant per call. `moirai-executor/src/hybrid/async_state/` writes `// Safety:` in lowercase, unlike the `// SAFETY:` convention. The `moirai-parallel` `Vec::from_raw_parts` sites rely on `MaybeUninit<R>` sharing `R`'s layout, and that argument is correct.
+- re-open trigger: Per-crate `undocumented_unsafe_blocks = "deny"` lands, with the COM call sites consolidated behind one safe wrapper per interface and the `Safety:` spelling normalized.
