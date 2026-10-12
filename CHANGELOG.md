@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Unix single-instance reception reads complete messages after peer shutdown.
+  A monotonic message deadline and nonblocking reads avoid Darwin's rejection
+  of socket timeout changes on a closed peer; truncation and stalls remain errors.
+- Native receive-cancellation verification drives actual readiness when a
+  replacement future is pending, then checks the exact payload and retirement
+  of both registrations instead of assuming synchronous datagram delivery.
 - macOS contained-process cleanup checks live group membership after Darwin's
   zombie-only `killpg` EPERM. Exited status remains stable; denied live members
   and incomplete kernel queries remain errors. Real leader/descendant fixtures

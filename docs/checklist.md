@@ -13,5 +13,6 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [x] [minor] moirai-webview 0.1.0 resource and native lifecycle implementation.
 - [x] [patch] Real-file byte/MIME, traversal, symlink, socket/FIFO and inclusive-bound tests.
 - [x] [patch] Apple ABI, resource, process and browser-PAL CI coverage.
+- [x] [patch] Closed-peer instance messages, exact payload bounds and live-stall deadlines.
 - [ ] [minor] Native input, lifecycle and device evidence from the active backlog.
 - [ ] [minor] Provider publication and consumer standalone locks before release.

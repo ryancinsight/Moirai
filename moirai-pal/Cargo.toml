@@ -113,6 +113,8 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 criterion = { workspace = true }
 proptest = { workspace = true }
 futures = "0.3"

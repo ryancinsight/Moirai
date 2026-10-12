@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 
 use super::{INSTANCE_IO_TIMEOUT, InstanceName, read_frame, write_frame};
 
+mod receiver;
+
 /// Longest socket path every supported Unix accepts (macOS `sun_path`).
 const MAX_SOCKET_PATH_BYTES: usize = 103;
 /// Pause between connection attempts while a new primary starts listening.
@@ -129,15 +131,8 @@ impl Primary {
             Err(error) if error.kind() == ErrorKind::WouldBlock => return Ok(None),
             Err(error) => return Err(error),
         };
-        stream.set_nonblocking(false)?;
-        stream.set_read_timeout(Some(INSTANCE_IO_TIMEOUT))?;
-        read_frame(&mut stream).map(Some).map_err(|error| {
-            if error.kind() == ErrorKind::WouldBlock {
-                io::Error::new(ErrorKind::TimedOut, "instance sender stalled")
-            } else {
-                error
-            }
-        })
+        stream.set_nonblocking(true)?;
+        read_frame(&mut receiver::Receiver::new(&mut stream)).map(Some)
     }
 }
 
