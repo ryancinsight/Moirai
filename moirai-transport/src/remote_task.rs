@@ -164,6 +164,9 @@ impl RemoteTaskClient {
         task_id: RemoteTaskId,
         operation: RemoteTaskOperation,
     ) -> TransportResult<RemoteTaskResult> {
+        // The receiver must exist before publishing its address. Binding after
+        // send races a fast server reply and can exhaust connection attempts.
+        let reply = NetworkTransport {}.listen(&self.reply_to)?;
         let envelope = RemoteTaskEnvelope {
             task_id,
             reply_to: self.reply_to.clone(),
@@ -172,7 +175,7 @@ impl RemoteTaskClient {
 
         let payload = archive_transport_payload::<ServerPayloadRegion, _>(&envelope)?;
         NetworkTransport {}.send(&Address::Remote(self.server.clone()), payload.into_bytes())?;
-        let bytes = NetworkTransport {}.recv(&Address::Remote(self.reply_to.clone()))?;
+        let bytes = reply.recv()?;
         let payload = TransportPayload::<ServerPayloadRegion>::from_bytes(bytes);
         let message = ArchivedMessage::<RemoteTaskResult>::from_bytes(payload.into_bytes());
         let view = message.get()?;

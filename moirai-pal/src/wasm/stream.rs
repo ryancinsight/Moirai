@@ -56,14 +56,17 @@ pub(super) async fn read<S: Sink>(
         }
         let result = JsFuture::from(reader.reader.read())
             .await
-            .map_err(|_| io::Error::other("Browser rejected the byte-stream read"))?
-            .dyn_into::<web_sys::ReadableStreamReadResult>()
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Browser returned an invalid stream result",
-                )
-            })?;
+            .map_err(|_| io::Error::other("Browser rejected the byte-stream read"))?;
+        // ReadableStreamReadResult is a Web IDL dictionary, with no runtime
+        // constructor for instanceof. Validate object shape, then validate
+        // done and value below instead of rejecting every native dictionary.
+        if !result.is_object() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Browser returned a non-object stream result",
+            ));
+        }
+        let result = result.unchecked_into::<web_sys::ReadableStreamReadResult>();
         let done = result.get_done().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,

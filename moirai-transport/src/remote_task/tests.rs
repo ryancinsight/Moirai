@@ -10,6 +10,40 @@ use crate::RemoteAddress;
 use crate::safe_channel::{ArchiveSerialize, ArchiveView};
 
 #[test]
+fn occupied_reply_endpoint_rejects_before_dispatching_remote_work() {
+    let _trace = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .finish(),
+    );
+    let _span = tracing::info_span!("reply_bind_before_dispatch").entered();
+    let arrange = tracing::info_span!("arrange").entered();
+    let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let reply = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    server.set_nonblocking(true).unwrap();
+    let address = |listener: &std::net::TcpListener| RemoteAddress {
+        host: "127.0.0.1".to_owned(),
+        port: listener.local_addr().unwrap().port(),
+        service: "reply-preflight".to_owned(),
+    };
+    let client = RemoteTaskClient::new(address(&server), address(&reply));
+    drop(arrange);
+    let act = tracing::info_span!("act").entered();
+    let result = client.execute(
+        RemoteTaskId::new(12),
+        RemoteTaskOperation::EchoBytes(b"must remain undispatched".to_vec()),
+    );
+    drop(act);
+    let _assert = tracing::info_span!("assert").entered();
+    assert!(matches!(result, Err(crate::TransportError::Closed)));
+    assert_eq!(
+        server.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[test]
 fn remote_task_envelope_view_borrows_echo_payload() {
     let payload = b"borrowed remote payload".to_vec();
     let envelope = RemoteTaskEnvelope {

@@ -3,6 +3,14 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Stream dictionary regression — 2026-10-12 [patch]
+
+The real Metis HTTP page fails at Fetch stream decoding because a Web IDL
+read-result dictionary has no runtime class constructor. Workspace 0.8.1
+checks object shape and validates completion/chunk fields instead of using
+instanceof. The visible pre-fix readiness error is the red oracle; live
+success, byte bounds, deadline and cancellation remain the consumer gate.
+
 ## Browser HTTP ownership — 2026-10-12 [minor]
 
 The PAL supplies bounded Fetch and document observations in 0.8.0 so Metis can

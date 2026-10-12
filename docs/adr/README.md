@@ -76,3 +76,4 @@
 | [0068](0068-apple-webview-host.md) | Apple WebView application host | Accepted |
 | [0069](0069-bounded-browser-http.md) | Bounded browser HTTP and page lifecycle | Accepted |
 | [0070](0070-shared-scheduler-scope-wait.md) | Share the scheduler wait primitive across borrowing scopes | Accepted |
+| [0071](0071-bind-remote-reply-before-dispatch.md) | Bind the remote reply receiver before dispatch | Accepted |
