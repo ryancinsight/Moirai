@@ -3,6 +3,17 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Browser HTTP ownership — 2026-10-12 [minor]
+
+The PAL supplies bounded Fetch and document observations in 0.8.0 so Metis can
+remove its JavaScript protocol/authority duplicate. All 1,257 native workspace tests pass within 60 seconds, with nine pre-existing
+ignored probes; the PAL passes native/WASM warning-denying checks. Live consumer Fetch, stream-bound, deadline and cancellation evidence remains
+the active board gate.
+The WASM public surface passes all 196 applicable cargo-semver-checks checks
+against 0.7.2 using compiler-produced rustdoc JSON (the automatic generator
+fails at Rust 1.97 WASM target probing). The provider does not bypass browser
+CORS, CSP or native permission policy.
+
 ## Apple packaged Fetch status — 2026-10-12 [patch]
 
 The native Metis Greet failure exposes a missing success status in the shared

@@ -6,6 +6,14 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-BROWSER-HTTP-EVIDENCE-001"></a>
+## MOI-BROWSER-HTTP-EVIDENCE-001 — Rust HTTP consumer verification [minor]
+- status: todo; priority: verification; target: 0.8.0; phase: Closure
+- outcome: Metis uses the published bounded Fetch/document surface in Rust.
+- acceptance: real loopback bytes, exact/excess body bounds, deadline and cancellation, and all listener handles released on stop; record source revisions.
+- scope: ADR 0069 and Metis's Rust HTTP/browser shell, preserving native APIs.
+- next step: Verify the actual browser consumer against the pushed provider.
+
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
 - status: todo

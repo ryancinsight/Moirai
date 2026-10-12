@@ -49,6 +49,10 @@ pub mod windows;
 pub mod wasm;
 
 #[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/http_policy.rs"]
+mod http_policy;
+
+#[cfg(any(target_arch = "wasm32", test))]
 #[path = "wasm/drop_validation.rs"]
 mod drop_validation;
 

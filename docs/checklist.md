@@ -4,7 +4,7 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: 0.7.2 (workspace); moirai-webview 0.1.0
+**Target Version**: 0.8.0 (workspace); moirai-webview 0.1.1
 
 ## Apple local increment
 

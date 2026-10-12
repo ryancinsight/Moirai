@@ -4,6 +4,42 @@ use super::super::scope_state::{SchedulerScopeState, ScopedTaskCompletion};
 use super::*;
 
 #[test]
+fn independent_scopes_share_wake_mechanisms_without_sharing_completion() {
+    const CALLERS: usize = 8;
+    const ITEMS: usize = 4096;
+    let scheduler = ThreadScheduler::new(4, "independent-scopes").expect("scheduler");
+    let visits: [[AtomicUsize; ITEMS]; CALLERS] =
+        std::array::from_fn(|_| std::array::from_fn(|_| AtomicUsize::new(0)));
+    let barrier = Barrier::new(CALLERS);
+    std::thread::scope(|threads| {
+        for row in &visits {
+            let scheduler = &scheduler;
+            let barrier = &barrier;
+            threads.spawn(move || {
+                barrier.wait();
+                scheduler
+                    .for_each_indexed::<SyncTask, _>(Priority::Normal, None, ITEMS, |index| {
+                        row[index].fetch_add(1, Ordering::Relaxed);
+                    })
+                    .expect("independent scope completes");
+                assert_eq!(
+                    row.iter()
+                        .map(|count| count.load(Ordering::Acquire))
+                        .sum::<usize>(),
+                    ITEMS
+                );
+            });
+        }
+    });
+    assert!(
+        visits
+            .iter()
+            .flatten()
+            .all(|count| count.load(Ordering::Acquire) == 1)
+    );
+}
+
+#[test]
 fn scheduler_scope_runs_borrowing_jobs_before_return() {
     let scheduler = ThreadScheduler::new(2, "test-scope").unwrap();
     let sum = AtomicUsize::new(0);
@@ -339,7 +375,7 @@ fn scope_opened_from_another_schedulers_worker_completes() {
 
 /// A scoped job registered on `state`, holding its completion token.
 fn registered_job<'scope>(
-    state: &'scope SchedulerScopeState,
+    state: &'scope SchedulerScopeState<'scope>,
     ran: &'scope AtomicUsize,
 ) -> crate::schedule::job::ScheduledJob {
     state.register_task();
@@ -357,7 +393,9 @@ fn registered_job<'scope>(
 
 #[test]
 fn scoped_job_dropped_before_running_fails_its_scope() {
-    let state = SchedulerScopeState::new();
+    let wait_lock = std::sync::Mutex::new(());
+    let wait_signal = std::sync::Condvar::new();
+    let state = SchedulerScopeState::new(&wait_lock, &wait_signal);
     let ran = AtomicUsize::new(0);
 
     drop(registered_job(&state, &ran));
@@ -377,12 +415,14 @@ fn scoped_job_dropped_before_running_fails_its_scope() {
 /// the release is reported as a deallocation while protected.
 #[test]
 fn the_waiter_may_destroy_the_state_while_the_last_release_returns() {
-    let state = Box::new(SchedulerScopeState::new());
+    static WAIT_LOCK: Mutex<()> = Mutex::new(());
+    static WAIT_SIGNAL: Condvar = Condvar::new();
+    let state = Box::new(SchedulerScopeState::new(&WAIT_LOCK, &WAIT_SIGNAL));
     state.register_task();
     // SAFETY: the lifetime is extended only so the token can move to another
     // thread. The token reads the state only until its release publishes zero,
     // and `wait` returns after that, which is the point the state is destroyed.
-    let extended: &'static SchedulerScopeState = unsafe { &*std::ptr::from_ref(&*state) };
+    let extended: &'static SchedulerScopeState<'static> = unsafe { &*std::ptr::from_ref(&*state) };
     let completion = ScopedTaskCompletion::new(extended);
     let releaser = std::thread::spawn(move || completion.finish(true));
 
@@ -397,7 +437,9 @@ fn the_waiter_may_destroy_the_state_while_the_last_release_returns() {
 
 #[test]
 fn scoped_job_that_ran_leaves_its_scope_whole() {
-    let state = SchedulerScopeState::new();
+    let wait_lock = std::sync::Mutex::new(());
+    let wait_signal = std::sync::Condvar::new();
+    let state = SchedulerScopeState::new(&wait_lock, &wait_signal);
     let ran = AtomicUsize::new(0);
 
     let _ = registered_job(&state, &ran).execute(0);
@@ -410,7 +452,9 @@ fn scoped_job_that_ran_leaves_its_scope_whole() {
 
 #[test]
 fn refused_scoped_job_is_forgiven_and_an_admitted_drop_is_not() {
-    let state = SchedulerScopeState::new();
+    let wait_lock = std::sync::Mutex::new(());
+    let wait_signal = std::sync::Condvar::new();
+    let state = SchedulerScopeState::new(&wait_lock, &wait_signal);
     let ran = AtomicUsize::new(0);
 
     // Admission drops a refused job and its submitter answers the refusal.

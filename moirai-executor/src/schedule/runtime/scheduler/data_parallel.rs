@@ -113,7 +113,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             });
         }
 
-        let state = SchedulerScopeState::new();
+        let state = SchedulerScopeState::new(&self.inner.wait_lock, &self.inner.wait_signal);
         let task = &task;
         let mut schedule_result = Ok(());
         let mut inline_result = Ok(());
@@ -224,7 +224,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return inline_map_reduce(count, identity, map, reduce);
         }
 
-        let state = SchedulerScopeState::new();
+        let state = SchedulerScopeState::new(&self.inner.wait_lock, &self.inner.wait_signal);
         let slots = ReduceSlots::new(chunk_count - 1);
         let map = &map;
         let reduce = &reduce;
@@ -307,7 +307,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     fn schedule_indexed_job<'scope, C, F, Complete>(
         &self,
-        state: &'scope SchedulerScopeState,
+        state: &'scope SchedulerScopeState<'scope>,
         priority: Priority,
         locality_hint: Option<usize>,
         scoped_job: F,

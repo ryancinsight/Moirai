@@ -17,23 +17,23 @@ use moirai_core::{
 
 use super::worker::lock_mutex;
 
-pub(super) struct SchedulerScopeState {
+pub(super) struct SchedulerScopeState<'scheduler> {
     pub(super) pending_tasks: AtomicUsize,
     pub(super) failed_tasks: AtomicBool,
     /// Scoped jobs whose completion token was dropped before the job ran.
     unrun_jobs: AtomicUsize,
-    pub(super) wait_lock: Mutex<()>,
-    pub(super) wait_signal: Condvar,
+    pub(super) wait_lock: &'scheduler Mutex<()>,
+    pub(super) wait_signal: &'scheduler Condvar,
 }
 
-impl SchedulerScopeState {
-    pub(super) fn new() -> Self {
+impl<'scheduler> SchedulerScopeState<'scheduler> {
+    pub(super) fn new(wait_lock: &'scheduler Mutex<()>, wait_signal: &'scheduler Condvar) -> Self {
         Self {
             pending_tasks: AtomicUsize::new(0),
             failed_tasks: AtomicBool::new(false),
             unrun_jobs: AtomicUsize::new(0),
-            wait_lock: Mutex::new(()),
-            wait_signal: Condvar::new(),
+            wait_lock,
+            wait_signal,
         }
     }
 
@@ -71,14 +71,14 @@ impl SchedulerScopeState {
                 // variable.
                 //
                 // SAFETY: the count is still nonzero, so the state is live.
-                let _guard = lock_mutex(unsafe { &(*state).wait_lock });
+                let _guard = lock_mutex(unsafe { (*state).wait_lock });
                 if pending_tasks
                     .compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire)
                     .is_ok()
                 {
                     // SAFETY: the wait lock is held, so the waiter cannot
                     // destroy the state before the guard drops.
-                    unsafe { &(*state).wait_signal }.notify_all();
+                    unsafe { (*state).wait_signal }.notify_all();
                     return;
                 }
                 continue;
@@ -105,7 +105,7 @@ impl SchedulerScopeState {
         // The final completion publishes zero while holding this lock. Taking
         // it after the acquire load forms the lifetime handshake that proves
         // the completion token no longer accesses this stack-owned state.
-        let mut guard = lock_mutex(&self.wait_lock);
+        let mut guard = lock_mutex(self.wait_lock);
         while self.pending_tasks.load(Ordering::Acquire) != 0 {
             guard = self
                 .wait_signal
@@ -159,9 +159,9 @@ pub(super) struct ScopedTaskCompletion<'scope> {
     // A pointer, not a reference: a reference field is protected for every call
     // that receives the token by value, and the release in `Drop` lets the
     // waiter destroy the state before `finish` returns.
-    state: NonNull<SchedulerScopeState>,
+    state: NonNull<SchedulerScopeState<'scope>>,
     ran: bool,
-    _scope: PhantomData<&'scope SchedulerScopeState>,
+    _scope: PhantomData<&'scope SchedulerScopeState<'scope>>,
 }
 
 // SAFETY: the token only reaches the state through its atomics, mutex and
@@ -170,7 +170,7 @@ pub(super) struct ScopedTaskCompletion<'scope> {
 unsafe impl Send for ScopedTaskCompletion<'_> {}
 
 impl<'scope> ScopedTaskCompletion<'scope> {
-    pub(super) fn new(state: &'scope SchedulerScopeState) -> Self {
+    pub(super) fn new(state: &'scope SchedulerScopeState<'scope>) -> Self {
         Self {
             state: NonNull::from(state),
             ran: false,
@@ -186,7 +186,7 @@ impl<'scope> ScopedTaskCompletion<'scope> {
         self.ran = true;
     }
 
-    fn state(&self) -> &SchedulerScopeState {
+    fn state(&self) -> &SchedulerScopeState<'scope> {
         // SAFETY: this token's registered job is pending until it drops, so the
         // scope has not returned and the state is live.
         unsafe { self.state.as_ref() }

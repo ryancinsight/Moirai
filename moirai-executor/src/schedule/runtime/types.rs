@@ -159,7 +159,7 @@ pub struct SchedulerScope<
     const SPIN_LIMIT: usize = 8192,
 > {
     pub(super) scheduler: &'scope ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>,
-    pub(super) state: NonNull<SchedulerScopeState>,
+    pub(super) state: NonNull<SchedulerScopeState<'scope>>,
     pub(super) priority: Priority,
     pub(super) locality_hint: Option<usize>,
     pub(super) jobs: RefCell<Vec<ScheduledJob>>,

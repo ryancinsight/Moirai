@@ -15,6 +15,15 @@ or fabricating execution.
 The facade crate publishes as **`moirai-runtime`** (the `moirai` registry name
 belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
+## Browser I/O
+
+Workspace 0.8.0 adds `moirai_pal::wasm::WebHttp`, a bounded GET/POST Fetch
+provider. Declared and streamed response sizes are checked independently;
+future drop aborts the request, and one finite deadline covers headers and body.
+Document listeners unregister through owned handles. `WebLocation` and DOM
+observations supply mechanisms while Metis retains application policy.
+[ADR 0069](docs/adr/0069-bounded-browser-http.md) specifies the contracts.
+
 ## Quick Start
 
 ```toml

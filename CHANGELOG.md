@@ -5,6 +5,40 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - Unreleased
+
+### Added
+
+- Bounded browser `WebHttp` Fetch, GET/POST methods and complete response bytes;
+  request/body budgets, redirect suppression, omitted credentials and one deadline.
+  Dropping a request aborts Fetch and cancels/releases its owned stream reader.
+- Owned document listeners and read-only `WebLocation`, element ancestor,
+  attribute and text observations let Metis move browser policy into Rust.
+
+### Changed
+
+- File slices and HTTP bodies share one statically dispatched stream reader;
+  filled-slice and complete-response termination retain their distinct contracts.
+- Browser DOM acquisition, events and page observations live in leaf modules
+  below 500 lines; public names remain unchanged.
+
+### Fixed
+
+- Borrowing scheduler scopes share the scheduler's wait primitive, eliminating
+  Darwin's two lazy native allocations per indexed fan-out. Pending predicates
+  and completion lifetimes remain independent; existing zero-allocation and
+  computed-value contracts retain their workload and thresholds (ADR 0070).
+- Shared-memory verification uses unique PID/sequence names within Darwin's
+  31-byte POSIX limit. Real exact-limit reads and excess-name errors are checked
+  without changing queue capacities, payloads or concurrency assertions.
+- Python bindings use PyO3 0.29's build-mode selection: Cargo tests link the
+  interpreter, while maturin sets `PYO3_BUILD_EXTENSION_MODULE` and supplies
+  extension linker arguments. An unconditional legacy feature suppresses the
+  interpreter link even for the workspace test executable on macOS.
+- Browser-local reactor ownership uses `Rc`; native reactor ownership retains
+  `Arc`. WASM/native warning-denying PAL checks pass.
+- WebGPU device construction follows the state declaration order.
+
 ## [Unreleased]
 
 ### Added
