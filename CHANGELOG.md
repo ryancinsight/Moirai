@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   special files; Unix nonblocking/no-follow open flags preserve that boundary.
 - Apple CI compiles macOS, device and simulator ABIs, runs real resource and
   contained-process tests within 60 seconds, and checks the browser PAL.
+- Resource reads and native navigation use the same origin policy, including
+  non-Apple library builds with warning-denying diagnostics.
 
 ## [0.7.1] - Unreleased
 

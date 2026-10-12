@@ -39,12 +39,15 @@ impl ResourceRoot {
     /// `InvalidInput` for malformed URL encoding, and the concrete I/O failure.
     pub fn read(&self, uri: &str) -> io::Result<(Vec<u8>, &'static str)> {
         use io::Read;
-        let encoded = uri.strip_prefix("metis://app/").ok_or_else(|| {
-            io::Error::new(
+        if !Self::permits(uri) {
+            return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "resource URL has another origin",
-            )
-        })?;
+            ));
+        }
+        // permits proves the ASCII origin and slash prefix, including the
+        // length and UTF-8 boundary required by this slice.
+        let encoded = &uri[ORIGIN.len() + 1..];
         let encoded = encoded.split(['?', '#']).next().unwrap_or(encoded);
         let decoded = decode_path(encoded)?;
         let relative = Path::new(&decoded);
