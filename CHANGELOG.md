@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resource reads and native navigation use the same origin policy, including
   non-Apple library builds with warning-denying diagnostics.
 
+## [moirai-webview 0.1.1] - Unreleased
+
+### Fixed
+
+- Packaged Apple resources return `NSHTTPURLResponse` status 200 with exact
+  `Content-Type` and `Content-Length` headers. A plain `NSURLResponse` exposes
+  Fetch status zero, which wasm-bindgen 0.2.129 rejects before application
+  initialization. AppKit and UIKit share the corrected response constructor.
+- Native Foundation regressions check status, MIME, URL and exact lengths for
+  HTML, JavaScript, WASM, empty files and the inclusive resource bound;
+  unrepresentable signed lengths fail before response delivery.
+
 ## [0.7.1] - Unreleased
 
 ### Fixed

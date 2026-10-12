@@ -33,6 +33,16 @@ filesystem sandbox contract.
 The original page CSP remains in force. Native application state never grants
 page code a filesystem or process capability.
 
+Successful reads expose `NSHTTPURLResponse` status 200, the resource MIME in
+`Content-Type`, and its exact byte length in `Content-Length`. The response
+constructor rejects lengths outside Foundation's signed ABI before any task
+callback. A plain `NSURLResponse` supplies bytes without a Fetch success status;
+wasm-bindgen 0.2.129 rejects that response before binding application events.
+Patch 0.1.1 corrects this transport contract in the shared WebView implementation
+without changing the frontend, CSP or allowed resource origin. Apple's
+[HTTPURLResponse](https://developer.apple.com/documentation/foundation/httpurlresponse)
+owns the native status/header representation.
+
 The event-loop host owns its WebView and delegates until application exit.
 UIKit owns rotation, keyboard and suspend/resume presentation; no mobile child
 process is spawned. A shared Rust-WASM application retains its own state within
@@ -55,3 +65,7 @@ descriptor-free cancellation contract. Native acceptance journeys must load
 the real WASM, submit a name, inspect the exact Rust greeting, and capture the
 visible application. iOS device compilation is distinct from device signing
 and installation. Browser journeys inspect the same computed greeting.
+Native Foundation tests assert status, parsed MIME, URL and lengths, including
+empty resources and the resource bound. The Metis macOS journey reproduces an
+empty result before the correction and exact Rust greetings for normal,
+Unicode and empty names afterward.

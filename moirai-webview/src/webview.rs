@@ -1,16 +1,15 @@
 //! Shared WebKit construction, resource callbacks and navigation policy.
 
 mod bindings;
+mod response;
 pub(crate) use bindings::WebView;
 
 use crate::ResourceRoot;
 use objc2::{
-    AnyThread, DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained,
-    runtime::ProtocolObject,
+    DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, runtime::ProtocolObject,
 };
 use objc2_foundation::{
     NSData, NSError, NSObject, NSObjectProtocol, NSRect, NSString, NSURL, NSURLRequest,
-    NSURLResponse,
 };
 use objc2_web_kit::{
     WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
@@ -99,14 +98,7 @@ impl Content {
             bytes = bytes.len(),
             "packaged resource delivered"
         );
-        let length = isize::try_from(bytes.len()).map_err(io::Error::other)?;
-        let response = NSURLResponse::initWithURL_MIMEType_expectedContentLength_textEncodingName(
-            NSURLResponse::alloc(),
-            &url,
-            Some(&NSString::from_str(mime)),
-            length,
-            None,
-        );
+        let response = response::new(&url, mime, bytes.len())?;
         let data = NSData::with_bytes(&bytes);
         // SAFETY: The synchronous task receives response, data, completion in
         // order and cannot be cancelled while this callback owns the thread.

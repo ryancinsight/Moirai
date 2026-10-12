@@ -259,5 +259,6 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: verify the shared WKWebView resource provider on native macOS, iPhone and iPad.
 - acceptance: real Rust/WASM input/output, geometry, scene reconnect and bounded shutdown; permission denial is a separate host contract.
 - evidence: six resource byte/MIME/traversal/symlink/socket/FIFO/bound tests pass; Metis macOS/device/simulator apps compile; macOS/iPhone/iPad native hosts deliver all seven assets including real WASM.
-- blocker: native computer-use observation requires the Mac to be unlocked; physical device provisioning and availability are unset.
+- [x] [patch] Correct Fetch status in moirai-webview 0.1.1: eight resource/response tests pass; real macOS Greet returns the exact Rust result for normal, Unicode and empty names.
+- blocker: remaining native geometry/lifecycle evidence and physical device provisioning/availability are unset.
 - scope: moirai-webview; [ADR 0068](docs/adr/0068-apple-webview-host.md).
