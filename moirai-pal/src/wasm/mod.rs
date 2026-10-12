@@ -7,6 +7,8 @@ mod animation;
 mod dom;
 mod file;
 mod history;
+mod http;
+mod stream;
 mod timer;
 mod websocket;
 
@@ -25,10 +27,11 @@ pub use self::dom::{
     DroppedFile, DroppedFileAccess, ElementSize, KeyboardMetadata, PointerMetadata,
     PointerModifiers, PointerType, RgbaFrame, TextInputMetadata, TextSelection,
     TextSelectionDirection, WebCanvas, WebClipboard, WebDocument, WebElement, WebEvent,
-    WebEventListener, WebGpuCanvas, WheelDeltaMode, WheelMetadata,
+    WebEventListener, WebGpuCanvas, WebLocation, WheelDeltaMode, WheelMetadata,
 };
 pub use self::file::{MAX_READ_BYTES, WebFile};
 pub use self::history::{HistoryListener, MAX_HISTORY_PATH_BYTES, WebHistory};
+pub use self::http::{MAX_HTTP_BYTES, MAX_HTTP_DEADLINE, WebHttp, WebHttpMethod, WebHttpResponse};
 pub use self::timer::WebTimer;
 pub use crate::local_task::LocalTaskHandle;
 pub use crate::websocket_state::{WebSocketLimits, WebSocketOpen, WebSocketReceive};

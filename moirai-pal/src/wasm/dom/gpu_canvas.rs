@@ -227,10 +227,10 @@ async fn acquire_gpu_state() -> io::Result<GpuState> {
             )
         })?;
     Ok(GpuState {
+        loss,
         device,
         queue,
         format,
-        loss,
     })
 }
 

@@ -22,7 +22,10 @@ impl IoReactor {
     pub fn new() -> io::Result<Self> {
         let platform_reactor = create_reactor()?;
 
+        #[cfg(not(target_arch = "wasm32"))]
         let platform_reactor = Arc::new(platform_reactor);
+        #[cfg(target_arch = "wasm32")]
+        let platform_reactor = std::rc::Rc::new(platform_reactor);
         let running = Arc::new(AtomicBool::new(false));
         let registered_fds = Arc::new(Mutex::new(HashMap::new()));
         let driver_failure = DriverFailureState::default();

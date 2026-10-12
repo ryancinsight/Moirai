@@ -45,7 +45,10 @@ pub struct FdInfo {
 /// Central async I/O reactor managing all platform-specific operations.
 pub struct IoReactor {
     /// Platform-specific reactor implementation
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) platform_reactor: Arc<PlatformReactor>,
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) platform_reactor: std::rc::Rc<PlatformReactor>,
     /// Event loop control
     pub(crate) running: Arc<AtomicBool>,
     /// Registered file descriptor tracking

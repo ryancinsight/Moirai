@@ -148,26 +148,6 @@ async fn read_small_file_array_buffer(
     Ok(available)
 }
 
-struct StreamReader {
-    reader: web_sys::ReadableStreamDefaultReader,
-    released: bool,
-}
-
-impl StreamReader {
-    fn release(&mut self) {
-        if !self.released {
-            self.reader.release_lock();
-            self.released = true;
-        }
-    }
-}
-
-impl Drop for StreamReader {
-    fn drop(&mut self) {
-        self.release();
-    }
-}
-
 async fn read_blob_via_object_url(blob: web_sys::Blob, buffer: &mut [u8]) -> io::Result<usize> {
     let mut object_url = ObjectUrl::from_blob(&blob)?;
     let result = read_object_url_stream(object_url.as_str(), buffer).await;
@@ -239,70 +219,5 @@ async fn read_object_url_stream(url: &str, buffer: &mut [u8]) -> io::Result<usiz
     let stream = response
         .body()
         .ok_or_else(|| io::Error::other("browser file object URL response has no body"))?;
-    read_stream(stream, buffer).await
-}
-
-async fn read_stream(stream: web_sys::ReadableStream, buffer: &mut [u8]) -> io::Result<usize> {
-    let reader = stream
-        .get_reader()
-        .dyn_into::<web_sys::ReadableStreamDefaultReader>()
-        .map_err(|_| io::Error::other("browser rejected the bounded file stream reader"))?;
-    let mut reader = StreamReader {
-        reader,
-        released: false,
-    };
-    let mut copied = 0usize;
-
-    while copied < buffer.len() {
-        let result = JsFuture::from(reader.reader.read())
-            .await
-            .map_err(|_| io::Error::other("browser rejected the bounded file stream read"))?
-            .unchecked_into::<web_sys::ReadableStreamReadResult>();
-        let done = result
-            .get_done()
-            .ok_or_else(|| io::Error::other("browser file stream omitted its completion flag"))?;
-        let value = result.get_value();
-        let chunk =
-            if value.is_undefined() || value.is_null() {
-                if done {
-                    None
-                } else {
-                    return Err(io::Error::other(
-                        "browser file stream omitted a chunk before completion",
-                    ));
-                }
-            } else {
-                Some(value.dyn_into::<js_sys::Uint8Array>().map_err(|_| {
-                    io::Error::other("browser file stream returned a non-byte chunk")
-                })?)
-            };
-        let chunk_length = chunk.as_ref().map_or(0, js_sys::Uint8Array::length);
-        let chunk_length = usize::try_from(chunk_length).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "browser file chunk length cannot be represented",
-            )
-        })?;
-        let remaining = buffer.len() - copied;
-        if chunk_length > remaining {
-            return Err(io::Error::other(
-                "browser file stream exceeded the bounded read request",
-            ));
-        }
-        if chunk_length == 0 && !done {
-            return Err(io::Error::other(
-                "browser file stream returned an empty incomplete chunk",
-            ));
-        }
-        if let Some(chunk) = chunk {
-            chunk.copy_to(&mut buffer[copied..copied + chunk_length]);
-            copied += chunk_length;
-        }
-        if done {
-            break;
-        }
-    }
-
-    reader.release();
-    Ok(copied)
+    super::stream::read(stream, &mut super::stream::SliceSink(buffer)).await
 }

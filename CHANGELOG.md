@@ -5,6 +5,29 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - Unreleased
+
+### Added
+
+- Bounded browser `WebHttp` Fetch, GET/POST methods and complete response bytes;
+  request/body budgets, redirect suppression, omitted credentials and one deadline.
+  Dropping a request aborts Fetch and cancels/releases its owned stream reader.
+- Owned document listeners and read-only `WebLocation`, element ancestor,
+  attribute and text observations let Metis move browser policy into Rust.
+
+### Changed
+
+- File slices and HTTP bodies share one statically dispatched stream reader;
+  filled-slice and complete-response termination retain their distinct contracts.
+- Browser DOM acquisition, events and page observations live in leaf modules
+  below 500 lines; public names remain unchanged.
+
+### Fixed
+
+- Browser-local reactor ownership uses `Rc`; native reactor ownership retains
+  `Arc`. WASM/native warning-denying PAL checks pass.
+- WebGPU device construction follows the state declaration order.
+
 ## [Unreleased]
 
 ### Added
