@@ -15,6 +15,9 @@
 
 use std::{io, process::ExitStatus};
 
+#[cfg(target_os = "macos")]
+mod darwin;
+
 /// Observes the exit of leader `pid` without reaping it.
 ///
 /// # Errors
@@ -59,6 +62,13 @@ pub(super) fn kill_group(pgid: u32) -> io::Result<()> {
         return Ok(());
     }
     let error = io::Error::last_os_error();
+    // Darwin's killpg returns EPERM when its group contains only zombies.
+    // Establish terminal state from kernel records; permission failure against
+    // a live descendant never counts as successful cleanup.
+    #[cfg(target_os = "macos")]
+    if error.raw_os_error() == Some(libc::EPERM) && darwin::completed(group)? {
+        return Ok(());
+    }
     if error.raw_os_error() == Some(libc::ESRCH) {
         Ok(())
     } else {

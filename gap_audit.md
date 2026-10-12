@@ -74,3 +74,20 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 - risk: Production `top`, `bottom`, the array pointer, and slot states use `std` atomics, so loom sees only the steal gate (compiled in by path). The owner/thief fence protocol is checked by a separate protocol copy in `tests/loom_chase_lev*.rs`, not the production code. The gate's admission, backoff, and drain stay SeqCst because weaker orderings exhaust the gate model's branch budget.
 - evidence: `moirai-scheduler/src/deque/chase_lev/inner.rs` and `storage.rs` import `std::sync::atomic` unconditionally. Under Acquire admission or drain, or Relaxed backoff, `tests/loom_chase_lev_resize_gate.rs` exceeds loom's branch cap or the 60 s budget, while the SeqCst model closes in under 2 s. Relaxing the claim release fails three gate tests on an assertion; relaxing the guard exit passes all seven, so loom does not witness that edge.
 - re-open trigger: The deque's atomics become loom-instrumented under `cfg(loom)` and an integration test drives the public `ChaseLevDeque`, or the gate model's retry path is restated so it closes under Acquire.
+
+## Apple host evidence — 2026-10-11
+
+`moirai-webview` 0.1.0 owns shared packaged resources and WebKit, with separate
+AppKit/UIKit lifecycles. The 39 transport and six resource tests pass. A
+Darwin zombie-only group cleanup fix preserves exited status and terminates
+real contained descendants; it does not mask live-member permission failures.
+Native macOS and iOS compilation, simulator launches and packaged WASM delivery
+are separate from observed DOM/input behavior. The Mac lock prevents native UI evidence; device
+signing, physical execution, permission suites and plugin capability closure
+remain open under MOI-APPLE-HOST-EVIDENCE-001. No universal Apple sandbox claim
+or completed mobile parity claim follows from these builds.
+
+The iPad simulator also reports duplicate Apple accessibility classes from
+WebCore/WebKit. Application resource delivery succeeds; the interactive
+accessibility journey remains pending. No valid device-signing identity exists
+on this Mac, and the physical iPhone reports unavailable.

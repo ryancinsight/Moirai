@@ -1,0 +1,50 @@
+name: Apple WebView host
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-host-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  apple-host:
+    name: Apple host compilation and resource contracts
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+          components: clippy,rustfmt
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,wasm32-unknown-unknown
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Compile resource and contained-process tests
+        run: cargo test --locked -p moirai-webview -p moirai-transport --no-run
+      - name: Run actual resource and contained-process tests within 60 seconds
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          subprocess.run(["cargo", "test", "--locked", "-p", "moirai-webview", "-p", "moirai-transport"], check=True, timeout=60)
+          PY
+      - name: Lint Apple provider
+        run: cargo clippy --locked -p moirai-webview -p moirai-transport --all-targets -- -D warnings
+      - name: Compile each Apple ABI
+        run: |
+          for target in aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim; do
+            cargo check --locked -p moirai-webview --target "$target"
+          done
+      - name: Check descriptor-free browser PAL
+        run: cargo check --locked -p moirai-pal --target wasm32-unknown-unknown

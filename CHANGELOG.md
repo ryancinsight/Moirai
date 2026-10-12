@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Independent `moirai-webview` 0.1.0 crate: one packaged resource policy and
+  WKWebView implementation with AppKit/UIKit lifecycle adapters (ADR 0068).
+  Resource tests inspect real bytes, MIME, traversal, symlink escape, real
+  sockets/FIFOs and inclusive limits. Metadata and descriptor checks reject
+  special files; Unix nonblocking/no-follow open flags preserve that boundary.
+- Apple CI compiles macOS, device and simulator ABIs, runs real resource and
+  contained-process tests within 60 seconds, and checks the browser PAL.
+- Resource reads and native navigation use the same origin policy, including
+  non-Apple library builds with warning-denying diagnostics.
+
+## [0.7.1] - Unreleased
+
+### Fixed
+
+- macOS contained-process cleanup checks live group membership after Darwin's
+  zombie-only `killpg` EPERM. Exited status remains stable; denied live members
+  and incomplete kernel queries remain errors. Real leader/descendant fixtures
+  exercise the cleanup law.
+- Targets without native descriptors reject a cancellation owner instead of
+  discarding ownership in waker registration; WASM builds emit no unused-owner
+  diagnostic.
+
 ## [0.7.0] - 2026-10-04
 
 ### Changed

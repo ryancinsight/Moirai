@@ -73,6 +73,15 @@ impl IoReactor {
         waker: Waker,
         owner: WaiterOwner,
     ) -> io::Result<WakerRegistration> {
+        // Targets without native descriptors cannot return a cancellation
+        // owner. Reject that contract rather than discarding its ownership.
+        #[cfg(not(any(unix, windows)))]
+        if owner.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned waiter cancellation requires native descriptors",
+            ));
+        }
         #[cfg(any(unix, windows))]
         let cancellation = owner
             .as_ref()
