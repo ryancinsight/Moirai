@@ -132,3 +132,20 @@ on this Mac, and the physical iPhone reports unavailable.
 - risk: The workspace does not deny `clippy::undocumented_unsafe_blocks`, so the `// SAFETY:` convention is prose only. A four-line lookback reports 108 of 488 production `unsafe` blocks without an adjacent SAFETY comment. That count is an overestimate, since many sites carry the comment two or three lines above a `let` that wraps the block.
 - evidence: 53 of the 108 are in `moirai-pal`, mostly WebView2 and Win32 COM calls (`windows/webview/host/*.rs`, `windows/window/*.rs`) that repeat one invariant per call. `moirai-executor/src/hybrid/async_state/` writes `// Safety:` in lowercase, unlike the `// SAFETY:` convention. The `moirai-parallel` `Vec::from_raw_parts` sites rely on `MaybeUninit<R>` sharing `R`'s layout, and that argument is correct.
 - re-open trigger: Per-crate `undocumented_unsafe_blocks = "deny"` lands, with the COM call sites consolidated behind one safe wrapper per interface and the `Safety:` spelling normalized.
+
+## Rust browser HTTP consumer evidence — 2026-10-12
+
+Metis PR [493](https://github.com/ryancinsight/metis/pull/493) merges at
+`aa04a4a9fdbc3d2a6f502ade18e2cf1c58c5de73`, consuming Moirai 0.8.2
+`6c7f39dff127f1accfc02ede4a5d59cb34ec9cc5`. The local in-app browser
+verifies every response byte at lengths 0, 1 and 16,384; excess declared and
+streamed payloads reject. Bodyless 204/205/304 preserve status and zero body
+bytes, including a 304 representation length above the received-body budget.
+Exact Unicode POST, no followed redirect, header/body deadlines and peer EOF
+after Fetch-task drop pass. HTTP Stop releases four listeners; workbench
+stop/remount restores 40 application listeners while its three shell handles
+remain. Pending-reset isolation leaves the new mount unchanged.
+
+The bounded HTTP consumer evidence item is complete. These observations do
+not count provider-private allocations or establish cross-engine/hardware
+equivalence; broader networking and permission acceptance remains open.
