@@ -158,6 +158,47 @@ fn unsuccessful_exit_is_preserved() {
     assert_eq!(status.outcome, ProcessOutcome::Failed);
     assert_eq!(status.exit_status().code(), Some(7));
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn terminated_contained_leader_preserves_status_after_cleanup() {
+    let _trace = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .finish(),
+    );
+    let _test = tracing::info_span!("terminated_contained_leader").entered();
+    let arrange = tracing::info_span!("arrange").entered();
+    let mut process = ProcessSupervisor::new()
+        .spawn(
+            fixture("exit").tree_containment(),
+            ProcessDropPolicy::TerminateOnDrop,
+        )
+        .expect("contained child");
+    drop(arrange);
+    let act = tracing::info_span!("act").entered();
+    let status = process
+        .wait_timeout(Duration::from_secs(5))
+        .expect("observe leader")
+        .expect("leader exit");
+    let cleaned = process
+        .terminate_timeout(Duration::from_secs(5))
+        .expect("cleanup already exited group");
+    drop(act);
+    let _assert = tracing::info_span!("assert").entered();
+    assert_eq!(status.code, Some(7));
+    assert_eq!(cleaned.code, Some(7));
+    assert_eq!(cleaned.outcome, ProcessOutcome::Failed);
+    assert_eq!(
+        process
+            .try_wait()
+            .expect("stable observed status")
+            .expect("exit")
+            .code,
+        Some(7)
+    );
+}
 #[cfg(windows)]
 #[test]
 fn process_creation_rejects_embedded_zero_and_overlong_arguments() {

@@ -251,3 +251,13 @@ belong in [gap_audit.md](gap_audit.md).
 - blocker: PyPI rejects the current account email and the account cannot complete publisher verification.
 - re-open trigger: The account has a PyPI-accepted verified email and the user explicitly authorizes a release.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+
+<a id="MOI-APPLE-HOST-EVIDENCE-001"></a>
+## MOI-APPLE-HOST-EVIDENCE-001 — Apple host runtime evidence [minor]
+- status: todo
+- priority: verification
+- outcome: verify the shared WKWebView resource provider on native macOS, iPhone and iPad.
+- acceptance: real Rust/WASM input/output, geometry, scene reconnect and bounded shutdown; permission denial is a separate host contract.
+- evidence: six resource byte/MIME/traversal/symlink/socket/FIFO/bound tests pass; Metis macOS/device/simulator apps compile; macOS/iPhone/iPad native hosts deliver all seven assets including real WASM.
+- blocker: native computer-use observation requires the Mac to be unlocked; physical device provisioning and availability are unset.
+- scope: moirai-webview; [ADR 0068](docs/adr/0068-apple-webview-host.md).
