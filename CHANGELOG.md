@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bind the remote task reply listener before dispatching work. A fast reply
+  cannot race listener creation; an occupied reply endpoint dispatches no work
+  (ADR 0071). Message and connection budgets remain unchanged.
 - Decode actual stream read dictionaries by validating the object, completion
   flag and byte chunk. Web IDL dictionaries have no class constructor;
   instanceof rejects every real Fetch result and prevents the Rust HTTP page
