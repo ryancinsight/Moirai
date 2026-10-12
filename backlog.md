@@ -8,7 +8,7 @@ belong in [gap_audit.md](gap_audit.md).
 
 <a id="MOI-BROWSER-HTTP-EVIDENCE-001"></a>
 ## MOI-BROWSER-HTTP-EVIDENCE-001 — Rust HTTP consumer verification [minor]
-- status: todo; priority: verification; target: 0.8.1; phase: Closure
+- status: todo; priority: verification; target: 0.8.2; phase: Closure
 - outcome: Metis uses the published bounded Fetch/document surface in Rust.
 - acceptance: real loopback bytes, exact/excess body bounds, deadline and cancellation, and all listener handles released on stop; record source revisions.
 - scope: ADR 0069 and Metis's Rust HTTP/browser shell, preserving native APIs.

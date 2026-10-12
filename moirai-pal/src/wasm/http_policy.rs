@@ -3,6 +3,13 @@ use std::{io, time::Duration};
 pub(crate) const MAX_HTTP_BYTES: usize = crate::file_policy::MAX_READ_BYTES;
 pub(crate) const MAX_HTTP_DEADLINE: Duration = Duration::from_secs(60);
 
+/// Fetch's bodyless statuses carry zero received body bytes. In particular,
+/// a 304 Content-Length describes the selected representation (RFC 9110 §8.6).
+/// https://fetch.spec.whatwg.org/#null-body-status
+pub(crate) const fn response_has_body(status: u16) -> bool {
+    !matches!(status, 101 | 103 | 204 | 205 | 304)
+}
+
 pub(crate) fn validate_limits(body: usize, bound: usize, deadline: Duration) -> io::Result<usize> {
     if body > MAX_HTTP_BYTES
         || bound == 0

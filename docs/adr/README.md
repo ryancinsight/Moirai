@@ -77,3 +77,4 @@
 | [0069](0069-bounded-browser-http.md) | Bounded browser HTTP and page lifecycle | Accepted |
 | [0070](0070-shared-scheduler-scope-wait.md) | Share the scheduler wait primitive across borrowing scopes | Accepted |
 | [0071](0071-bind-remote-reply-before-dispatch.md) | Bind the remote reply receiver before dispatch | Accepted |
+| [0072](0072-browser-bodyless-responses.md) | Interpret browser bodyless responses before byte admission | Accepted |

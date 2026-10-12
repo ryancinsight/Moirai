@@ -77,3 +77,23 @@ fn budgets_and_deadlines_reject_before_starting_a_browser_request() {
         );
     }
 }
+#[test]
+fn bodyless_statuses_match_the_complete_fetch_wire_domain() {
+    let _trace = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .finish(),
+    );
+    let _test = tracing::info_span!("response_body_semantics").entered();
+    let arrange = tracing::info_span!("arrange").entered();
+    let expected = [101, 103, 204, 205, 304];
+    drop(arrange);
+    let act = tracing::info_span!("act").entered();
+    let actual: Vec<_> = (0..=u16::MAX)
+        .filter(|status| !super::response_has_body(*status))
+        .collect();
+    drop(act);
+    let _assert = tracing::info_span!("assert").entered();
+    assert_eq!(actual, expected);
+}
