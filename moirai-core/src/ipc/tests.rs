@@ -4,13 +4,53 @@ use super::error::IpcError;
 use super::memory::SharedMemory;
 use super::queue::{SendError, SharedQueue};
 
+/// PID plus monotonic sequence makes names unique across concurrent test runs.
+/// Both u32 components need at most eight hexadecimal digits: total length
+/// is at most 5 + 8 + 1 + 8 = 22, below Darwin PSHMNAMLEN = 31.
+fn segment_name() -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQUENCE: AtomicU32 = AtomicU32::new(0);
+    let sequence = SEQUENCE
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            value.checked_add(1)
+        })
+        .expect("test segment sequence does not wrap");
+    format!("/moi_{:x}_{sequence:x}", std::process::id())
+}
+
+#[cfg(target_vendor = "apple")]
+#[test]
+fn darwin_shared_memory_name_limit_preserves_exact_bytes() {
+    // XNU bsd/kern/posix_shm.c copies PSHMNAMLEN + 1 bytes including the
+    // terminator; the SDK sys/posix_shm.h defines PSHMNAMLEN as 31.
+    const MAX_NAME_BYTES: usize = 31;
+    let mut name = segment_name();
+    name.extend(std::iter::repeat_n('x', MAX_NAME_BYTES - name.len()));
+    assert_eq!(name.len(), MAX_NAME_BYTES);
+    let mut segment = SharedMemory::create(&name, 4096).expect("inclusive name bound");
+    let expected = b"Darwin exact shared-memory name";
+    // SAFETY: this is the only mapped handle while it writes.
+    let bytes = unsafe { segment.as_mut_slice() };
+    bytes[..expected.len()].copy_from_slice(expected);
+    let opener = SharedMemory::open(&name, 4096).expect("same exact name");
+    // SAFETY: no handle writes after the initial copy.
+    assert_eq!(&unsafe { opener.as_slice() }[..expected.len()], expected);
+    name.push('x');
+    assert!(
+        matches!(SharedMemory::create(&name, 4096), Err(IpcError::SystemError(code)) if code == libc::ENAMETOOLONG)
+    );
+    assert!(
+        matches!(SharedMemory::open(&name, 4096), Err(IpcError::SystemError(code)) if code == libc::ENAMETOOLONG)
+    );
+}
+
 #[test]
 fn test_shared_memory() {
-    let name = "/moirai_test_shm";
+    let name = segment_name();
     let size = 1024;
 
     // Create shared memory
-    let mut shm1 = SharedMemory::create(name, size).unwrap();
+    let mut shm1 = SharedMemory::create(&name, size).unwrap();
 
     // Write some data
     let data = b"Hello, shared memory!";
@@ -19,7 +59,7 @@ fn test_shared_memory() {
     bytes[..data.len()].copy_from_slice(data);
 
     // Open from another "process"
-    let shm2 = SharedMemory::open(name, size).unwrap();
+    let shm2 = SharedMemory::open(&name, size).unwrap();
 
     // Read the data
     // SAFETY: nothing writes the segment after the copy above.
@@ -44,12 +84,12 @@ fn open_larger_than_the_segment_is_rejected() {
     // a length past the end of the object and leaves the surplus pages unbacked,
     // so reading them raises SIGBUS; `open` has to reject the oversized request
     // itself. (Win32 `MapViewOfFile` already refuses a view beyond the mapping.)
-    let name = "/moirai_test_open_oversize";
-    let _creator = SharedMemory::create(name, 4096).expect("create must succeed");
+    let name = segment_name();
+    let _creator = SharedMemory::create(&name, 4096).expect("create must succeed");
 
     // Far enough past the segment that the surplus is whole unbacked pages, not
     // the zero-filled tail of the segment's own final page.
-    let result = SharedMemory::open(name, 1 << 20);
+    let result = SharedMemory::open(&name, 1 << 20);
 
     // Which error depends on who caught it: POSIX `mmap` would have accepted the
     // oversized length, so `open` checks the segment itself with `fstat` and
@@ -71,13 +111,13 @@ fn open_larger_than_the_segment_is_rejected() {
 fn open_smaller_than_the_segment_maps_a_prefix() {
     // The size check rejects only mappings the segment cannot back; opening a
     // prefix stays legal, so the guard above is not simply refusing every open.
-    let name = "/moirai_test_open_prefix";
-    let mut creator = SharedMemory::create(name, 4096).expect("create must succeed");
+    let name = segment_name();
+    let mut creator = SharedMemory::create(&name, 4096).expect("create must succeed");
     // SAFETY: the opener below is not created yet.
     let bytes = unsafe { creator.as_mut_slice() };
     bytes[..4].copy_from_slice(b"ipc!");
 
-    let opener = SharedMemory::open(name, 1024).expect("prefix open must succeed");
+    let opener = SharedMemory::open(&name, 1024).expect("prefix open must succeed");
 
     // SAFETY: the creator writes nothing after the copy above.
     let mapped = unsafe { opener.as_slice() };
@@ -99,7 +139,7 @@ fn a_multi_page_segment_reads_back_across_its_whole_length() {
     // Writing every page is what would fault on a host that could not satisfy
     // that reservation, and reading it back is what fails if the new call
     // started refusing segments the store can perfectly well hold.
-    let name = "/moirai_test_backed_pages";
+    let name = segment_name();
     let size = 256 * 1024;
     // 251 is the largest prime below 256, so the pattern's period is coprime
     // with the page size: no two pages begin with the same byte, and a page
@@ -108,7 +148,7 @@ fn a_multi_page_segment_reads_back_across_its_whole_length() {
         u8::try_from(index % 251).expect("invariant: a remainder mod 251 fits in u8")
     };
 
-    let mut segment = SharedMemory::create(name, size).expect("create must succeed");
+    let mut segment = SharedMemory::create(&name, size).expect("create must succeed");
     // SAFETY: `segment` is the only handle to this name.
     for (index, byte) in unsafe { segment.as_mut_slice() }.iter_mut().enumerate() {
         *byte = marker(index);
@@ -183,11 +223,11 @@ mod reservation_classification {
 
 #[test]
 fn test_shared_queue() {
-    let name = "/moirai_test_queue";
+    let name = segment_name();
     let capacity = 10;
 
     // Create queue
-    let mut queue = SharedQueue::<u32>::create(name, capacity).unwrap();
+    let mut queue = SharedQueue::<u32>::create(&name, capacity).unwrap();
 
     // Send some values
     queue.send(1).unwrap();
@@ -221,9 +261,9 @@ fn open_with_mismatched_capacity_is_rejected() {
     // Creator records capacity 20 in the segment header; a peer opening with a
     // smaller capacity maps a smaller, header-inclusive view, reads the recorded
     // capacity, and is rejected before touching the data region.
-    let name = "/moirai_test_queue_cap_mismatch";
-    let _creator = SharedQueue::<u32>::create(name, 20).expect("create must succeed");
-    let result = SharedQueue::<u32>::open(name, 10);
+    let name = segment_name();
+    let _creator = SharedQueue::<u32>::create(&name, 20).expect("create must succeed");
+    let result = SharedQueue::<u32>::open(&name, 10);
     assert!(matches!(result, Err(IpcError::InvalidArgument)));
 }
 
@@ -231,9 +271,9 @@ fn open_with_mismatched_capacity_is_rejected() {
 fn open_with_matching_capacity_shares_data_across_handles() {
     // Two handles over the same segment: a value sent through one is received
     // through the other, proving the capacity header did not disturb the layout.
-    let name = "/moirai_test_queue_shared_handles";
-    let mut creator = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
-    let mut opener = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    let name = segment_name();
+    let mut creator = SharedQueue::<u32>::create(&name, 4).expect("create must succeed");
+    let mut opener = SharedQueue::<u32>::open(&name, 4).expect("open must succeed");
 
     creator.send(42).expect("send must succeed");
     creator.send(7).expect("send must succeed");
@@ -244,8 +284,8 @@ fn open_with_matching_capacity_shares_data_across_handles() {
 
 #[test]
 fn full_queue_rejects_send_at_capacity() {
-    let name = "/moirai_test_queue_full_boundary";
-    let mut queue = SharedQueue::<u32>::create(name, 2).expect("create must succeed");
+    let name = segment_name();
+    let mut queue = SharedQueue::<u32>::create(&name, 2).expect("create must succeed");
     queue.send(1).expect("first send must succeed");
     queue.send(2).expect("second send must succeed");
     assert_eq!(
@@ -259,29 +299,29 @@ fn full_queue_rejects_send_at_capacity() {
 fn creating_a_taken_name_fails_and_leaves_the_live_segment_intact() {
     // A second `create` used to reach the live POSIX object and ftruncate it to
     // its own size, shrinking mappings already open on it.
-    let name = "/moirai_test_create_exclusive";
-    let mut first = SharedMemory::create(name, 8192).expect("first create must succeed");
+    let name = segment_name();
+    let mut first = SharedMemory::create(&name, 8192).expect("first create must succeed");
     // SAFETY: no other handle has mapped the segment yet.
     let bytes = unsafe { first.as_mut_slice() };
     bytes[8191] = 0xA5;
 
-    let second = SharedMemory::create(name, 4096);
+    let second = SharedMemory::create(&name, 4096);
     assert!(matches!(second, Err(IpcError::AlreadyExists)));
 
     // SAFETY: the failed create mapped nothing, so no writer exists.
     assert_eq!(unsafe { first.as_slice() }[8191], 0xA5);
-    let reopened = SharedMemory::open(name, 8192).expect("the original size must survive");
+    let reopened = SharedMemory::open(&name, 8192).expect("the original size must survive");
     // SAFETY: nothing writes the segment.
     assert_eq!(unsafe { reopened.as_slice() }[8191], 0xA5);
 }
 
 #[test]
 fn a_queue_name_can_be_created_once() {
-    let name = "/moirai_test_queue_create_exclusive";
-    let mut live = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
+    let name = segment_name();
+    let mut live = SharedQueue::<u32>::create(&name, 4).expect("create must succeed");
     live.send(9).expect("send must succeed");
 
-    let again = SharedQueue::<u32>::create(name, 4);
+    let again = SharedQueue::<u32>::create(&name, 4);
     assert!(matches!(again, Err(IpcError::AlreadyExists)));
 
     // The failed create must not have reset the live header.
@@ -290,9 +330,9 @@ fn a_queue_name_can_be_created_once() {
 
 #[test]
 fn a_second_sender_handle_is_refused_and_no_message_is_lost() {
-    let name = "/moirai_test_queue_one_sender";
-    let mut first = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
-    let mut second = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    let name = segment_name();
+    let mut first = SharedQueue::<u32>::create(&name, 4).expect("create must succeed");
+    let mut second = SharedQueue::<u32>::open(&name, 4).expect("open must succeed");
 
     first.send(1).expect("the first sender claims the endpoint");
     assert_eq!(second.send(2), Err(SendError::EndpointInUse(2)));
@@ -305,10 +345,10 @@ fn a_second_sender_handle_is_refused_and_no_message_is_lost() {
 
 #[test]
 fn a_second_receiver_handle_is_refused() {
-    let name = "/moirai_test_queue_one_receiver";
-    let mut sender = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
-    let mut first = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
-    let mut second = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    let name = segment_name();
+    let mut sender = SharedQueue::<u32>::create(&name, 4).expect("create must succeed");
+    let mut first = SharedQueue::<u32>::open(&name, 4).expect("open must succeed");
+    let mut second = SharedQueue::<u32>::open(&name, 4).expect("open must succeed");
 
     sender.send(5).expect("send must succeed");
     assert_eq!(first.recv(), Ok(Some(5)));
@@ -317,12 +357,12 @@ fn a_second_receiver_handle_is_refused() {
 
 #[test]
 fn dropping_a_handle_releases_its_endpoints() {
-    let name = "/moirai_test_queue_endpoint_release";
-    let mut receiver = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
+    let name = segment_name();
+    let mut receiver = SharedQueue::<u32>::create(&name, 4).expect("create must succeed");
 
-    let mut first = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    let mut first = SharedQueue::<u32>::open(&name, 4).expect("open must succeed");
     first.send(1).expect("the first sender claims the endpoint");
-    let mut refused = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    let mut refused = SharedQueue::<u32>::open(&name, 4).expect("open must succeed");
     assert_eq!(refused.send(2), Err(SendError::EndpointInUse(2)));
 
     drop(first);
@@ -347,11 +387,11 @@ fn concurrent_senders_cannot_both_deliver() {
     // first `send`, which is the last point at which either handle can drop, so
     // the winner is decided before either thread proceeds.
     const PER_SENDER: u32 = 500;
-    let name = "/moirai_test_queue_racing_senders";
-    let mut receiver = SharedQueue::<u32>::create(name, 8).expect("create must succeed");
+    let name = segment_name();
+    let mut receiver = SharedQueue::<u32>::create(&name, 8).expect("create must succeed");
     let senders = [
-        SharedQueue::<u32>::open(name, 8).expect("open must succeed"),
-        SharedQueue::<u32>::open(name, 8).expect("open must succeed"),
+        SharedQueue::<u32>::open(&name, 8).expect("open must succeed"),
+        SharedQueue::<u32>::open(&name, 8).expect("open must succeed"),
     ];
     let ready = std::sync::Barrier::new(2);
     let attempted = std::sync::Barrier::new(2);

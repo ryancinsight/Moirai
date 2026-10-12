@@ -75,3 +75,4 @@
 | [0067](0067-windows-readiness-through-afd-polls-on-a-completion-port.md) | Windows Readiness Through AFD Polls on One Completion Port | Proposed |
 | [0068](0068-apple-webview-host.md) | Apple WebView application host | Accepted |
 | [0069](0069-bounded-browser-http.md) | Bounded browser HTTP and page lifecycle | Accepted |
+| [0070](0070-shared-scheduler-scope-wait.md) | Share the scheduler wait primitive across borrowing scopes | Accepted |

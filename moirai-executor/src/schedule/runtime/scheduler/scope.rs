@@ -168,7 +168,7 @@ where
         }
     }
 
-    fn state(&self) -> &SchedulerScopeState {
+    fn state(&self) -> &SchedulerScopeState<'scope> {
         // Safety: `ThreadScheduler::scope` creates this pointer from a local
         // state value and waits for every scheduled scoped job before returning.
         unsafe { self.state.as_ref() }
@@ -246,7 +246,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return Err(ExecutorError::ShuttingDown);
         }
 
-        let state = SchedulerScopeState::new();
+        let state = SchedulerScopeState::new(&self.inner.wait_lock, &self.inner.wait_signal);
         let scope = SchedulerScope {
             scheduler: self,
             state: NonNull::from(&state),
@@ -301,7 +301,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// caller that helped from its own lane crashed consumers (moirai-iter's
     /// nested iteration on CI, kwavers' 3-D FFT at 32³ and above); until the
     /// race is found the join waits as before.
-    pub(super) fn drain_scope(&self, state: &SchedulerScopeState) {
+    pub(super) fn drain_scope(&self, state: &SchedulerScopeState<'_>) {
         let Some(worker_id) = self.own_worker_id() else {
             state.wait();
             return;
@@ -332,7 +332,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }
             idle_spins = 0;
 
-            let guard = lock_mutex(&state.wait_lock);
+            let guard = lock_mutex(state.wait_lock);
             if state.pending_tasks.load(Ordering::Acquire) != 0 {
                 let _ = state
                     .wait_signal

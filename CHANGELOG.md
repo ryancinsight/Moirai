@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Borrowing scheduler scopes share the scheduler's wait primitive, eliminating
+  Darwin's two lazy native allocations per indexed fan-out. Pending predicates
+  and completion lifetimes remain independent; existing zero-allocation and
+  computed-value contracts retain their workload and thresholds (ADR 0070).
+- Shared-memory verification uses unique PID/sequence names within Darwin's
+  31-byte POSIX limit. Real exact-limit reads and excess-name errors are checked
+  without changing queue capacities, payloads or concurrency assertions.
 - Python bindings use PyO3 0.29's build-mode selection: Cargo tests link the
   interpreter, while maturin sets `PYO3_BUILD_EXTENSION_MODULE` and supplies
   extension linker arguments. An unconditional legacy feature suppresses the
