@@ -31,16 +31,21 @@ jobs:
           targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,wasm32-unknown-unknown
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Install the isolated test runner
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-nextest@0.9.143
+          checksum: true
       - name: Compile resource and contained-process tests
-        run: cargo test --locked -p moirai-webview -p moirai-transport --no-run
+        run: cargo test --locked -p moirai-webview -p moirai-transport -p moirai-pal --no-run
       - name: Run actual resource and contained-process tests within 60 seconds
         run: |
           python3 - <<'PY'
           import subprocess
-          subprocess.run(["cargo", "test", "--locked", "-p", "moirai-webview", "-p", "moirai-transport"], check=True, timeout=60)
+          subprocess.run(["cargo", "nextest", "run", "--locked", "-p", "moirai-webview", "-p", "moirai-transport", "-p", "moirai-pal"], check=True, timeout=60)
           PY
       - name: Lint Apple provider
-        run: cargo clippy --locked -p moirai-webview -p moirai-transport --all-targets -- -D warnings
+        run: cargo clippy --locked -p moirai-webview -p moirai-transport -p moirai-pal --all-targets -- -D warnings
       - name: Compile each Apple ABI
         run: |
           for target in aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim; do

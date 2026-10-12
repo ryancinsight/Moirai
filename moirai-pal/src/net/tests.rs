@@ -153,6 +153,13 @@ fn udp_recv_self_wakes_without_active_reactor() {
 
 #[test]
 fn dropping_owned_recv_future_retires_only_its_waiter() {
+    let _trace = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .finish(),
+    );
+    let _test = tracing::info_span!("owned_receive_cancellation").entered();
     let reactor = IoReactor::new().expect("reactor");
     let socket = block_on(AsyncUdpSocket::bind(
         "127.0.0.1:0".parse().expect("loopback address"),
@@ -186,15 +193,38 @@ fn dropping_owned_recv_future_retires_only_its_waiter() {
     );
     let received = {
         let mut receive = std::pin::pin!(socket.recv_from(&mut buffer));
-        let Poll::Ready(Ok((received, _))) =
-            reactor.with_active(|| receive.as_mut().poll(&mut context))
-        else {
-            panic!("replacement receive must consume queued payload");
-        };
-        received
+        // send_to does not promise the receiver's first poll is Ready. Drive
+        // the real readiness reactor under the suite's 60-second budget,
+        // preserving the cancellation and exact-payload oracles on Darwin.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        tracing::info_span!("act").in_scope(|| {
+            loop {
+                match reactor.with_active(|| receive.as_mut().poll(&mut context)) {
+                    Poll::Ready(result) => break result.expect("replacement receive").0,
+                    Poll::Pending => {
+                        let remaining = deadline
+                            .checked_duration_since(std::time::Instant::now())
+                            .expect("replacement receive exceeds verification budget");
+                        reactor
+                            .run_iteration(Some(remaining))
+                            .expect("replacement readiness delivery");
+                    }
+                }
+            }
+        })
     };
-    assert_eq!(received, 8);
-    assert_eq!(&buffer, b"survives");
+    tracing::info_span!("assert").in_scope(|| {
+        assert_eq!(received, 8);
+        assert_eq!(&buffer, b"survives");
+        assert!(!reactor.platform_reactor.has_registration(fd));
+        assert!(
+            !reactor
+                .registered_fds
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .contains_key(&crate::reactor::core::FdKey::from(fd))
+        );
+    });
 }
 
 #[test]
