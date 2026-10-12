@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HTML, JavaScript, WASM, empty files and the inclusive resource bound;
   unrepresentable signed lengths fail before response delivery.
 
-## [0.7.1] - Unreleased
+## [0.7.2] - Unreleased
 
 ### Fixed
 
