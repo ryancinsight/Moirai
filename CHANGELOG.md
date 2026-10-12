@@ -5,6 +5,15 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - Unreleased
+
+### Fixed
+
+- Interpret bodyless Fetch statuses before payload admission. A 304's
+  representation Content-Length does not consume received-body budget;
+  absent body streams also return exact empty bytes. Actual payload bounds,
+  deadline, redirect and cancellation contracts remain unchanged (ADR 0072).
+
 ## [0.8.1] - Unreleased
 
 ### Fixed

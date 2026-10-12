@@ -1,6 +1,6 @@
 //! Fetch with bounded streaming storage and owned cancellation.
 use super::{WebTimer, stream};
-use crate::http_policy::{content_length, validate_limits};
+use crate::http_policy::{content_length, response_has_body, validate_limits};
 use std::{
     future::{Future, poll_fn},
     io,
@@ -107,6 +107,13 @@ impl WebHttp {
                         "Browser Fetch returned an invalid response",
                     )
                 })?;
+            let status = response.status();
+            if !response_has_body(status) {
+                return Ok(WebHttpResponse {
+                    status,
+                    body: Vec::new(),
+                });
+            }
             if let Some(value) = response
                 .headers()
                 .get("content-length")
@@ -114,19 +121,17 @@ impl WebHttp {
             {
                 content_length(&value, response_bound)?;
             }
-            let stream = response.body().ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Browser HTTP response has no body stream",
-                )
-            })?;
             let mut sink = stream::VecSink {
                 bytes: Vec::new(),
                 bound: response_bound,
             };
-            stream::read(stream, &mut sink).await?;
+            // The Body API also permits an absent stream for an empty body.
+            // A present stream still requires validated chunks and complete EOF.
+            if let Some(stream) = response.body() {
+                stream::read(stream, &mut sink).await?;
+            }
             Ok(WebHttpResponse {
-                status: response.status(),
+                status,
                 body: sink.bytes,
             })
         };
