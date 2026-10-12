@@ -84,7 +84,12 @@ pub(super) async fn read<S: Sink>(
                     "Browser chunk length cannot be represented",
                 )
             })?;
-            if length == 0 && !done { return Err(io::Error::new(io::ErrorKind::InvalidData, "Browser byte stream returned an empty incomplete chunk")); }
+            if length == 0 && !done {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Browser byte stream returned an empty incomplete chunk",
+                ));
+            }
             let end = count_chunk(copied, length, sink.bound())?;
             sink.copy_chunk(copied, end, &chunk);
             copied = end;
