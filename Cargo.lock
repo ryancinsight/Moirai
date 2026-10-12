@@ -1138,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "futures",
@@ -1159,7 +1159,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async-macros"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1210,7 +1210,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-crypto"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-executor"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "loom",
@@ -1249,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-gpu"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "mnemosyne-memory-core",
@@ -1258,7 +1258,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-http"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "http",
  "httparse",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-iter"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "futures",
@@ -1290,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-metrics"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "moirai-core",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-pal"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -1325,7 +1325,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-parallel"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "melinoe",
@@ -1338,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-python"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "moirai-runtime",
  "pyo3",
@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-runtime"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "fastrand",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-scheduler"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "loom",
@@ -1385,7 +1385,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-sync"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "libc",
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tests"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "fastrand",
  "futures",
@@ -1409,7 +1409,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tls"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "futures-io",
  "futures-rustls",
@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-transport"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-utils"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "criterion",
  "proptest",
