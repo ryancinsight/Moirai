@@ -2,6 +2,7 @@
 
 mod material;
 mod metrics;
+mod observation;
 
 pub(super) use material::endpoint;
 pub(super) use metrics::report;
@@ -60,6 +61,7 @@ pub(super) async fn run<const RESPONDER: bool>(
     material::authorize(&connection)?;
     let connection_setup_ns = nanos(started)?;
     let exchanged = Instant::now();
+    let progress = observation::Progress::default();
     let mut sessions = Vec::new();
     sessions.try_reserve_exact(usize::try_from(plan.streams)?)?;
     for _ in 0..plan.streams {
@@ -68,13 +70,16 @@ pub(super) async fn run<const RESPONDER: bool>(
         } else {
             connection.open_stream().await?
         };
-        sessions.push(session::<RESPONDER>(stream, plan));
+        sessions.push(session::<RESPONDER>(stream, plan, &progress));
     }
-    let samples = futures::future::try_join_all(sessions)
-        .await?
-        .into_iter()
-        .flatten()
-        .collect();
+    let exchange = futures::future::try_join_all(sessions);
+    let observe = progress.observe(&connection);
+    futures::pin_mut!(exchange, observe);
+    let result = match futures::future::select(exchange, observe).await {
+        futures::future::Either::Left((result, _)) => result?,
+        futures::future::Either::Right((never, _)) => match never {},
+    };
+    let samples = result.into_iter().flatten().collect();
     Ok(Exchange {
         connection_setup_ns,
         elapsed_ns: nanos(exchanged)?,
@@ -85,6 +90,7 @@ pub(super) async fn run<const RESPONDER: bool>(
 async fn session<const RESPONDER: bool>(
     mut stream: QuicStream,
     plan: Plan,
+    progress: &observation::Progress,
 ) -> ProbeResult<Vec<u64>> {
     let ordinal = stream.id() / 4;
     // RFC 9000 stream IDs reserve the low two bits for initiator/direction.
@@ -116,6 +122,7 @@ async fn session<const RESPONDER: bool>(
             stream.send_message(&received).await?;
         }
         samples.push(nanos(started)?);
+        progress.completed();
     }
     if !RESPONDER {
         stream.finish()?;

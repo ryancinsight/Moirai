@@ -14,7 +14,9 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Verify Metis against the published Git provider without path patches: 176 backend/IPC/core tests, strict diagnostics and native workspace/all-target checks pass.
 - [x] [patch] Reconcile current main without losing capture-boundary fixes; review trust, ownership, framing, replay and cleanup contracts.
 - [x] [patch] Specify and implement byte-verified, mutually authenticated process-pair measurements; all 27 local full-domain cases pass.
-- [ ] [patch] Collect Linux/Windows transport and controlled netem evidence from the committed review revision.
+- [x] [patch] Verify native QUIC on Linux and Windows at published revision 54568557; both 193-test suites, strict diagnostics and minimal authenticated facade sessions pass. The full Linux workspace passes 1,301 tests and 702 minimal-feature tests.
+- [ ] [patch] Collect controlled netem evidence from the committed review revision.
+- [x] [minor] Expose passive recovery metrics and preserve all profile outcomes, verified progress, namespace UDP/socket counters and both peer diagnostics; 17 focused real tests and strict diagnostics pass.
 - [ ] [minor] Complete protected default-branch promotion before release.
 
 Next increment: review [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and its dependent Metis change, then collect Windows/Linux transport evidence before release.

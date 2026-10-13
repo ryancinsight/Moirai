@@ -2,6 +2,16 @@ name: Native QUIC transport
 
 on:
   workflow_call:
+    inputs:
+      case:
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      case:
+        description: 'Diagnostic PROFILE:STREAMS:FRAME_BYTES; empty measures the full matrix'
+        type: string
+        default: 'delay-10ms-loss-1pct:16:65560'
 
 permissions:
   contents: read
@@ -63,7 +73,9 @@ jobs:
       - name: Build the actual optimized transport probe
         run: cargo build --locked --release -p moirai-quic --example quic_load
       - name: Measure verified exchanges in task-owned namespaces
-        run: python3 scripts/quic_profiles.py --binary target/release/examples/quic_load --network netem --tc "$RUNNER_TEMP/quic-iproute2/tc/tc" --output output/quic/profiles.json
+        env:
+          QUIC_PROFILE_CASE: ${{ inputs.case }}
+        run: python3 scripts/quic_profiles.py --binary target/release/examples/quic_load --network netem --tc "$RUNNER_TEMP/quic-iproute2/tc/tc" --case "$QUIC_PROFILE_CASE" --output output/quic/profiles.json
       - name: Preserve complete measurements and failure evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

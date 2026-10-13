@@ -13,6 +13,7 @@ fn upstream_peer_observes_exact_frame_bytes_and_eof() {
     let (server, client) = endpoints(&executor, &config);
     let (server_connection, client_connection) = pair(&server, &client);
     assert_eq!(server_connection.peer_certificates(), None);
+    let before = client_connection.metrics();
     drop(_arrange);
     let receiver = executor
         .spawn_async(
@@ -54,6 +55,14 @@ fn upstream_peer_observes_exact_frame_bytes_and_eof() {
         .expect("computed messages");
     let _assert = tracing::info_span!("assert").entered();
     assert_eq!(messages, [0, 1, 37, 65_536].map(payload));
+    let after = client_connection.metrics();
+    // The exact four complete frames carry 65,574 payload bytes and 16 prefix
+    // bytes. Wire counters additionally include encryption and recovery traffic.
+    assert!(after.sent_bytes - before.sent_bytes >= 65_590);
+    assert!(after.sent_datagrams > before.sent_datagrams);
+    assert!(after.received_datagrams >= before.received_datagrams);
+    assert!(after.congestion_window_bytes >= u64::from(after.path_mtu));
+    assert!(after.round_trip_time > Duration::ZERO);
     assert_eq!(client_connection.alpn(), ALPN);
     assert_eq!(
         client_connection

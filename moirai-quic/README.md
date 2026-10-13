@@ -42,3 +42,8 @@ controlled performance contract: mutual TLS, complete payload validation,
 acknowledged shutdown, integer RTT/rate evidence and task-owned Linux netem
 namespaces. Public fixture credentials are for these controlled probes only.
 Reports retain every sample, qdisc counters and the tested source/runner.
+`QuicConnection::metrics` exposes a coherent recovery/wire snapshot. Controlled
+probes also retain validated-message progress and namespace UDP/socket counters
+to distinguish protocol recovery from local socket loss. A failed pair remains
+a failed gate; every default matrix case still runs. `--case` selects one declared
+case for diagnosis with its complete workload and three repetitions.

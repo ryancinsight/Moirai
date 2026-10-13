@@ -15,12 +15,14 @@ mod admission;
 mod config;
 mod endpoint;
 mod error;
+mod metrics;
 mod runtime;
 mod stream;
 
 pub use config::{Identity, QuicConfig};
 pub use endpoint::{QuicConnection, QuicEndpoint};
 pub use error::QuicError;
+pub use metrics::ConnectionMetrics;
 /// TLS certificate, key and trust-root vocabulary for the QUIC boundary.
 pub use quinn::rustls;
 pub use stream::QuicStream;

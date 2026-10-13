@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [minor] Passive connection metrics expose wire, recovery, congestion-window,
+  path-RTT and MTU observations without exposing Quinn types. Controlled probes
+  retain verified progress, namespace UDP/socket counters and every failure;
+  diagnostics can select one declared case while normal CI retains all 108 pairs.
 - [patch] Native load probe and Linux/Windows transport gates validate mutual TLS,
   complete bytes and acknowledged FIN; isolated kernel profiles retain exact
   RTT/goodput samples, loss counters and source/runner provenance.

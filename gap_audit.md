@@ -26,8 +26,11 @@ the corrected transition passes. Compatibility runs 892 applicable checks with
 the stricter patch override against 0.8.2. Metis passes 176 real backend/IPC/core
 tests and native workspace checks against the published Git provider with no
 path patches. The two-process mutual-TLS CLI passes on IPv4 and IPv6. Canonical provider promotion and
-Windows/Linux execution and controlled-profile collection remain active gates.
-The reconciled provider passes 193 socket/HTTP/facade/load tests and all 27
+controlled-profile collection remain active gates. Both hosted Linux and Windows
+pass strict diagnostics, 193 socket/HTTP/facade/load tests and the minimal native
+session at published revision 54568557. The [Linux workspace gate](https://github.com/ryancinsight/Moirai/actions/runs/38459278652)
+passes 1,301 tests (nine existing ignored probes) and 702 minimal-feature tests.
+The reconciled provider also passes all 27
 full-domain local process-pair probes. No wide-area performance or
 migration result is inferred from loopback correctness.
 

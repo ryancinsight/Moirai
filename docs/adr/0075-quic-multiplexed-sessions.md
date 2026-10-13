@@ -112,7 +112,9 @@ constant reply cannot satisfy the sequence header and full-byte comparisons.
 
 The client measures connection establishment and certificate authorization
 separately from the complete stream exchange. The responder setup duration
-also includes its admission wait. Message RTT samples include send, peer validation/echo and receive.
+also includes its admission wait. Client message RTT samples include send, peer
+validation/echo and receive. Responder cycle samples include waiting for the
+request and sending its echo; they are not client RTT measurements.
 For sorted samples x, the nearest-rank percentile p is x[ceil(p*n/100)-1].
 Goodput is floor(8*S*N*B*10^9/elapsed_ns) bits/s in one direction; the report
 retains integer sample durations and counts rather than rounding evidence.
@@ -135,3 +137,13 @@ The CI tool is iproute2 6.17 at commit
 `d2a8ffe85ac64f91ee2aa7679a5046f321b54127`; the runner's stock 6.1 CLI lacks
 the seeded-netem option. The tool and kernel versions remain recorded inputs.
 Reference: [iproute2 netem contract](https://github.com/iproute2/iproute2/blob/main/man/man8/tc-netem.8).
+
+`ConnectionMetrics` projects one protocol-engine snapshot; wire bytes include
+overhead and retransmissions, and recovery loss does not identify kernel socket
+loss. Probe progress counts only fully validated messages. Namespace UDP and
+socket counters distinguish local receive-buffer loss from the shaped queue.
+Every declared process pair runs even after a failure; any failed pair still
+fails the gate. A diagnostic `--case PROFILE:STREAMS:FRAME_BYTES` preserves that
+case's full message count, three repetitions and deadlines. It does not replace
+the full default matrix. Errors retain both peer diagnostics, and cleanup kills
+only processes in the controller's own namespaces before removing them.
