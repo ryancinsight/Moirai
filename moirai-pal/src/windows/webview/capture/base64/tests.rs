@@ -24,13 +24,13 @@ fn encode(bytes: impl Iterator<Item = u8>, length: usize) -> String {
         let first = bytes.next().expect("first byte of group");
         let second = bytes.next();
         let third = bytes.next();
-        let packed = (u32::from(first) << 16)
-            | (u32::from(second.unwrap_or(0)) << 8)
-            | u32::from(third.unwrap_or(0));
-        encoded.push(char::from(ALPHABET[((packed >> 18) & 63) as usize]));
-        encoded.push(char::from(ALPHABET[((packed >> 12) & 63) as usize]));
-        encoded.push(second.map_or('=', |_| char::from(ALPHABET[((packed >> 6) & 63) as usize])));
-        encoded.push(third.map_or('=', |_| char::from(ALPHABET[(packed & 63) as usize])));
+        let packed = (usize::from(first) << 16)
+            | (usize::from(second.unwrap_or(0)) << 8)
+            | usize::from(third.unwrap_or(0));
+        encoded.push(char::from(ALPHABET[(packed >> 18) & 63]));
+        encoded.push(char::from(ALPHABET[(packed >> 12) & 63]));
+        encoded.push(second.map_or('=', |_| char::from(ALPHABET[(packed >> 6) & 63])));
+        encoded.push(third.map_or('=', |_| char::from(ALPHABET[packed & 63])));
     }
     assert_eq!(bytes.next(), None, "encoder consumes the complete oracle");
     encoded
@@ -176,7 +176,8 @@ fn full_capture_bound_preserves_each_byte_and_rejects_first_excess_byte() {
                     .position(|(actual, expected)| actual != expected);
                 assert_eq!(mismatch, None, "every byte equals index modulo 256");
                 assert_eq!(decoded.first(), Some(&0));
-                assert_eq!(decoded.last(), Some(&(((length - 1) % 256) as u8)));
+                let last = u8::try_from((length - 1) % 256).expect("modulo 256 fits in a byte");
+                assert_eq!(decoded.last(), Some(&last));
             }
         });
     }
