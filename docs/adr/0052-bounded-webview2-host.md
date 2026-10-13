@@ -8,7 +8,7 @@ Revision: 2026-09-28
 
 Revision note: showing a hidden controller now waits for a post-show rendered
 surface before returning, so immediate preview capture is reliable
-([Moirai #500](https://github.com/ryancinsight/Moirai/pull/500)).
+([Moirai #505](https://github.com/ryancinsight/Moirai/pull/505)).
 
 Driver: MOI-WINDOW-WEBVIEW2-2026-09-09 (delivered by [Moirai #299](https://github.com/ryancinsight/Moirai/pull/299)),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
