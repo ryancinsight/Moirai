@@ -6,12 +6,6 @@ on:
       case:
         type: string
         default: ''
-  workflow_dispatch:
-    inputs:
-      case:
-        description: 'Diagnostic PROFILE:STREAMS:FRAME_BYTES; empty measures the full matrix'
-        type: string
-        default: 'delay-10ms-loss-1pct:16:65560'
 
 permissions:
   contents: read

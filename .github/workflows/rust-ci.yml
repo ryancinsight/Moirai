@@ -19,6 +19,11 @@ on:
     # Weekly parser-fuzz campaign (MOI-SEC-001-B) and Miri run; main only.
     - cron: "0 6 * * 1"
   workflow_dispatch:
+    inputs:
+      quic_case:
+        description: 'Additional diagnostic PROFILE:STREAMS:FRAME_BYTES; standard validation still runs the full matrix'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -35,6 +40,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  quic-diagnostics:
+    name: Native QUIC diagnosis
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.quic_case != '' }}
+    uses: ./.github/workflows/quic-transport.yml
+    with:
+      case: ${{ inputs.quic_case }}
+    permissions:
+      contents: read
   quic:
     name: Native QUIC validation
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
