@@ -73,7 +73,7 @@ PR 619 Windows run observes one origin-valued native denial and two browser
 errors from same-document calls; it fails the two-event contract. The repaired
 navigation sequence retains the two-event requirement and passes actual Windows
 [job 115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
-at `0d42510b50cec901852124ddbdcd0727632ebcb9`, including browser exit and caller-owned
+at [reviewed source](https://github.com/ryancinsight/Moirai/commit/0d42510b50cec901852124ddbdcd0727632ebcb9), including browser exit and caller-owned
 profile cleanup. This verifies the provider fixture's source-bound scope.
 The same run passes 25 native policy/destruction tests and four actual capture
 fixtures, including two 100-host cases, on WebView2 `153.0.4234.48` with SDK

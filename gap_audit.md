@@ -12,7 +12,7 @@ The repaired fixture navigates to a second packaged document after real first
 settlement under the same profile/origin/controller, retaining the two actual
 DENY/two error requirement. Actual Windows
 [job 115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
-passes at `0d42510b50cec901852124ddbdcd0727632ebcb9`, including actual browser exit and
+passes at [reviewed source](https://github.com/ryancinsight/Moirai/commit/0d42510b50cec901852124ddbdcd0727632ebcb9), including actual browser exit and
 caller-owned profile cleanup. Metis Rust page handoff/four-kind acceptance and
 consented ordinary-browser positive cleanup remain pending.
 That source passes 25 native policy/destruction tests and four actual capture

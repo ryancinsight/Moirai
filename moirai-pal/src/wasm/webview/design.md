@@ -134,7 +134,7 @@ packaged document after the first actual native/browser completion under the
 same profile, origin and controller. It still requires two actual denials and
 two actual errors.
 The repaired Windows job [115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
-passes at `0d42510b50cec901852124ddbdcd0727632ebcb9`, observing the real two-document
+passes at [reviewed source](https://github.com/ryancinsight/Moirai/commit/0d42510b50cec901852124ddbdcd0727632ebcb9), observing the real two-document
 denials/errors, browser exit and profile cleanup. This provider evidence does
 not establish the Metis Rust module handoff or four-kind native page acceptance.
 The run passes 25 native policy/destruction tests and four actual capture
@@ -159,7 +159,7 @@ caller-owned directory. Default profiles retain controller-only close behavior.
 - Installed Windows geolocation requests across two packaged documents under
   the same profile/origin/controller must produce two actual
   native DENY events and two browser errors, then actual browser exit and caller
-  profile cleanup. Source `0d42510b50cec901852124ddbdcd0727632ebcb9` passes the actual
+  profile cleanup. Source [reviewed source](https://github.com/ryancinsight/Moirai/commit/0d42510b50cec901852124ddbdcd0727632ebcb9) passes the actual
   Windows job above; this macOS host supplies no local Windows execution claim.
 - Consumer acceptance must use the actual Rust-ready native page and four
   native permission kinds, then stop/remount with exact reported resources.
