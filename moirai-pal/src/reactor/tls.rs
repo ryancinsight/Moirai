@@ -118,7 +118,7 @@ impl IoReactor {
     /// Test-only: run `f` with the global reactor suppressed for this thread, so
     /// [`with_current`](Self::with_current) passes `None` and socket operations
     /// exercise the `net.rs` busy-poll self-wake fallback deterministically.
-    #[cfg(test)]
+    #[cfg(all(test, any(unix, windows)))]
     pub(crate) fn with_reactor_disabled<F, R>(f: F) -> R
     where
         F: FnOnce() -> R,

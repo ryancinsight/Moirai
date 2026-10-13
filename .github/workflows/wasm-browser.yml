@@ -1,0 +1,57 @@
+name: WASM browser contracts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wasm-browser-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  wasm-browser:
+    name: Real Chrome WASM resource and decimal contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Install the canonical lock's exact WASM compiler and test runner
+        run: |
+          wasm_bindgen_version=$(python3 -c 'import tomllib; p=tomllib.load(open("Cargo.lock","rb"))["package"]; v=[x["version"] for x in p if x["name"]=="wasm-bindgen"]; assert len(v)==1; print(v[0])')
+          cargo install --locked wasm-bindgen-cli --version "$wasm_bindgen_version"
+      - name: Lint WASM production and real browser test code
+        env:
+          RUSTFLAGS: --cfg getrandom_backend="wasm_js"
+        run: >-
+          cargo clippy --locked -p moirai-pal --lib --tests
+          --no-default-features --target wasm32-unknown-unknown -- -D warnings
+      - name: Execute every actual browser contract without skipped prerequisites
+        run: >-
+          python3 scripts/webview/verify_browser.py
+          --manifest-path "$GITHUB_WORKSPACE/Cargo.toml"
+          --target-dir "$GITHUB_WORKSPACE/target"
+          --browser "$(command -v google-chrome)"
+          --output "$GITHUB_WORKSPACE/browser-evidence"
+      - name: Upload actual browser provenance and hierarchical Rust traces
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wasm-browser-contracts
+          path: browser-evidence/
+          if-no-files-found: error

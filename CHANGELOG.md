@@ -5,6 +5,43 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - Unreleased
+
+### Added
+
+- [minor] `wasm::WebViewBridge` and its owned message listener post/receive actual
+  WebView2 JSON under the existing shared native/browser message limits.
+  Explicit listener close and counted failed-cleanup guards preserve callback
+  lifetime when the browser refuses teardown.
+- [minor] `wasm::WebPermissions` supplies real geolocation, camera, microphone
+  and notification requests with typed native outcomes, finite deadlines,
+  one unsettled slot per kind/document and owned media leases. Snapshots retain
+  cancelled settlement guards and zero-or-two geolocation dispatchers; late
+  media acquisition stops every track when publication has been cancelled.
+- [minor] DOM listener explicit close and actual active/retained counts expose
+  failed teardown ownership. `wasm::WebNumber::decimal` uses the native
+  ECMAScript formatter; `WebViewBridge::operation_wait_limit` exposes the shared
+  30-second provider bound.
+- [minor] `ProcessSpec::working_directory` owns an absolute child directory
+  validated before process resources are created, with native OS failures
+  retained and no process-global directory mutation.
+- [minor] `WebViewConfig::with_user_data_folder` admits a fresh caller-owned
+  local profile, checks the runtime's effective directory and waits for the
+  actual normal browser-process exit during close. Directory cleanup remains
+  caller-owned (ADR 0077).
+
+### Fixed
+
+- [patch] Native WebView2 permission callbacks mark DENY decisions as nonsaved, so a
+  fresh profile can produce independent repeated-request denial evidence.
+- [patch] Closed window and WebView polling drain the actual final destruction
+  event without dispatching through a destroyed HWND. The native callback domain
+  moves to its own leaf; the window owner remains below 500 lines.
+
+Real Windows page/permission/profile-exit acceptance and consented positive
+grant/late-acquisition cleanup remain pending; static compilation does not
+establish those runtime outcomes.
+
 ## [0.8.3] - Unreleased
 
 ### Fixed

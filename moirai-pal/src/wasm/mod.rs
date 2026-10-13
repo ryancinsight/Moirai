@@ -4,13 +4,19 @@
 //! integrating with JavaScript Promise/async-await patterns and Web APIs.
 
 mod animation;
+mod browser_error;
 mod dom;
 mod file;
 mod history;
 mod http;
+mod number;
+mod permissions;
 mod stream;
+#[cfg(test)]
+mod test_trace;
 mod timer;
 mod websocket;
+mod webview;
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
@@ -32,7 +38,14 @@ pub use self::dom::{
 pub use self::file::{MAX_READ_BYTES, WebFile};
 pub use self::history::{HistoryListener, MAX_HISTORY_PATH_BYTES, WebHistory};
 pub use self::http::{MAX_HTTP_BYTES, MAX_HTTP_DEADLINE, WebHttp, WebHttpMethod, WebHttpResponse};
+pub use self::number::WebNumber;
+pub use self::permissions::{
+    WebMediaLease, WebNotificationPermission, WebPermissionError, WebPermissionKind,
+    WebPermissionOutcome, WebPermissionRequest, WebPermissionResources, WebPermissionStatus,
+    WebPermissions,
+};
 pub use self::timer::WebTimer;
+pub use self::webview::{WebViewBridge, WebViewMessageListener};
 pub use crate::local_task::LocalTaskHandle;
 pub use crate::websocket_state::{WebSocketLimits, WebSocketOpen, WebSocketReceive};
 

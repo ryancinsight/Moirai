@@ -8,11 +8,12 @@ mod host;
 mod pump;
 mod state;
 
-pub use capture::MAX_WEBVIEW_CAPTURE_BYTES;
-pub use config::{
+pub use crate::webview_limits::{
     MAX_WEBVIEW_EVENTS, MAX_WEBVIEW_MESSAGE_BYTES, MAX_WEBVIEW_MESSAGE_UNITS,
-    MAX_WEBVIEW_URI_UNITS, MAX_WEBVIEW_WAIT_MILLISECONDS, WebViewConfig,
+    MAX_WEBVIEW_WAIT_MILLISECONDS,
 };
+pub use capture::MAX_WEBVIEW_CAPTURE_BYTES;
+pub use config::{MAX_WEBVIEW_URI_UNITS, WebViewConfig};
 pub use event::{WebViewEvent, WebViewHostEvent, WebViewPermission};
 pub use host::WebViewHost;
 

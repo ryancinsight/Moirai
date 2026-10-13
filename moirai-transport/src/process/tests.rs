@@ -37,6 +37,12 @@ fn child_entry() {
                 .write_all(format!("\nECHO:{input}").as_bytes())
                 .expect("fixture output");
         }
+        "cwd" => {
+            let directory = std::env::current_dir().expect("actual child directory");
+            std::io::stdout()
+                .write_all(format!("\nCWD:{}\n", directory.display()).as_bytes())
+                .expect("actual directory output");
+        }
         "stderr" => {
             std::io::stderr()
                 .write_all(b"bounded-stderr\n")
@@ -300,3 +306,5 @@ fn unsupported_targets_reject_tree_containment() {
         .expect_err("containment is unavailable");
     assert_eq!(error, ProcessError::UnsupportedContainment);
 }
+
+mod directory;

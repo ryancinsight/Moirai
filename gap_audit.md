@@ -3,6 +3,55 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Rust page provider acceptance — 2026-10-13 [minor]
+
+Actual PR 619 Windows CI reports native permission origin separately from the
+full page-message URL. Two same-document geolocation calls yield one native
+DENY and two browser errors; they do not prove independent callback evidence.
+The repaired fixture navigates to a second packaged document after real first
+settlement under the same profile/origin/controller, retaining the two actual
+DENY/two error requirement. Actual Windows
+[job 115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
+passes at [reviewed source](https://github.com/ryancinsight/Moirai/commit/0d42510b50cec901852124ddbdcd0727632ebcb9), including actual browser exit and
+caller-owned profile cleanup. Metis Rust page handoff/four-kind acceptance and
+consented ordinary-browser positive cleanup remain pending.
+That source passes 25 native policy/destruction tests and four actual capture
+fixtures, including two 100-host cases. WebView2 is `153.0.4234.48`, SDK bindings
+are `0.39.1`, and the repeated two-document fixture takes 7.410 seconds.
+
+Workspace 0.9.0 implements the actual WebView2 browser bridge, explicit callback
+teardown/counts, browser Number formatting, real permission requests and owned
+child working directories. Fresh-profile native admission checks caller-owned
+empty local storage, nonsaved DENY decisions and the actual browser exit before
+caller cleanup. [ADR 0077](docs/adr/0077-rust-page-provider-ownership.md) owns
+the selected contracts and its source-adjacent design records failure behavior.
+
+Eleven portable permission state/identity tests pass, including all four busy
+slots, cancelled guards, exact media ownership sums, deadline caps, stale
+generations and the entire decimal-string identity domain. Strict WASM and
+native PAL Clippy pass. Shared message/directory tests and Windows provider
+diagnostics cover their own source boundaries; the installed repeated-denial
+fixture is compiled but has no local Windows execution evidence.
+
+The complete native PAL/transport suite passes 148 tests without skips. Seven
+actual Chrome tests verify JSON, DOM callback and Number contracts without
+ignored or filtered tests; they do not establish native chrome.webview handoff.
+Locked Rustdoc comparisons pass 196 additive-API checks for each of native
+transport, WASM PAL and Windows PAL. Actual final-destruction and nonsaved
+repeated-denial fixtures are mandatory Windows runtime gates; the source-bound
+actual Windows job above now passes the provider capture/repeated-denial/cleanup
+scope. Consumer Rust bridge acceptance remains separate.
+
+Actual native Rust-page handoff, four-kind
+consumer acceptance and consented positive/late media cleanup remain open in
+the two active acceptance items. Two geolocation dispatchers remain realm-owned
+after the first request; up to four genuine settlement guards remain visible
+after cancellation. A cleared watch may never callback, so its guard can remain
+busy until document destruction. A failed DOM/bridge callback removal retains
+its counted owner and prevents further admission. Neither portable tests nor
+successful compilation establish native events, granted device cleanup or
+complete provider-private allocation accounting.
+
 ## WebView2 capture boundary reconciliation — 2026-10-13 [patch]
 
 Workspace 0.8.3 corrects the inclusive decoded-byte law from PR

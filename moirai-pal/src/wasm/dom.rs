@@ -13,9 +13,9 @@ mod text;
 
 pub use self::canvas::{CanvasSize, RgbaFrame, WebCanvas};
 pub use self::clipboard::WebClipboard;
+pub use self::event::listener::WebEventListener;
 pub use self::event::{
-    PointerMetadata, PointerModifiers, PointerType, WebEvent, WebEventListener, WheelDeltaMode,
-    WheelMetadata,
+    PointerMetadata, PointerModifiers, PointerType, WebEvent, WheelDeltaMode, WheelMetadata,
 };
 pub use self::file_drop::{BrowserFiles, DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
 pub use self::gpu_canvas::WebGpuCanvas;
@@ -359,12 +359,14 @@ impl WebElement {
 
     /// Registers a callback whose lifetime is tied to the returned listener.
     ///
-    /// Dropping the listener removes the callback from the element before the
-    /// closure is released, so cancellation cannot leave a JavaScript root.
+    /// Explicit [`WebEventListener::close`] reports browser removal failures.
+    /// Drop attempts removal before releasing the closure; a failed removal
+    /// retains a counted realm owner and prevents further listener admission.
     ///
     /// # Errors
     /// Returns [`io::ErrorKind::InvalidInput`] when the event name is invalid
-    /// or the browser refuses the listener.
+    /// or the browser refuses the listener, and [`io::ErrorKind::WouldBlock`]
+    /// when this realm retains a failed listener cleanup.
     pub fn add_event_listener<F>(
         &self,
         event_name: &str,
@@ -373,6 +375,6 @@ impl WebElement {
     where
         F: FnMut(WebEvent) + 'static,
     {
-        event::listen(self.element.clone().unchecked_into(), event_name, callback)
+        event::listener::listen(self.element.clone().unchecked_into(), event_name, callback)
     }
 }

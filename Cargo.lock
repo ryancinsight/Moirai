@@ -107,6 +107,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
+name = "async-trait"
+version = "0.1.92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -794,9 +805,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1025,6 +1038,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "minicov"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
+dependencies = [
+ "cc",
+ "walkdir",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1138,7 +1161,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "futures",
@@ -1159,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async-macros"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1195,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-core"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1210,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-crypto"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -1233,7 +1256,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-executor"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "loom",
@@ -1249,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-gpu"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "mnemosyne-memory-core",
@@ -1258,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-http"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "http",
  "httparse",
@@ -1270,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-iter"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "futures",
@@ -1290,7 +1313,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-metrics"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "moirai-core",
@@ -1300,12 +1323,13 @@ dependencies = [
 
 [[package]]
 name = "moirai-pal"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "accesskit",
  "accesskit_windows",
  "criterion",
  "futures",
+ "getrandom 0.3.4",
  "js-sys",
  "libc",
  "melinoe",
@@ -1318,6 +1342,7 @@ dependencies = [
  "tracing-subscriber",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "web-sys",
  "webview2-com",
  "windows",
@@ -1325,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-parallel"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "melinoe",
@@ -1338,7 +1363,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-python"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "moirai-runtime",
  "pyo3",
@@ -1346,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-runtime"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "fastrand",
@@ -1371,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-scheduler"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "loom",
@@ -1385,7 +1410,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-sync"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "libc",
@@ -1397,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tests"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "fastrand",
  "futures",
@@ -1409,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tls"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "futures-io",
  "futures-rustls",
@@ -1422,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-transport"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1438,7 +1463,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-utils"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "proptest",
@@ -2830,6 +2855,45 @@ checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "wasm-bindgen-test"
+version = "0.3.79"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae7499dfd45780a0a91d7ee6bb9ac51970a4479a41a89da443fdda5a39547d42"
+dependencies = [
+ "async-trait",
+ "cast",
+ "js-sys",
+ "libm",
+ "minicov",
+ "nu-ansi-term",
+ "num-traits",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+ "wasm-bindgen-test-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.79"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b84b5ac638bfb168196a1a461fcc8f46a294a18b1b6be52133b4e0db122cc9f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "wasm-bindgen-test-shared"
+version = "0.2.129"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f692aa943ccd88363733b77063f32cfed5bc6cbea8e6e8b251b302f881606fe"
 
 [[package]]
 name = "web-sys"

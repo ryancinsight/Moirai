@@ -126,3 +126,43 @@ Full documentation: <https://docs.rs/moirai-pal>
 
 Licensed under either of [Apache-2.0](../LICENSE-APACHE) or
 [MIT](../LICENSE-MIT) at your option.
+
+## Rust page provider contracts
+
+Workspace 0.9.0 adds `WebViewBridge` and `WebViewMessageListener` for the actual
+WebView2 message object. Posting parses JSON into the native object value;
+receiving admits object/string data under the shared 64 KiB byte and UTF16
+bounds. `WebViewBridge::operation_wait_limit` exposes the shared 30-second
+operation bound. A listener's explicit `close` detaches its callback before
+releasing Rust ownership. A failed Drop retains one counted callback guard and
+refuses replacement until realm destruction. `WebEventListener::close`,
+`active_count` and `retained_cleanup_count` expose the same DOM teardown law;
+failed owners cannot accumulate across remount. `WebNumber::decimal` calls the
+browser's actual base10 Number formatter for ECMAScript numeric spelling.
+
+`WebPermissions::current` binds requests to the current document.
+`request(kind, duration)` returns an owned future for geolocation, camera,
+microphone or notifications. Unavailable, rejected, granted, denied and default
+results remain distinct, with native rejection code/name/message preserved.
+The deadline is positive and capped at the shared 30-second bound. Geolocation
+clears its watch on first callback, deadline and drop; two realm-owned callback
+dispatchers remain valid for already-queued tasks. Cancelling an unsettled
+request leaves its kind busy until actual settlement or document destruction.
+Clearing a watch can suppress later settlement, so its retained guard may last
+for the document lifetime. Media grant leases stop every track; late acquisition
+after cancellation drops the lease before publication. Resource snapshots expose
+active requests/watches, media leases/tracks, up to four unsettled guards and
+the actual zero-or-two geolocation dispatchers. The provider publishes no location.
+
+`WebViewConfig::with_user_data_folder` admits a caller-owned empty local profile
+separate from the mapped package. Runtime profile overrides fail admission.
+Native permission callbacks request nonpersistent DENY decisions. With an
+explicit fresh profile, host `close` observes the actual normal browser-process
+exit before releasing its environment; the caller retains directory cleanup.
+Existing default-profile close behavior remains its controller lifecycle.
+
+[ADR 0077](../docs/adr/0077-rust-page-provider-ownership.md) and the
+[source-adjacent design](src/wasm/webview/design.md) record the API and ownership
+contracts. Portable tests and strict native/WASM/Windows diagnostics establish
+source behavior; real Windows repeated-denial/profile cleanup, native page
+handoff and consented positive/late media cleanup remain acceptance gates.

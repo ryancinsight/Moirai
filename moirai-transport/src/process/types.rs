@@ -102,6 +102,7 @@ impl ProcessWaitPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessSpec {
     pub(super) program: PathBuf,
+    pub(super) working_directory: Option<PathBuf>,
     pub(super) args: Vec<OsString>,
     pub(super) envs: Vec<(OsString, OsString)>,
     pub(super) clear_environment: bool,
@@ -115,6 +116,7 @@ impl ProcessSpec {
     pub fn new(program: impl Into<PathBuf>) -> Self {
         Self {
             program: program.into(),
+            working_directory: None,
             args: Vec::new(),
             envs: Vec::new(),
             clear_environment: false,
@@ -123,6 +125,19 @@ impl ProcessSpec {
             require_tree: false,
         }
     }
+    /// Sets an owned absolute working directory for this child alone.
+    ///
+    /// Spawn validates the existing directory and its native representation
+    /// before creating pipes or handles. Omission inherits the parent directory.
+    /// This never changes the process-global directory. For deterministic
+    /// executable resolution, callers use an absolute program path with this
+    /// option; relative program lookup differs between operating systems.
+    #[must_use]
+    pub fn working_directory(mut self, directory: impl Into<PathBuf>) -> Self {
+        self.working_directory = Some(directory.into());
+        self
+    }
+
     /// Appends one argument.
     #[must_use]
     pub fn arg(mut self, arg: impl Into<OsString>) -> Self {

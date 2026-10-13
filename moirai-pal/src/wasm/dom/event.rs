@@ -1,7 +1,6 @@
 //! Owned events, pointer snapshots and listener lifetimes.
 use super::WebElement;
-use std::io;
-use wasm_bindgen::{JsCast, JsValue, closure::Closure};
+use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, Event, MouseEvent, PointerEvent, WheelEvent};
 
 /// A browser event delivered to an owned listener.
@@ -377,45 +376,4 @@ fn event_coordinate(event: &MouseEvent, property: &str) -> Option<f64> {
     coordinate.is_finite().then_some(coordinate)
 }
 
-/// An event listener with explicit browser callback teardown.
-pub struct WebEventListener {
-    target: web_sys::EventTarget,
-    event_name: String,
-    closure: Closure<dyn FnMut(Event)>,
-}
-
-pub(super) fn listen<F>(
-    target: web_sys::EventTarget,
-    event_name: &str,
-    mut callback: F,
-) -> io::Result<WebEventListener>
-where
-    F: FnMut(WebEvent) + 'static,
-{
-    // Condition 1: the Web API callback boundary erases the closure type.
-    let closure = Closure::wrap(
-        Box::new(move |event: Event| callback(WebEvent { event })) as Box<dyn FnMut(Event)>
-    );
-    target
-        .add_event_listener_with_callback(event_name, closure.as_ref().unchecked_ref())
-        .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Browser rejected event listener registration",
-            )
-        })?;
-    Ok(WebEventListener {
-        target,
-        event_name: event_name.to_owned(),
-        closure,
-    })
-}
-
-impl Drop for WebEventListener {
-    fn drop(&mut self) {
-        let _ = self.target.remove_event_listener_with_callback(
-            &self.event_name,
-            self.closure.as_ref().unchecked_ref(),
-        );
-    }
-}
+pub(super) mod listener;

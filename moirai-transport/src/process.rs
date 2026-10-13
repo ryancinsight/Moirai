@@ -24,6 +24,7 @@
 //! # Ok(())
 //! # }
 //! ```
+mod directory;
 #[cfg(not(windows))]
 mod portable;
 mod types;
@@ -65,6 +66,9 @@ impl ProcessSupervisor {
         spec: ProcessSpec,
         drop_policy: ProcessDropPolicy,
     ) -> ProcessResult<ManagedProcess> {
+        if let Some(directory) = spec.working_directory.as_deref() {
+            directory::validate(directory)?;
+        }
         let process = Process::spawn(spec, drop_policy)?;
         let id = ManagedProcessId::new(process.id());
         Ok(ManagedProcess { process, id })
