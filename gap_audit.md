@@ -5,6 +5,18 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
+ADR 0078 closes ignored UDP configuration: positive, native-range-checked
+receive/send requests apply through PAL, typed multicast joins the specified
+group/interface, and readback reports kernel queue values. The original ignored
+buffer regression fails with a 786,896-byte effective queue instead of the
+requested 4,096 bytes; the corrected implementation matches a separate native
+reference. All 338 transport/async tests and strict diagnostics pass locally,
+including exact IPv4/IPv6 unicast, empty datagrams, IPv4 multicast, native option
+failure cleanup and configured authenticated QUIC with acknowledged FIN. IPv6
+multicast covers group/family validation and real invalid-interface failure;
+positive IPv6 multicast delivery remains unmeasured. Queue sizes do not change
+protocol windows or deadlines and supply no evidence to close the recovery limit.
+
 Moirai 0.9.0 includes moirai-quic 0.1.0 in every native facade build, without
 a QUIC feature flag. The default suite passes 187 tests; the minimal facade
 completes authenticated frame exchange and acknowledged teardown. Browser

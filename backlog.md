@@ -15,6 +15,7 @@ belong in [gap_audit.md](gap_audit.md).
 - scope: provider publication and consumer revision adoption; no credentials or trust-store configuration.
 - current increment: native QUIC, shared readiness, fallible facade spawning, bounded framing and fresh-key Metis sessions are implemented in [PR 618](https://github.com/ryancinsight/Moirai/pull/618). QUIC is required in native facade builds: 187 default tests, the minimal authenticated session, browser facade compilation, strict diagnostics and 892 applicable compatibility checks pass. CI checks default/minimal native sessions. Metis's prior 176-test canonical verification passes; the dependent consumer review adopts the updated provider Git pin. Default-branch promotion remains pending.
 - next step: close the measured CUBIC loss-profile limit below and complete required review/checks before protected provider/consumer promotion. Both hosted native platform gates pass; the initial controlled baseline and full loss diagnosis are [archived](moirai-quic/measurements/controlled/2026-10-13/README.md).
+- UDP increment: ADR 0078 replaces ignored queue/multicast options with one applied PAL contract used by async UDP and QUIC. All 338 native transport/async tests and strict diagnostics pass locally; kernel-default queues and the full controlled performance contract remain intact.
 
 <a id="MOI-QUIC-RECOVERY-001"></a>
 ## MOI-QUIC-RECOVERY-001 — Evaluate congestion policy under measured loss [minor]

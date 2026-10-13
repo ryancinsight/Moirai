@@ -40,6 +40,16 @@ the function into a synchronous native `main` that builds a default
 
 Full documentation: <https://docs.rs/moirai-async>
 
+`UdpSocket::bind_with_config` applies PAL-owned native options before returning
+the socket. `UdpConfig.buffers` has independent optional `NonZeroUsize` receive
+and send requests; absent requests retain kernel defaults. `buffer_sizes()`
+reads effective native sizes, including caps, rounding and metadata accounting.
+`UdpConfig.multicast` takes an explicit `MulticastConfig` group/interface variant
+and joins that group while selecting the same outgoing interface. Invalid
+native integer ranges, groups, families and interfaces return errors. See
+[ADR 0078](../docs/adr/0078-applied-udp-socket-configuration.md) for the migration
+from the former ignored `buffer_size` and multicast boolean.
+
 ## License
 
 Licensed under either of [Apache-2.0](../LICENSE-APACHE) or

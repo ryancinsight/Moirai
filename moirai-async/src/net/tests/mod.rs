@@ -41,9 +41,9 @@ fn test_tcp_server_config() {
 #[test]
 fn test_udp_config() {
     let config = UdpConfig::default();
-    assert_eq!(config.buffer_size, 65536);
+    assert_eq!(config.buffers, UdpBufferConfig::default());
     assert!(!config.broadcast);
-    assert!(!config.multicast);
+    assert_eq!(config.multicast, None);
 }
 
 #[test]

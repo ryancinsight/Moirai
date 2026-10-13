@@ -1,9 +1,9 @@
-use moirai_pal::net::AsyncUdpSocket;
+use moirai_pal::net::{AsyncUdpSocket, UdpBufferSizes, UdpConfig};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::net::types::{UdpConfig, UdpSocketStats, UdpStats};
+use crate::net::types::{UdpSocketStats, UdpStats};
 
 /// Native async UDP socket
 pub struct UdpSocket {
@@ -12,19 +12,22 @@ pub struct UdpSocket {
     config: UdpConfig,
 }
 
+#[cfg(test)]
+mod tests;
+
 impl UdpSocket {
     /// Bind UDP socket to an address
     pub async fn bind(addr: &str) -> io::Result<Self> {
         Self::bind_with_config(addr, UdpConfig::default()).await
     }
 
-    /// Bind UDP socket with custom configuration
+    /// Bind UDP socket after applying all requested native options.
+    ///
+    /// Invalid options or a failed native operation return an error before the
+    /// socket is published. Absent buffer requests retain kernel defaults.
     pub async fn bind_with_config(addr: &str, config: UdpConfig) -> io::Result<Self> {
         let addr_parsed = crate::net::resolve::resolve(addr).await?.first();
-        let inner = AsyncUdpSocket::bind(addr_parsed).await?;
-        if config.broadcast {
-            inner.set_broadcast(true)?;
-        }
+        let inner = AsyncUdpSocket::bind_with_config(addr_parsed, &config).await?;
 
         Ok(Self {
             inner,
@@ -87,5 +90,10 @@ impl UdpSocket {
     /// Return the socket configuration used at bind time.
     pub fn config(&self) -> &UdpConfig {
         &self.config
+    }
+
+    /// Read effective native receive/send buffers, including kernel accounting.
+    pub fn buffer_sizes(&self) -> io::Result<UdpBufferSizes> {
+        self.inner.buffer_sizes()
     }
 }

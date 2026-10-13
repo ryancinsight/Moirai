@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [minor] PAL-owned applied UDP buffer/broadcast/multicast configuration and
+  effective kernel queue readback, shared by async UDP and QUIC. QUIC queue
+  requests leave TLS, stream windows and finite deadlines intact (ADR 0078).
+
 - [patch] Preserve the complete 108-pair controlled CI matrix and independent
   verification: 105 exact-byte successes, three maximum-frame/16-stream loss
   deadlines and zero kernel UDP errors. Keep the measured recovery limit and
@@ -63,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the registration lock so late subscribers cannot be stranded.
 
 ### Breaking
+
+- Replace `UdpConfig.buffer_size` with independent `buffers.receive` and
+  `buffers.send` requests using `NonZeroUsize`. Replace the ignored multicast
+  boolean with an explicit `MulticastConfig` group/interface variant. Import
+  the PAL-owned configuration from `moirai_async::net`, rather than its former
+  `types` module. Absent buffer requests now explicitly retain kernel defaults.
 
 - Unix/Windows facade builds require ring's C/assembly build tools, including
   `--no-default-features`. Remove `--features quic` from draft-increment commands;

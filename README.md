@@ -102,6 +102,14 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 
 ## Native QUIC sessions
 
+UDP queue requests and multicast membership use the shared PAL configuration
+in [ADR 0078](docs/adr/0078-applied-udp-socket-configuration.md). Async UDP applies
+`UdpConfig` before publishing a socket; `UdpBufferConfig` carries independent
+positive receive/send requests. `MulticastConfig` carries an IP group and its
+interface. Effective queue readback exposes kernel caps, rounding and accounting.
+QUIC accepts the same buffer vocabulary through `with_udp_buffers` and reports
+bound queue sizes; its trust, stream budgets and deadlines remain independent.
+
 Workspace 0.9.0 includes `moirai-quic` 0.1.0 in every Unix/Windows facade build,
 including `--no-default-features`. Import `moirai::quic`; no feature flag is needed.
 One authenticated UDP connection carries independent bidirectional message

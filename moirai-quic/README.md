@@ -18,6 +18,15 @@ length-prefixed messages, checks size before payload allocation, distinguishes
 empty messages from clean EOF and aborts framing on timeout, error or future drop.
 Commands use reliable streams; unreliable datagrams are disabled.
 
+`QuicConfig::with_udp_buffers(UdpBufferConfig)` applies explicit independent
+positive native receive/send queue requests. Absent requests retain kernel
+defaults. `QuicEndpoint::udp_buffer_sizes()` reports effective values captured
+after configuration, including OS rounding, caps and bookkeeping. These queues
+remain independent of protocol memory windows and deadlines. Broadcast and
+multicast belong to the raw UDP contract and are excluded from QUIC configuration.
+The shared PAL implementation and migration are specified in
+[ADR 0078](../docs/adr/0078-applied-udp-socket-configuration.md).
+
 Keep the supplied Moirai executor running until endpoints close and drain.
 The facade implements the fallible `TaskSpawner` trait, so an `Arc<Moirai>` and
 an `Arc<HybridExecutor>` both drive the provider without another pool.

@@ -27,6 +27,8 @@ tokio_dep = { package = "tokio", version = "1.0", features = ["io-util"], option
 libc = "0.2"
 
 [dev-dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 criterion = { workspace = true }
 mnemosyne = { workspace = true }
 proptest = { workspace = true }

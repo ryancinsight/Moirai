@@ -221,36 +221,6 @@ pub struct ConnectionStats {
     pub write_ops: u64,
 }
 
-/// Configuration for UDP socket behavior
-#[derive(Debug, Clone)]
-pub struct UdpConfig {
-    /// Socket buffer size.
-    ///
-    /// Currently not applied: `std::net::UdpSocket` exposes no
-    /// `SO_RCVBUF`/`SO_SNDBUF` setter (requires PAL/socket2-level support).
-    /// Pending PAL wiring; until then the value is configuration-only.
-    pub buffer_size: usize,
-    /// Broadcast support, applied at bind time via `SO_BROADCAST`.
-    pub broadcast: bool,
-    /// Multicast support.
-    ///
-    /// Currently not applied: joining a multicast group requires a group
-    /// address, which this flag cannot carry, and the PAL exposes no
-    /// `join_multicast` surface. Pending a typed multicast configuration
-    /// (group + interface) in place of this flag.
-    pub multicast: bool,
-}
-
-impl Default for UdpConfig {
-    fn default() -> Self {
-        Self {
-            buffer_size: 65536,
-            broadcast: false,
-            multicast: false,
-        }
-    }
-}
-
 /// Statistics for UDP socket operations
 #[derive(Debug, Default)]
 pub struct UdpStats {

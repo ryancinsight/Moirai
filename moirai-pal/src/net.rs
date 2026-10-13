@@ -20,7 +20,10 @@ use crate::reactor::waiter_cancellation::WaiterCancellation;
 
 mod connect;
 mod datagram;
+#[path = "net/udp/config.rs"]
+mod udp_config;
 pub use datagram::{UdpIoPoller, UdpReady};
+pub use udp_config::{MulticastConfig, UdpBufferConfig, UdpBufferSizes, UdpConfig};
 
 /// Descriptor a readiness waiter registers under.
 ///
@@ -317,8 +320,23 @@ impl AsyncUdpSocket {
     /// # Errors
     /// Propagates bind and non-blocking-mode errors.
     pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
-        let inner = std::net::UdpSocket::bind(addr)?;
-        Self::from_std(inner)
+        Self::bind_with_config(addr, &UdpConfig::default()).await
+    }
+
+    /// Bind with native buffer, broadcast and multicast options applied.
+    ///
+    /// # Errors
+    /// Propagates configuration, socket-option, bind and nonblocking errors.
+    pub async fn bind_with_config(addr: SocketAddr, config: &UdpConfig) -> io::Result<Self> {
+        Self::from_std(config.bind(addr)?)
+    }
+
+    /// Read effective receive/send queue sizes from the native socket.
+    ///
+    /// # Errors
+    /// Propagates native socket-option read errors.
+    pub fn buffer_sizes(&self) -> io::Result<UdpBufferSizes> {
+        UdpBufferSizes::read(self.as_std())
     }
 
     /// Adopt a UDP socket and enable nonblocking I/O.

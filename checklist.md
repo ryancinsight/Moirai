@@ -17,6 +17,7 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Verify native QUIC on Linux and Windows at published revision 54568557; both 193-test suites, strict diagnostics and minimal authenticated facade sessions pass. The full Linux workspace passes 1,301 tests and 702 minimal-feature tests.
 - [x] [patch] Measure and archive all 108 controlled process pairs at source tree 60db5f8c: 105 exact-byte successes and three unchanged 60-second loss-case failures. Independently recalculate rates/percentiles and verify both kernel queue-byte deltas; the performance gate remains failed.
 - [x] [minor] Expose passive recovery metrics and preserve all profile outcomes, verified progress, namespace UDP/socket counters and both peer diagnostics; 17 focused real tests and strict diagnostics pass.
+- [x] [minor] Replace ignored UDP options with one PAL-owned applied buffer/broadcast/multicast contract; share native queue requests and readback with QUIC (ADR 0078). The ignored-buffer regression fails before the change and passes afterward; all 338 native transport/async tests and strict diagnostics pass.
 - [ ] [minor] Complete protected default-branch promotion before release.
 
-Next increment: review [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and its dependent Metis change, then collect Windows/Linux transport evidence before release.
+Next increment: evaluate the recorded recovery-policy limit with matched full-domain and competing-flow measurements, then complete protected review/promotion for [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and its dependent Metis change.

@@ -23,6 +23,8 @@ pub use config::{Identity, QuicConfig};
 pub use endpoint::{QuicConnection, QuicEndpoint};
 pub use error::QuicError;
 pub use metrics::ConnectionMetrics;
+/// PAL-owned native queue configuration and effective size vocabulary.
+pub use moirai_pal::net::{UdpBufferConfig, UdpBufferSizes};
 /// TLS certificate, key and trust-root vocabulary for the QUIC boundary.
 pub use quinn::rustls;
 pub use stream::QuicStream;

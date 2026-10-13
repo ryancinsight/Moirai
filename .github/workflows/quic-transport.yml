@@ -36,9 +36,9 @@ jobs:
           tool: nextest@0.9.143
           checksum: true
       - name: Check the native transport and consumers
-        run: cargo clippy --locked -p moirai-pal -p moirai-http -p moirai-quic -p moirai-runtime --all-targets -- -D warnings
+        run: cargo clippy --locked -p moirai-pal -p moirai-async -p moirai-http -p moirai-quic -p moirai-runtime --all-targets -- -D warnings
       - name: Verify actual UDP, TLS rejection, framing and stream isolation
-        run: cargo nextest run --locked -p moirai-pal -p moirai-http -p moirai-quic -p moirai-runtime --tests --example quic_load
+        run: cargo nextest run --locked -p moirai-pal -p moirai-async -p moirai-http -p moirai-quic -p moirai-runtime --tests --example quic_load
       - name: Verify required QUIC in minimal builds
         run: cargo nextest run --locked -p moirai-runtime --no-default-features --test quic
 

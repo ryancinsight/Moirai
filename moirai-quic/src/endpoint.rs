@@ -6,8 +6,9 @@ use super::runtime::RuntimeHealth;
 use super::{QuicConfig, QuicError, QuicStream, rustls};
 use crate::lock_mutex;
 use moirai_core::executor::TaskSpawner;
+use moirai_pal::net::{UdpBufferSizes, UdpConfig};
 use rustls::pki_types::CertificateDer;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 /// A bound native UDP endpoint with authenticated connection admission.
@@ -20,6 +21,7 @@ pub struct QuicEndpoint {
     config: QuicConfig,
     admission: Mutex<()>,
     health: Arc<RuntimeHealth>,
+    udp_buffer_sizes: UdpBufferSizes,
 }
 
 impl QuicEndpoint {
@@ -117,7 +119,13 @@ impl QuicEndpoint {
         server: Option<quinn::ServerConfig>,
         config: QuicConfig,
     ) -> Result<Self, QuicError> {
-        let socket = UdpSocket::bind(address).map_err(QuicError::Io)?;
+        let socket = UdpConfig {
+            buffers: config.udp_buffers,
+            ..UdpConfig::default()
+        }
+        .bind(address)
+        .map_err(QuicError::Io)?;
+        let udp_buffer_sizes = UdpBufferSizes::read(&socket).map_err(QuicError::Io)?;
         // Condition 1: Quinn's endpoint constructor requires an erased Runtime.
         let health = Arc::new(RuntimeHealth::default());
         let runtime = Arc::new(MoiraiRuntime {
@@ -133,12 +141,22 @@ impl QuicEndpoint {
             config,
             admission: Mutex::new(()),
             health,
+            udp_buffer_sizes,
         })
     }
 
     /// Bound address, suitable for publication before clients connect.
     pub fn local_addr(&self) -> Result<SocketAddr, QuicError> {
         self.endpoint.local_addr().map_err(QuicError::Io)
+    }
+
+    /// Effective native receive/send queues captured after bind configuration.
+    ///
+    /// Values include platform caps, rounding and accounting; they are not a
+    /// payload-capacity or delivery guarantee. Quinn configures packet metadata
+    /// and batching without changing these queue sizes.
+    pub const fn udp_buffer_sizes(&self) -> UdpBufferSizes {
+        self.udp_buffer_sizes
     }
 
     /// Connect with server-name validation within one finite handshake deadline.

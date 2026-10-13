@@ -1,4 +1,5 @@
 use super::{QuicError, rustls};
+use moirai_pal::net::UdpBufferConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,6 +32,7 @@ pub struct QuicConfig {
     pub(super) max_handshake_bytes: u32,
     pub(super) operation_timeout: Duration,
     pub(super) idle_timeout: Duration,
+    pub(super) udp_buffers: UdpBufferConfig,
 }
 
 impl QuicConfig {
@@ -84,9 +86,30 @@ impl QuicConfig {
             max_handshake_bytes,
             operation_timeout,
             idle_timeout,
+            udp_buffers: UdpBufferConfig::default(),
         };
         config.transport()?;
         Ok(config)
+    }
+
+    /// Apply explicit native receive/send queue requests when binding.
+    ///
+    /// Kernel defaults remain in effect for absent requests. Effective sizes
+    /// may include kernel rounding, caps and bookkeeping; inspect the bound
+    /// endpoint's `udp_buffer_sizes`. Protocol flow-control budgets and finite
+    /// deadlines remain independent of these socket queues.
+    ///
+    /// # Errors
+    /// Returns `InvalidInput` I/O context for a native integer overflow.
+    pub fn with_udp_buffers(mut self, buffers: UdpBufferConfig) -> Result<Self, QuicError> {
+        buffers.validate().map_err(QuicError::Io)?;
+        self.udp_buffers = buffers;
+        Ok(self)
+    }
+
+    /// Native receive/send requests applied when binding this endpoint.
+    pub const fn udp_buffers(&self) -> UdpBufferConfig {
+        self.udp_buffers
     }
 
     /// Maximum bytes in one application message, excluding its prefix.

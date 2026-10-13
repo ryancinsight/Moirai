@@ -25,6 +25,13 @@ thread-owned lifetime and restores the prior thread context on drop, so
 Native IME start, preedit, commit and cancellation phases are returned as
 bounded UTF-8 snapshots.
 
+Native `net::UdpConfig` owns applied socket queues, broadcast and typed multicast
+group/interface selection. `UdpBufferConfig` independently requests receive/send
+queues; `UdpBufferSizes::read` exposes kernel values without normalization.
+`AsyncUdpSocket::bind_with_config` shares this contract with QUIC. A failed option
+operation drops the unpublished socket and membership. Kernel defaults remain
+in effect when requests are absent; no privileged buffer override is used.
+
 `windows::webview::WebViewHost` embeds the installed Windows WebView2 runtime
 inside a `NativeWindow` for packaged HTML5, CSS and WebAssembly applications.
 The module is opt-in: enable the `webview2` feature on `moirai-pal`; default

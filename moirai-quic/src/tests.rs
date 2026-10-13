@@ -1,6 +1,7 @@
 mod acceptance;
 mod loss;
 mod rejection;
+mod socket;
 
 use super::*;
 use moirai_executor::HybridExecutor;

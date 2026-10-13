@@ -83,3 +83,4 @@
 | [0075](0075-quic-multiplexed-sessions.md) | QUIC multiplexed native sessions | Accepted |
 | [0076](0076-webview2-capture-byte-boundary.md) | Exact WebView2 capture byte admission | Accepted |
 | [0077](0077-rust-page-provider-ownership.md) | Rust page provider ownership | Accepted |
+| [0078](0078-applied-udp-socket-configuration.md) | Applied UDP socket configuration | Accepted |
