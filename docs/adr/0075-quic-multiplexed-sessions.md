@@ -100,3 +100,35 @@ The shared native session seam identifies a validated WebSocket close through
 as an error. Close validation returns borrowed fields; only a received peer
 close allocates its owned diagnostic cause. No diagnostic string establishes
 protocol state.
+
+## Controlled performance contract
+
+The native load probe uses two real processes, mutual TLS and the same bounded
+message API as consumers. S independent streams each exchange N distinct
+messages of B bytes. Both peers compare every received byte with its stream/
+sequence-derived payload and consume clean EOF; completion awaits FIN ACK.
+Success therefore proves exactly S*N*B payload bytes in each direction. A
+constant reply cannot satisfy the sequence header and full-byte comparisons.
+
+The client measures connection establishment and certificate authorization
+separately from the complete stream exchange. The responder setup duration
+also includes its admission wait. Message RTT samples include send, peer validation/echo and receive.
+For sorted samples x, the nearest-rank percentile p is x[ceil(p*n/100)-1].
+Goodput is floor(8*S*N*B*10^9/elapsed_ns) bits/s in one direction; the report
+retains integer sample durations and counts rather than rounding evidence.
+
+Linux profiles use isolated network namespaces and real kernel netem queues:
+unshaped, symmetric 10 ms delay at 100 Mbit/s, symmetric 50 ms delay at
+100 Mbit/s, and symmetric 10 ms delay plus 1% loss at 100 Mbit/s. These are
+declared sensitivity probes, not inferred deployment distributions. Each uses
+1, 4 and 16 streams; 24, 4096 and 65560 message bytes; 128 messages per stream;
+and three process-pair samples. Sizes cover the Metis header, a page-sized
+message and the complete Metis frame domain. The loss seed, qdisc counters,
+toolchain, kernel, runner and exact source revision accompany every report.
+
+Every process pair has a 60-second deadline; individual transport operations
+have five seconds. Loss admits finite failure, never partial successful output.
+No speed threshold, payload truncation or disabled validation makes a run pass.
+Configured rate, kernel timer granularity and packet aggregation affect netem;
+controlled profiles do not establish a wide-area or TCP comparison.
+Reference: [iproute2 netem contract](https://github.com/iproute2/iproute2/blob/main/man/man8/tc-netem.8).

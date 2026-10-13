@@ -12,6 +12,9 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Check native API compatibility against 0.8.2: 892 applicable checks pass under the stronger patch compatibility override.
 - [x] [patch] Verify the canonical provider lock without path patches; warning-denying Clippy, formatting and all 187 HTTP/PAL/facade/QUIC tests pass.
 - [x] [patch] Verify Metis against the published Git provider without path patches: 176 backend/IPC/core tests, strict diagnostics and native workspace/all-target checks pass.
-- [ ] [minor] Complete review/default-branch promotion and Windows/Linux native transport evidence before release.
+- [x] [patch] Reconcile current main without losing capture-boundary fixes; review trust, ownership, framing, replay and cleanup contracts.
+- [x] [patch] Specify and implement byte-verified, mutually authenticated process-pair measurements; all 27 local full-domain cases pass.
+- [ ] [patch] Collect Linux/Windows transport and controlled netem evidence from the committed review revision.
+- [ ] [minor] Complete protected default-branch promotion before release.
 
 Next increment: review [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and its dependent Metis change, then collect Windows/Linux transport evidence before release.

@@ -81,7 +81,7 @@ impl DriverFailureState {
             .map(retained_driver_error)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(unix, windows)))]
     pub(super) fn inject_iteration_failure(&self, error: io::Error) {
         *self
             .next_iteration
@@ -113,12 +113,12 @@ impl IoReactor {
             })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(unix, windows)))]
     pub(super) fn inject_driver_failure(&self, error: io::Error) -> io::Error {
         self.publish_driver_failure(error)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(unix, windows)))]
     pub(super) fn inject_iteration_failure(&self, error: io::Error) {
         self.driver_failure.inject_iteration_failure(error);
     }

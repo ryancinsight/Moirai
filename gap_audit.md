@@ -26,8 +26,79 @@ the corrected transition passes. Compatibility runs 892 applicable checks with
 the stricter patch override against 0.8.2. Metis passes 176 real backend/IPC/core
 tests and native workspace checks against the published Git provider with no
 path patches. The two-process mutual-TLS CLI passes on IPv4 and IPv6. Canonical provider promotion and
-Windows/Linux execution remain release gates; no wide-area performance or
+Windows/Linux execution and controlled-profile collection remain active gates.
+The reconciled provider passes 193 socket/HTTP/facade/load tests and all 27
+full-domain local process-pair probes. No wide-area performance or
 migration result is inferred from loopback correctness.
+
+
+## Rust page provider acceptance — 2026-10-13 [minor]
+
+Actual PR 619 Windows CI reports native permission origin separately from the
+full page-message URL. Two same-document geolocation calls yield one native
+DENY and two browser errors; they do not prove independent callback evidence.
+The repaired fixture navigates to a second packaged document after real first
+settlement under the same profile/origin/controller, retaining the two actual
+DENY/two error requirement. Actual Windows
+[job 115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
+passes at [reviewed source](https://github.com/ryancinsight/Moirai/commit/0d42510b50cec901852124ddbdcd0727632ebcb9), including actual browser exit and
+caller-owned profile cleanup. Metis Rust page handoff/four-kind acceptance and
+consented ordinary-browser positive cleanup remain pending.
+That source passes 25 native policy/destruction tests and four actual capture
+fixtures, including two 100-host cases. WebView2 is `153.0.4234.48`, SDK bindings
+are `0.39.1`, and the repeated two-document fixture takes 7.410 seconds.
+
+Workspace 0.9.0 implements the actual WebView2 browser bridge, explicit callback
+teardown/counts, browser Number formatting, real permission requests and owned
+child working directories. Fresh-profile native admission checks caller-owned
+empty local storage, nonsaved DENY decisions and the actual browser exit before
+caller cleanup. [ADR 0077](docs/adr/0077-rust-page-provider-ownership.md) owns
+the selected contracts and its source-adjacent design records failure behavior.
+
+Eleven portable permission state/identity tests pass, including all four busy
+slots, cancelled guards, exact media ownership sums, deadline caps, stale
+generations and the entire decimal-string identity domain. Strict WASM and
+native PAL Clippy pass. Shared message/directory tests and Windows provider
+diagnostics cover their own source boundaries; the installed repeated-denial
+fixture is compiled but has no local Windows execution evidence.
+
+The complete native PAL/transport suite passes 148 tests without skips. Seven
+actual Chrome tests verify JSON, DOM callback and Number contracts without
+ignored or filtered tests; they do not establish native chrome.webview handoff.
+Locked Rustdoc comparisons pass 196 additive-API checks for each of native
+transport, WASM PAL and Windows PAL. Actual final-destruction and nonsaved
+repeated-denial fixtures are mandatory Windows runtime gates; the source-bound
+actual Windows job above now passes the provider capture/repeated-denial/cleanup
+scope. Consumer Rust bridge acceptance remains separate.
+
+Actual native Rust-page handoff, four-kind
+consumer acceptance and consented positive/late media cleanup remain open in
+the two active acceptance items. Two geolocation dispatchers remain realm-owned
+after the first request; up to four genuine settlement guards remain visible
+after cancellation. A cleared watch may never callback, so its guard can remain
+busy until document destruction. A failed DOM/bridge callback removal retains
+its counted owner and prevents further admission. Neither portable tests nor
+successful compilation establish native events, granted device cleanup or
+complete provider-private allocation accounting.
+
+## WebView2 capture boundary reconciliation — 2026-10-13 [patch]
+
+Workspace 0.8.3 corrects the inclusive decoded-byte law from PR
+[505](https://github.com/ryancinsight/Moirai/pull/505): `L = 3q - padding`.
+The unchanged decoder fails three value tests; the correction passes all five,
+including complete nonconstant payloads at 64 MiB minus two, minus one and
+exactly 64 MiB, and rejects the first excess byte before output allocation.
+The production `webview2` feature enables its PNG validator. Actual Windows
+library compilation and warning-denying Windows Clippy pass without relying
+on development dependency resolution. The portable/Apple provider suite passes
+157 tests in 2.029 seconds; one existing runtime-dependent probe is skipped.
+The full workspace passes 1,278 tests in 7.217 seconds with nine pre-existing
+ignored probes, including the embedded release version contract.
+Native Clippy, browser PAL compilation and warning-denying Rustdoc pass.
+The new Windows job runs the existing installed preview tests; hosted runtime
+results remain a merge gate. The 30-run parallel-host stability item remains
+open. This byte law does not bound CDP response or decoder-private allocations.
+[ADR 0076](docs/adr/0076-webview2-capture-byte-boundary.md) owns the proof.
 
 ## Apple external link evidence — 2026-10-13 [minor]
 
@@ -35,10 +106,11 @@ The starter's new-window logo has no native popup handler before
 moirai-webview 0.2.0. The provider now owns exact HTTPS validation, signed
 bundle authority and one OS handoff in WKUIDelegate, with no remote WebView.
 Twenty policy/resource/Foundation tests and 196 compatibility checks pass.
-The real native preview records one successful Metis link handoff. Canonical
-consumer rebuild and visual browser evidence remain consumer gates; automatic
-approval review blocks Safari inspection because of unrelated signed-in
-content. LinkActivated does not prove event trust (ADR 0074).
+The real native preview records one successful Metis link handoff. Metis PR
+[501](https://github.com/ryancinsight/metis/pull/501) records canonical consumer
+bundles and the user-authorized Safari destination check. Remaining physical
+mobile and native lifecycle acceptance remain consumer gates. LinkActivated
+does not prove event trust (ADR 0074).
 
 ## Stream dictionary regression — 2026-10-12 [patch]
 

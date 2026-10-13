@@ -23,12 +23,12 @@ use windows::{
     core::{BOOL, HSTRING, Interface, PCWSTR},
 };
 
+use crate::webview_limits::{MAX_WEBVIEW_MESSAGE_UNITS, validate_message};
+
 use super::super::super::window::{NativeWindow, WindowPlacement};
 use super::super::{
-    config::{
-        MAX_WEBVIEW_CAPTURE_BYTES, MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS, WebViewConfig,
-        validate_message,
-    },
+    capture::MAX_WEBVIEW_CAPTURE_BYTES,
+    config::{MAX_WEBVIEW_URI_UNITS, WebViewConfig},
     event::WebViewHostEvent,
     folder::FolderMapping,
     pump::{dispatch_pending, wait_for, wait_for_messages},
@@ -37,10 +37,6 @@ use super::super::{
 
 use super::error::{closed_error, coordinate_error, windows_error};
 use super::{
-    callbacks::{
-        remove_message, remove_navigation_completed, remove_navigation_starting, remove_new_window,
-        remove_permission_requested,
-    },
     com::{ComApartment, create_controller, create_environment},
     text::encode_utf16,
 };
@@ -57,6 +53,7 @@ pub struct WebViewHost {
     pub(super) config: WebViewConfig,
     pub(super) apartment: ComApartment,
     pub(super) closed: bool,
+    pub(super) close_error: Option<(io::ErrorKind, String)>,
 }
 
 pub(super) struct Callbacks {
@@ -97,8 +94,9 @@ impl WebViewHost {
                 "WebView2 host requires a live native window",
             ));
         }
+        config.validate_directories()?;
         let apartment = ComApartment::initialize()?;
-        let environment = create_environment(config.wait())?;
+        let environment = create_environment(config.wait(), config.user_data_folder())?;
         let controller = create_controller(&environment, window.hwnd, config.wait())?;
         present_in_client_area(&controller, window.hwnd)?;
         let webview = unsafe { controller.CoreWebView2() }.map_err(windows_error)?;
@@ -127,6 +125,7 @@ impl WebViewHost {
             config,
             apartment,
             closed: false,
+            close_error: None,
         };
         host.install_callbacks()?;
         host.navigate_and_wait(host.config.start_uri().to_owned())?;
@@ -372,7 +371,7 @@ impl WebViewHost {
     /// errors.
     pub fn poll_events(&mut self) -> io::Result<Vec<WebViewHostEvent>> {
         if self.closed {
-            return Ok(Vec::new());
+            return self.collect_events();
         }
         let mut message = MSG::default();
         dispatch_pending(&mut message);
@@ -386,7 +385,7 @@ impl WebViewHost {
     /// errors, or an invalid duration.
     pub fn wait_events(&mut self, timeout: Duration) -> io::Result<Vec<WebViewHostEvent>> {
         if self.closed {
-            return Ok(Vec::new());
+            return self.poll_events();
         }
         let events = self.poll_events()?;
         if !events.is_empty() {
@@ -397,55 +396,6 @@ impl WebViewHost {
         }
         self.poll_events()
     }
-
-    /// Closes callbacks, the controller and the parent window synchronously.
-    ///
-    /// All cleanup steps are attempted. The first native error is returned
-    /// after the remaining handles have been released.
-    ///
-    /// # Errors
-    /// Returns the first callback-removal, controller-close or window-close
-    /// error observed during teardown.
-    pub fn close(&mut self) -> io::Result<()> {
-        if self.closed {
-            return Ok(());
-        }
-        let mut first_error = None;
-        if let Some(webview) = self.webview.as_ref() {
-            remove_navigation_starting(
-                webview,
-                &mut self.callbacks.navigation_starting,
-                &mut first_error,
-            );
-            remove_navigation_completed(
-                webview,
-                &mut self.callbacks.navigation_completed,
-                &mut first_error,
-            );
-            remove_new_window(webview, &mut self.callbacks.new_window, &mut first_error);
-            remove_permission_requested(
-                webview,
-                &mut self.callbacks.permission_requested,
-                &mut first_error,
-            );
-            remove_message(webview, &mut self.callbacks.message, &mut first_error);
-        }
-        if let Some(controller) = self.controller.take()
-            && let Err(error) = unsafe { controller.Close() }.map_err(windows_error)
-        {
-            first_error.get_or_insert(error);
-        }
-        self.webview.take();
-        self.environment.take();
-        if let Err(error) = self.window.close() {
-            first_error.get_or_insert(error);
-        }
-        self.closed = true;
-        match first_error {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
-    }
 }
 
 impl Drop for WebViewHost {
@@ -453,8 +403,8 @@ impl Drop for WebViewHost {
         // Read the guard field here so its ownership role remains explicit:
         // COM must stay initialized until every WebView2 interface is gone.
         debug_assert!(self.apartment.initialized);
-        match self.close() {
-            Ok(()) | Err(_) => {}
+        if let Err(error) = self.close() {
+            tracing::error!(error = %error, "WebView2 host teardown failed");
         }
     }
 }

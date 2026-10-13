@@ -2,7 +2,8 @@
 
 use std::{collections::VecDeque, io};
 
-use super::{config::MAX_WEBVIEW_EVENTS, event::WebViewEvent};
+use super::event::WebViewEvent;
+use crate::webview_limits::MAX_WEBVIEW_EVENTS;
 
 pub(super) struct WebViewState {
     events: VecDeque<WebViewEvent>,

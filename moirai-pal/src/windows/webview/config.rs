@@ -1,26 +1,18 @@
 //! Validated WebView2 URL and resource bounds.
 
-use std::{io, path::Path, time::Duration};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use super::folder::FolderMapping;
+use crate::webview_limits::MAX_WEBVIEW_WAIT_MILLISECONDS;
 
-/// Maximum retained WebView2 events for one host.
-pub const MAX_WEBVIEW_EVENTS: usize = 256;
-/// Maximum UTF-8 bytes in one outbound or inbound JSON message.
-pub const MAX_WEBVIEW_MESSAGE_BYTES: usize = 64 * 1024;
-/// Maximum UTF-16 code units in one JSON message.
-pub const MAX_WEBVIEW_MESSAGE_UNITS: usize = 64 * 1024;
+pub(super) mod profile;
+
 /// Maximum UTF-16 code units in one WebView2 URI.
 pub const MAX_WEBVIEW_URI_UNITS: usize = 2 * 1024;
-/// Maximum finite wait for WebView2 creation or navigation.
-pub const MAX_WEBVIEW_WAIT_MILLISECONDS: u32 = 30_000;
-/// Maximum PNG bytes retained by one WebView2 preview capture.
-///
-/// The bound matches the maximum RGBA8 presentation payload for one surface
-/// (`16,777,216` pixels × four channels). A compressed preview is rejected
-/// before allocation when it exceeds the same memory budget.
-pub const MAX_WEBVIEW_CAPTURE_BYTES: usize = 16 * 1024 * 1024 * 4;
-
 /// Validated WebView2 host configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebViewConfig {
@@ -29,6 +21,7 @@ pub struct WebViewConfig {
     wait: Duration,
     /// `None` serves a packaged `file:///` directory.
     folder: Option<FolderMapping>,
+    user_data_folder: Option<PathBuf>,
 }
 
 impl WebViewConfig {
@@ -38,7 +31,10 @@ impl WebViewConfig {
     /// Returns `InvalidInput` for a non-file URI, traversal, malformed percent
     /// escapes or a URI outside the configured UTF-16 bound.
     pub fn new(start_uri: impl AsRef<str>) -> io::Result<Self> {
-        Self::with_wait(start_uri, Duration::from_secs(30))
+        Self::with_wait(
+            start_uri,
+            Duration::from_millis(u64::from(MAX_WEBVIEW_WAIT_MILLISECONDS)),
+        )
     }
 
     /// Validates a packaged entry page and finite WebView2 operation wait.
@@ -80,6 +76,7 @@ impl WebViewConfig {
             allowed_prefix: owned_prefix,
             wait,
             folder: None,
+            user_data_folder: None,
         })
     }
 
@@ -119,7 +116,42 @@ impl WebViewConfig {
             allowed_prefix,
             wait,
             folder: Some(folder),
+            user_data_folder: None,
         })
+    }
+
+    /// Uses an existing empty local directory as this host's fresh profile.
+    ///
+    /// The caller must create and exclusively own this directory until the
+    /// controller and environment close. Shared profiles cannot provide a
+    /// per-request permission evidence contract. The provider does not remove
+    /// the caller's data. Omission preserves WebView2's default profile.
+    ///
+    /// # Errors
+    /// Rejects relative, remote, reparse, non-directory or non-empty paths and
+    /// a profile overlapping mapped package resources. The host revalidates
+    /// the directory before calling COM to detect intervening filesystem changes.
+    pub fn with_user_data_folder(mut self, folder: impl AsRef<Path>) -> io::Result<Self> {
+        self.user_data_folder = Some(profile::validate(folder.as_ref())?);
+        self.validate_directories()?;
+        Ok(self)
+    }
+
+    pub(super) fn validate_directories(&self) -> io::Result<()> {
+        if let Some(mapping) = self.folder_mapping() {
+            FolderMapping::new(mapping.host(), mapping.folder())?;
+        }
+        if let Some(profile) = self.user_data_folder.as_deref() {
+            profile::validate(profile)?;
+            if let Some(mapping) = self.folder_mapping() {
+                profile::reject_overlap(profile, mapping.folder())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn user_data_folder(&self) -> Option<&Path> {
+        self.user_data_folder.as_deref()
     }
 
     /// Returns the validated entry URI.
@@ -147,22 +179,6 @@ impl WebViewConfig {
     pub(super) const fn folder_mapping(&self) -> Option<&FolderMapping> {
         self.folder.as_ref()
     }
-}
-
-pub(super) fn validate_message(bytes: &[u8]) -> io::Result<()> {
-    if bytes.len() > MAX_WEBVIEW_MESSAGE_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "WebView2 JSON message exceeds the bounded byte limit",
-        ));
-    }
-    if bytes.contains(&0) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "WebView2 JSON message contains NUL",
-        ));
-    }
-    Ok(())
 }
 
 fn validate_wait(wait: Duration) -> io::Result<()> {

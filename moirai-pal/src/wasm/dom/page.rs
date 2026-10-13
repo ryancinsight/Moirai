@@ -60,9 +60,11 @@ impl WebLocation {
     }
 }
 impl WebDocument {
-    /// Document callback removed when its owned handle drops.
+    /// Registers an owned document callback with fallible explicit close.
+    /// Drop attempts removal and retains a counted realm owner if it fails.
     /// # Errors
-    /// Returns a contextual event registration refusal.
+    /// Returns a contextual event registration refusal or `WouldBlock` when
+    /// this realm retains a failed listener cleanup.
     pub fn add_event_listener<F>(
         &self,
         event_name: &str,
@@ -71,7 +73,7 @@ impl WebDocument {
     where
         F: FnMut(WebEvent) + 'static,
     {
-        event::listen(self.document.clone().unchecked_into(), event_name, callback)
+        event::listener::listen(self.document.clone().unchecked_into(), event_name, callback)
     }
 }
 impl WebElement {

@@ -5,18 +5,18 @@ use std::{io, rc::Rc};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_STATE_DENY, ICoreWebView2,
     ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2NavigationStartingEventHandler,
-    ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2PermissionRequestedEventHandler,
-    ICoreWebView2WebMessageReceivedEventHandler,
+    ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2PermissionRequestedEventArgs3,
+    ICoreWebView2PermissionRequestedEventHandler, ICoreWebView2WebMessageReceivedEventHandler,
 };
 use webview2_com::{
     NavigationCompletedEventHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PermissionRequestedEventHandler,
     WebMessageReceivedEventHandler,
 };
-use windows::core::{BOOL, PWSTR};
+use windows::core::{BOOL, Interface, PWSTR};
 
 use super::super::event::{WebViewEvent, WebViewPermission};
-use super::error::{callback_error, closed_error, push_event, windows_error};
+use super::error::{callback_context, callback_error, closed_error, push_event, windows_error};
 use super::text::{read_task_mem_message, read_task_mem_uri};
 use super::view::WebViewHost;
 
@@ -123,18 +123,34 @@ impl WebViewHost {
                     "WebView2 permission callback omitted arguments",
                 ));
             };
+            // Deny before every fallible inspection. Profile persistence is
+            // disabled for this actual request. Browser request coalescing
+            // inside a document is separate from persistence in the profile;
+            // an API call does not itself prove another native callback.
+            unsafe { args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY) }
+                .map_err(|error| callback_context("WebView2 permission DENY", error))?;
+            let persistence = args
+                .cast::<ICoreWebView2PermissionRequestedEventArgs3>()
+                .map_err(|error| {
+                    callback_context("WebView2 permission persistence interface", error)
+                })?;
+            unsafe { persistence.SetSavesInProfile(false) }.map_err(|error| {
+                callback_context("WebView2 disable saved permission decision", error)
+            })?;
             let mut raw_uri = PWSTR::null();
-            unsafe { args.Uri(&mut raw_uri)? };
+            unsafe { args.Uri(&mut raw_uri) }
+                .map_err(|error| callback_context("WebView2 permission URI getter", error))?;
             // SAFETY: the WebView2 getter above transferred ownership of a
             // task-memory string (or left the pointer null) that nothing else frees.
-            let uri = unsafe { read_task_mem_uri(raw_uri) }.map_err(|_| {
-                callback_error("WebView2 permission callback returned an invalid URI")
-            })?;
+            let uri = unsafe { read_task_mem_uri(raw_uri) }
+                .map_err(|error| callback_context("WebView2 permission callback URI", error))?;
             let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
-            unsafe { args.PermissionKind(&mut kind)? };
+            unsafe { args.PermissionKind(&mut kind) }
+                .map_err(|error| callback_context("WebView2 permission kind getter", error))?;
             let mut user_initiated = BOOL(0);
-            unsafe { args.IsUserInitiated(&mut user_initiated)? };
-            unsafe { args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY)? };
+            unsafe { args.IsUserInitiated(&mut user_initiated) }.map_err(|error| {
+                callback_context("WebView2 permission activation getter", error)
+            })?;
             push_event(
                 &state,
                 WebViewEvent::PermissionDenied {
@@ -164,15 +180,14 @@ impl WebViewHost {
             unsafe { args.Source(&mut raw_source)? };
             // SAFETY: the WebView2 getter above transferred ownership of a
             // task-memory string (or left the pointer null) that nothing else frees.
-            let source = unsafe { read_task_mem_uri(raw_source) }.map_err(|_| {
-                callback_error("WebView2 message callback returned an invalid source URI")
-            })?;
+            let source = unsafe { read_task_mem_uri(raw_source) }
+                .map_err(|error| callback_context("WebView2 message callback source URI", error))?;
             let mut raw_message = PWSTR::null();
             unsafe { args.WebMessageAsJson(&mut raw_message)? };
             // SAFETY: the WebView2 getter above transferred ownership of a
             // task-memory string (or left the pointer null) that nothing else frees.
             let json = unsafe { read_task_mem_message(raw_message) }
-                .map_err(|_| callback_error("WebView2 message exceeded the bounded JSON limit"))?;
+                .map_err(|error| callback_context("WebView2 message callback JSON", error))?;
             if !policy.allows(&source) {
                 return push_event(&state, WebViewEvent::MessageRejected { source });
             }

@@ -33,6 +33,11 @@ impl Process {
     pub fn spawn(spec: ProcessSpec, drop_policy: ProcessDropPolicy) -> ProcessResult<Self> {
         let (application, mut command_line) = command::encode(&spec.program, &spec.args)?;
         let environment = environment::encode(&spec)?;
+        let directory = spec
+            .working_directory
+            .as_deref()
+            .map(super::super::directory::encode)
+            .transpose()?;
         let job = create_job(drop_policy)?;
         let (child_input, stdin, child_output, stdout) = if spec.piped {
             let (read_input, write_input) = pipe()?;
@@ -79,7 +84,7 @@ impl Process {
         let mut information = ProcessInformation::default();
         // SAFETY: buffers are live, mutable command line is zero-terminated;
         // inherited handles are owned, inheritable, and explicitly listed.
-        // Attributes retain the borrowed arrays until CreateProcessW returns.
+        // Attributes and the owned UTF16 directory buffer stay live through CreateProcessW.
         // The unnamed non-inherited job is assigned atomically at creation.
         let created = unsafe {
             ffi::CreateProcessW(
@@ -92,7 +97,7 @@ impl Process {
                 environment
                     .as_ref()
                     .map_or(null(), |block| block.as_ptr().cast()),
-                null(),
+                directory.as_ref().map_or(null(), |value| value.as_ptr()),
                 &startup,
                 &mut information,
             )

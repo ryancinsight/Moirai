@@ -1,0 +1,67 @@
+name: Native QUIC transport
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: QUIC ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9
+        with:
+          tool: nextest@0.9.143
+          checksum: true
+      - name: Check the native transport and consumers
+        run: cargo clippy --locked -p moirai-pal -p moirai-http -p moirai-quic -p moirai-runtime --all-targets -- -D warnings
+      - name: Verify actual UDP, TLS rejection, framing and stream isolation
+        run: cargo nextest run --locked -p moirai-pal -p moirai-http -p moirai-quic -p moirai-runtime --tests --example quic_load
+      - name: Verify required QUIC in minimal builds
+        run: cargo nextest run --locked -p moirai-runtime --no-default-features --test quic
+
+  profiles:
+    name: QUIC controlled network profiles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc
+      - name: Build the actual optimized transport probe
+        run: cargo build --locked --release -p moirai-quic --example quic_load
+      - name: Measure verified exchanges in task-owned namespaces
+        run: python3 scripts/quic_profiles.py --binary target/release/examples/quic_load --network netem --output output/quic/profiles.json
+      - name: Preserve complete measurements and failure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: quic-controlled-profiles-${{ github.run_id }}
+          path: output/quic/
+          if-no-files-found: error
+          retention-days: 7

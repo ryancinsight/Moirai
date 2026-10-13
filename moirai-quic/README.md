@@ -36,3 +36,9 @@ code and its build tools. The TCP TLS provider uses RustCrypto. System socket
 libraries remain platform dependencies; browser builds exclude native QUIC.
 
 [ADR 0075](../docs/adr/0075-quic-multiplexed-sessions.md) records the contract.
+
+The `quic_load` example and `scripts/quic_profiles.py` implement ADR 0075's
+controlled performance contract: mutual TLS, complete payload validation,
+acknowledged shutdown, integer RTT/rate evidence and task-owned Linux netem
+namespaces. Public fixture credentials are for these controlled probes only.
+Reports retain every sample, qdisc counters and the tested source/runner.

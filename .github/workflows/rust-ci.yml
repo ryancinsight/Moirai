@@ -35,6 +35,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  quic:
+    name: Native QUIC validation
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    uses: ./.github/workflows/quic-transport.yml
+    permissions:
+      contents: read
   # Public-surface compatibility, informational on pull requests: the
   # detected change class is visible while the change is still in
   # review. The blocking comparison runs on release.
@@ -556,7 +562,7 @@ jobs:
   verdict:
     name: Verification result
     if: ${{ always() }}
-    needs: [adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri]
+    needs: [adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri, quic]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}

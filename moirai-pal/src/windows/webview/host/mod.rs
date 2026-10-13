@@ -6,6 +6,7 @@ mod error;
 mod frame;
 mod hotkey;
 mod lifecycle;
+mod shutdown;
 mod text;
 mod tray;
 mod view;

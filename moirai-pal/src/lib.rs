@@ -39,6 +39,17 @@ pub mod timer;
 
 mod frame;
 
+#[cfg(any(windows, target_arch = "wasm32", test))]
+mod webview_limits;
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/permission_state.rs"]
+mod permission_state;
+
+#[cfg(all(test, not(all(windows, feature = "webview2"))))]
+#[path = "windows/webview/capture.rs"]
+mod webview_capture;
+
 #[cfg(unix)]
 pub mod unix;
 

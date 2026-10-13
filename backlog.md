@@ -14,7 +14,7 @@ belong in [gap_audit.md](gap_audit.md).
 - acceptance: ADR 0075, real UDP interoperability/loss/bounds/cancellation tests, clean native diagnostics, compatibility checks and canonical Git lock pass before promotion. Windows/Linux transport evidence remains a platform gate.
 - scope: provider publication and consumer revision adoption; no credentials or trust-store configuration.
 - current increment: native QUIC, shared readiness, fallible facade spawning, bounded framing and fresh-key Metis sessions are implemented in [PR 618](https://github.com/ryancinsight/Moirai/pull/618). QUIC is required in native facade builds: 187 default tests, the minimal authenticated session, browser facade compilation, strict diagnostics and 892 applicable compatibility checks pass. CI checks default/minimal native sessions. Metis's prior 176-test canonical verification passes; the dependent consumer review adopts the updated provider Git pin. Default-branch promotion remains pending.
-- next step: review/promote provider and dependent consumer changes; collect Windows/Linux native transport evidence before release.
+- next step: run committed Linux/Windows transport gates and controlled latency/loss profiles, preserving all samples and qdisc/source provenance; promote reviewed provider/consumer changes after required checks.
 
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
@@ -97,6 +97,27 @@ belong in [gap_audit.md](gap_audit.md).
 - scope: general Promise bridge and bounded event handoff; existing specialized file/timer ownership remains authoritative.
 - next step: Extract the shared ownership contract from delivered specialized bridges and prove one general state machine.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+
+<a id="MOI-WEBVIEW-RUST-PROVIDER-ACCEPTANCE-2026-10-13"></a>
+## MOI-WEBVIEW-RUST-PROVIDER-ACCEPTANCE-2026-10-13 — Verify Rust page provider ownership [minor]
+- status: todo
+- priority: verification
+- outcome: Real Windows WebView2 verifies Rust bridge handoff, repeated native DENY and fresh-profile browser exit with current source/tool/module identities.
+- acceptance: Run the installed repeated geolocation-denial fixture and actual four-kind consumer probe; every required native event and browser outcome matches. Verify explicit listener close, bounded reported guards through stop/remount, actual BrowserProcessExited and subsequent caller-owned directory cleanup. All diagnostics, existing tests and minor API compatibility gates pass within their unchanged budgets.
+- scope: `moirai-pal/src/wasm/{webview,permissions}`, DOM event owners, native WebView2 profile/shutdown and the consumer-owned Rust page. Metis owns schema, page policy and packaged acceptance.
+- next step: Publish the provider through normal CI, execute the installed Windows fixture, then exercise the consumer's native readiness/stop protocol and capture its exact resource counts. A compiled fixture or screenshot alone does not establish runtime acceptance.
+- basis: `17a680ffebda11bf344fd06138dfc58c73c745be`; [ADR 0077](docs/adr/0077-rust-page-provider-ownership.md).
+
+<a id="MOI-BROWSER-PERMISSION-POSITIVE-2026-10-13"></a>
+## MOI-BROWSER-PERMISSION-POSITIVE-2026-10-13 — Verify consented grant and late cleanup [minor]
+- status: blocked
+- priority: verification
+- outcome: Real granted geolocation, camera/microphone leases and notification values establish browser resource cleanup under completion, deadline and cancellation.
+- acceptance: With explicit human consent and real available devices, verify every acquired track stops on lease drop and late success after cancellation; verify watch clearing, stale callback isolation, notification granted/denied/default and busy admission while native settlement remains outstanding. Record actual guard/dispatcher counts through stop/remount; an ignored geolocation completion can remain retained until document destruction.
+- scope: browser permission provider and a consented ordinary-browser fixture. Native WebView2 DENY policy remains the host contract.
+- blocker: No consented positive-grant/device fixture is recorded. Permission requests and native outcome data cannot be replaced with fabricated grants or emulated streams.
+- re-open trigger: Explicit fixture consent and real device/browser prerequisites are available.
+- basis: `17a680ffebda11bf344fd06138dfc58c73c745be`; [ADR 0077](docs/adr/0077-rust-page-provider-ownership.md).
 
 <a id="ISSUE-004"></a>
 ## ISSUE-004 — Establish current workspace coverage

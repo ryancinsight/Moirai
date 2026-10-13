@@ -17,7 +17,19 @@ belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
 ## Browser I/O
 
-Workspace 0.8.0 adds `moirai_pal::wasm::WebHttp`, a bounded GET/POST Fetch
+Workspace 0.9.0 adds the Rust-owned page-side WebView2 bridge, real browser
+permission requests, explicit callback teardown and native Number formatting.
+Message admission shares the native 64 KiB limits; permission guards remain
+bounded across remount and media leases stop every acquired track on drop.
+An opt-in empty WebView2 profile supplies per-request denial evidence and an
+actual browser-exit wait before caller cleanup. `ProcessSpec::working_directory`
+sets the supervised child's directory without changing the parent's directory.
+[ADR 0077](docs/adr/0077-rust-page-provider-ownership.md) and its source-adjacent
+design define ownership, failure reporting and pending runtime acceptance.
+Real Windows page handoff and consented positive permission cleanup remain open.
+
+Workspace 0.8.3 fixes the inclusive WebView2 capture byte boundary and wires
+its production PNG validator. Workspace 0.8.0 adds `moirai_pal::wasm::WebHttp`, a bounded GET/POST Fetch
 provider. Declared and streamed response sizes are checked independently;
 future drop aborts the request, and one finite deadline covers headers and body.
 Document listeners unregister through owned handles. `WebLocation` and DOM

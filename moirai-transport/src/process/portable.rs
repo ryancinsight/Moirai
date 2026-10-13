@@ -45,6 +45,9 @@ impl Process {
         }
         let mut command = Command::new(spec.program);
         command.args(spec.args);
+        if let Some(directory) = spec.working_directory {
+            command.current_dir(directory);
+        }
         if spec.clear_environment {
             command.env_clear();
         }
