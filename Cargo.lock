@@ -1422,6 +1422,8 @@ dependencies = [
  "proptest",
  "rayon",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

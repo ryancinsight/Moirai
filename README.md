@@ -90,7 +90,8 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 
 ## Native QUIC sessions
 
-Workspace 0.9.0 adds the optional `quic` facade feature and `moirai-quic` 0.1.0.
+Workspace 0.9.0 includes `moirai-quic` 0.1.0 in every Unix/Windows facade build,
+including `--no-default-features`. Import `moirai::quic`; no feature flag is needed.
 One authenticated UDP connection carries independent bidirectional message
 streams. `QuicConfig` bounds frames, streams, connections, queued handshakes and
 deadlines; cancellation invalidates partial framing. TLS 1.3 authenticates the
@@ -100,7 +101,7 @@ Early data and unreliable datagrams are disabled.
 `Arc<Moirai>` implements the fallible `TaskSpawner` seam consumed by the provider.
 Quinn owns protocol recovery and congestion control; Moirai owns scheduling,
 timers and shared socket readiness. Quinn's Tokio synchronization primitives
-introduce no Tokio runtime. The optional provider links ring's native code
+introduce no Tokio runtime. The native provider links ring's native code
 statically; ordinary TCP TLS continues to use RustCrypto. This transport serves
 native binary sessions; browser HTTP/3 requires its own HTTP mapping.
 

@@ -5,6 +5,7 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [minor] Specify native QUIC ownership, trust, ALPN, resource and cancellation contracts in ADR 0075.
 - [x] [minor] Implement shared cancellable socket readiness and one scheduler/timer/UDP runtime boundary.
 - [x] [minor] Implement authenticated independent streams, admission, complete framing, error retention and acknowledged FIN.
+- [x] [minor] Require QUIC in every native facade build; default 187-test suite and minimal authenticated session pass, browser facade compilation excludes native QUIC, and CI checks both native modes.
 - [x] [minor] Use validated typed WebSocket closure with code/reason; keep truncation distinct and avoid outgoing close allocations. Include the new provider in shared compatibility gates.
 - [x] [patch] Verify real UDP loss/reordering, arbitrary bytes, malformed frames, exact limits, TLS rejection, stream isolation, backpressure and spawner failure.
 - [x] [patch] Prove the readiness retirement regression fails against the preceding implementation and passes with the registration-lock transition.

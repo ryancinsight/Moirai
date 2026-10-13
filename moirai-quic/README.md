@@ -29,9 +29,10 @@ delivery; decoded application replies establish the operation's result.
 Transport selection is explicit; no command replay or implicit TCP downgrade
 occurs. Browser HTTP/3/WebTransport is a separate application contract.
 
-The optional facade feature is `moirai-runtime/quic`; import its `quic` module or
-depend on `moirai-quic` directly. Native QUIC builds require ring's statically
-linked C/assembly code. Builds without this feature keep the existing RustCrypto
-TCP TLS provider. System socket libraries remain platform dependencies.
+The Unix/Windows facade always includes QUIC, even with default features
+disabled. Import `moirai::quic` or depend on `moirai-quic` directly; no QUIC
+feature flag exists. Native builds require ring's statically linked C/assembly
+code and its build tools. The TCP TLS provider uses RustCrypto. System socket
+libraries remain platform dependencies; browser builds exclude native QUIC.
 
 [ADR 0075](../docs/adr/0075-quic-multiplexed-sessions.md) records the contract.

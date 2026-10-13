@@ -1,12 +1,12 @@
-#![cfg(all(feature = "quic", any(unix, windows)))]
+#![cfg(any(unix, windows))]
 
 use moirai::quic::{Identity, QuicConfig, QuicEndpoint, rustls};
+use moirai_core::executor::TaskSpawner;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use std::sync::Arc;
 use std::time::Duration;
 
-#[test]
-fn facade_runtime_drives_quic_without_a_second_scheduler() {
+fn endpoints() -> (Arc<moirai::Moirai>, QuicEndpoint, QuicEndpoint) {
     let runtime = Arc::new(
         moirai::Moirai::builder()
             .worker_threads(2)
@@ -50,6 +50,23 @@ fn facade_runtime_drives_quic_without_a_second_scheduler() {
         config,
     )
     .expect("client");
+    (runtime, server, client)
+}
+
+#[test]
+fn facade_runtime_drives_quic_without_a_second_scheduler() {
+    let _tracing = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .with_max_level(tracing::Level::TRACE)
+            .finish(),
+    );
+    let (runtime, server, client) = {
+        let _arrange = tracing::info_span!("arrange").entered();
+        endpoints()
+    };
+    let act = tracing::info_span!("act").entered();
     let (server_connection, client_connection) = runtime.block_on(futures::future::join(
         server.accept(),
         client.connect(server.local_addr().expect("server address"), "localhost"),
@@ -57,7 +74,7 @@ fn facade_runtime_drives_quic_without_a_second_scheduler() {
     let server_connection = server_connection.expect("server handshake");
     let client_connection = client_connection.expect("client handshake");
     let receiving = server_connection.clone();
-    let incoming = runtime.spawn_async(async move {
+    let incoming = TaskSpawner::spawn_async(runtime.as_ref(), async move {
         let mut stream = receiving.accept_stream().await.expect("stream");
         let message = stream
             .recv_message()
@@ -67,7 +84,8 @@ fn facade_runtime_drives_quic_without_a_second_scheduler() {
         stream.send_message(&message).await.expect("echo");
         stream.finish_and_wait().await.expect("acknowledged output");
         message
-    });
+    })
+    .expect("facade scheduler admits receiver");
     let expected: Vec<u8> = (0..37).map(|index| index * 7 % 251).collect();
     let actual = runtime.block_on(async {
         let mut stream = client_connection
@@ -88,11 +106,16 @@ fn facade_runtime_drives_quic_without_a_second_scheduler() {
             .expect("client FIN acknowledged");
         bytes
     });
-    assert_eq!(actual, expected);
-    assert_eq!(
-        incoming.join().expect("attached").expect("computed result"),
-        expected
-    );
+    let received = incoming.join().expect("attached").expect("computed result");
+    drop(act);
+    {
+        let _assert = tracing::info_span!("assert").entered();
+        assert_eq!(server_connection.alpn(), b"facade-test/1");
+        assert_eq!(client_connection.alpn(), b"facade-test/1");
+        assert_eq!(actual, expected);
+        assert_eq!(received, expected);
+    }
+    let _teardown = tracing::info_span!("teardown").entered();
     server.close();
     client.close();
     runtime.block_on(server.wait_idle()).expect("server drains");

@@ -5,7 +5,10 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
-Moirai 0.9.0 adds moirai-quic 0.1.0 and the facade feature. The provider owns
+Moirai 0.9.0 includes moirai-quic 0.1.0 in every native facade build, without
+a QUIC feature flag. The default suite passes 187 tests; the minimal facade
+completes authenticated frame exchange and acknowledged teardown. Browser
+facade compilation excludes native QUIC. CI checks both native modes. The provider owns
 Moirai task/timer/PAL driving around Quinn, TLS 1.3 trust and ALPN, bounded
 connections/streams/handshakes/framing and terminal cancellation. Reliable binary
 sessions multiplex over UDP; HTTP/3/WebTransport mapping remains outside this

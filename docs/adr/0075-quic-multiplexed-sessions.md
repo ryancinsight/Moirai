@@ -6,6 +6,13 @@ Status: Accepted
 Decision scope: the user-requested native transport increment.
 Change class: [minor]. Target: workspace 0.9.0.
 
+Native-build contract: QUIC is a required dependency and the facade exports
+`moirai::quic` on Unix and Windows, including `--no-default-features` builds.
+No Cargo feature enables or disables this transport. The native facade test
+must complete authenticated frame exchange and acknowledged shutdown in both
+default and minimal builds. Platform gating keeps native socket/crypto code
+outside the browser build; it does not make native security optional.
+
 ## Intent and boundaries
 
 Add a reliable, authenticated, multiplexed UDP transport to Moirai, consumed by
@@ -28,12 +35,13 @@ drives every task, timer and socket. Quinn owns RFC 9000
 loss recovery, congestion control, stream multiplexing and packet protection.
 
 Quinn 0.11 requires its `rustls-ring` feature for the upstream TLS/Retry bridge.
-The optional QUIC feature therefore adds statically linked ring native code;
+The required native QUIC provider therefore adds statically linked ring code;
 the existing TCP TLS provider remains RustCrypto. Reimplementing packet crypto
 or forking Quinn to preserve a dependency slogan introduces a second protocol
 owner and a larger security audit. Native builds require ring's C/assembly build
-tools; operating-system socket libraries remain platform dependencies. No C
-crypto dependency is introduced into builds without the QUIC feature.
+tools; operating-system socket libraries remain platform dependencies. Native
+QUIC and its security contract are present in default and minimal facade builds;
+the browser target excludes this native provider.
 
 ## Contracts and proof obligations
 
@@ -77,6 +85,8 @@ timeout/drop reset and independent-stream progress. Metis runs its real trusted
 backend handshake, computation, capability rejection and replay checks over the
 same provider. Property checks compare frame contents against input bytes;
 warning-denying checks and semver checks validate the additive surfaces.
+Default and minimal native builds run the same facade session test. The browser
+dependency graph and library compilation verify native transport isolation.
 
 References: [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000),
 [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001),

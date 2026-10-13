@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `moirai-quic` 0.1.0: TLS 1.3 native QUIC with explicit trust roots, optional
   mutual TLS, validated ALPN, reliable multiplexed streams, bounded connection,
   stream/handshake/frame admission and finite operation deadlines (ADR 0075).
-- Optional facade `quic` feature; `Moirai` implements the fallible core
+- Native facade `quic` module in default and minimal builds; no QUIC feature
+  flag exists. `Moirai` implements the fallible core
   `TaskSpawner` trait so protocol drivers share the application's scheduler.
 - PAL shared cancellable UDP readiness, native socket adoption and batched I/O
   pollers; the timer's maximum admitted duration is authoritative for protocols.
@@ -27,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Writable readiness remains cached until actual backpressure, avoiding one
   register/cancel cycle per packet. Shared notification retirement occurs under
   the registration lock so late subscribers cannot be stranded.
+
+### Breaking
+
+- Unix/Windows facade builds require ring's C/assembly build tools, including
+  `--no-default-features`. Remove `--features quic` from draft-increment commands;
+  QUIC and TLS validation remain part of the native transport contract.
 
 ### Fixed
 
