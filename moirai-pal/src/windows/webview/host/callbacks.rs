@@ -124,8 +124,9 @@ impl WebViewHost {
                 ));
             };
             // Deny before every fallible inspection. Profile persistence is
-            // disabled for this actual request, so later requests must emit
-            // new PermissionRequested evidence instead of cached decisions.
+            // disabled for this actual request. Browser request coalescing
+            // inside a document is separate from persistence in the profile;
+            // an API call does not itself prove another native callback.
             unsafe { args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY) }
                 .map_err(|error| callback_context("WebView2 permission DENY", error))?;
             let persistence = args

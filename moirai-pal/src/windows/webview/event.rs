@@ -85,7 +85,8 @@ pub enum WebViewEvent {
     /// in a hidden host keeps its request pending, with neither this event
     /// nor the page's failure callback delivered.
     PermissionDenied {
-        /// URI that requested the capability.
+        /// Actual requesting origin returned by WebView2 `get_Uri`.
+        /// This is distinct from a WebMessage's full source-document URI.
         uri: String,
         /// Requested WebView2 capability.
         permission: WebViewPermission,

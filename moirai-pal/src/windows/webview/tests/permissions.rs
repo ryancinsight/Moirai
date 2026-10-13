@@ -8,6 +8,9 @@ use super::{
 };
 use crate::webview_limits::MAX_WEBVIEW_WAIT_MILLISECONDS;
 
+const PERMISSION_ORIGIN: &str = "https://metis.invalid/";
+const SECOND_DOCUMENT: &str = "https://metis.invalid/second.html";
+
 #[test]
 #[ignore = "requires an installed WebView2 runtime"]
 fn installed_runtime_denies_each_repeated_permission_without_saved_decisions() {
@@ -19,20 +22,9 @@ fn installed_runtime_denies_each_repeated_permission_without_saved_decisions() {
     );
     let _test = tracing::info_span!("webview_native_repeated_permission_denial").entered();
     let (package, config, window) = tracing::info_span!("arrange").in_scope(|| {
-        let package = TestPackage::create_with_script(
-            br#"<!doctype html><meta charset="utf-8"><script>
-function request(sequence) {
-  navigator.geolocation.getCurrentPosition(
-    () => window.chrome.webview.postMessage({sequence, outcome: "granted"}),
-    (error) => {
-      window.chrome.webview.postMessage({sequence, outcome: "error", code: error.code});
-      if (sequence === 1) request(2);
-    }
-  );
-}
-request(1);
-</script>"#,
-        );
+        let package = TestPackage::create_with_script(request_document(1).as_bytes());
+        std::fs::write(package.directory.join("second.html"), request_document(2))
+            .expect("write second actual request document");
         let config = package.fresh_config();
         let window = NativeWindow::new(
             &WindowConfig::with_visibility(
@@ -52,7 +44,18 @@ request(1);
         let deadline =
             Instant::now() + Duration::from_millis(u64::from(MAX_WEBVIEW_WAIT_MILLISECONDS));
         let mut events = host.poll_events().expect("initial native events");
+        let mut second_started = false;
         while denial_counts(&events) != (2, 2) {
+            // Same-document geolocation calls can share a browser permission
+            // request even when no decision is persisted. The actual first
+            // callback outcome closes that document's request phase; a native
+            // navigation starts another navigator under the SAME profile,
+            // origin and controller. No timer or synthetic denial is used.
+            if !second_started && denial_counts(&events) == (1, 1) {
+                host.navigate(SECOND_DOCUMENT)
+                    .expect("navigate to second packaged request document");
+                second_started = true;
+            }
             let remaining = deadline.saturating_duration_since(Instant::now());
             assert!(
                 !remaining.is_zero(),
@@ -68,8 +71,7 @@ request(1);
             .iter()
             .filter_map(|event| match event {
                 WebViewHostEvent::WebView(WebViewEvent::Message { source, json }) => {
-                    assert_eq!(source, "https://metis.invalid/index.html");
-                    Some(json.as_str())
+                    Some((source.as_str(), json.as_str()))
                 }
                 _ => None,
             })
@@ -77,8 +79,14 @@ request(1);
         assert_eq!(
             messages,
             [
-                r#"{"sequence":1,"outcome":"error","code":1}"#,
-                r#"{"sequence":2,"outcome":"error","code":1}"#
+                (
+                    "https://metis.invalid/index.html",
+                    r#"{"sequence":1,"outcome":"error","code":1}"#
+                ),
+                (
+                    SECOND_DOCUMENT,
+                    r#"{"sequence":2,"outcome":"error","code":1}"#
+                )
             ]
         );
         host.close()
@@ -105,7 +113,7 @@ fn denial_counts(events: &[WebViewHostEvent]) -> (usize, usize) {
                 uri,
                 permission: WebViewPermission::Geolocation,
                 user_initiated: false,
-            }) if uri == "https://metis.invalid/index.html" => native += 1,
+            }) if uri == PERMISSION_ORIGIN => native += 1,
             WebViewHostEvent::WebView(WebViewEvent::Message { json, .. })
                 if json == r#"{"sequence":1,"outcome":"error","code":1}"#
                     || json == r#"{"sequence":2,"outcome":"error","code":1}"# =>
@@ -116,4 +124,16 @@ fn denial_counts(events: &[WebViewHostEvent]) -> (usize, usize) {
         }
     }
     (native, browser)
+}
+
+fn request_document(sequence: u8) -> String {
+    format!(
+        r#"<!doctype html><meta charset="utf-8"><script>
+const sequence = {sequence};
+navigator.geolocation.getCurrentPosition(
+  () => window.chrome.webview.postMessage({{sequence, outcome: "granted"}}),
+  (error) => window.chrome.webview.postMessage({{sequence, outcome: "error", code: error.code}})
+);
+</script>"#
+    )
 }
