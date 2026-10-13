@@ -3,6 +3,27 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Native QUIC transport — 2026-10-13 [minor]
+
+Moirai 0.9.0 adds moirai-quic 0.1.0 and the facade feature. The provider owns
+Moirai task/timer/PAL driving around Quinn, TLS 1.3 trust and ALPN, bounded
+connections/streams/handshakes/framing and terminal cancellation. Reliable binary
+sessions multiplex over UDP; HTTP/3/WebTransport mapping remains outside this
+slice. Quinn uses Tokio sync primitives without its runtime and links ring's
+native code. Shared readiness retires notifications under the registration lock;
+legacy UDP allocates no fan-out state until the shared poller API is used.
+
+All 129 PAL/facade/QUIC tests pass against the canonical Git lock without path
+patches; native warning-denying Clippy and changed-source formatting pass.
+Native loopback checks cover full byte domains, finite loss and pathological
+perpetual loss, certificate/name/ALPN/mutual-TLS rejection, truncation, resource
+limits, stopped spawners, FIN acknowledgement and sibling isolation. The earlier
+readiness implementation deadlocks under the new late-subscriber regression;
+the corrected transition passes. Compatibility runs 669 applicable checks with
+the stricter patch override against 0.8.2. Canonical provider promotion and
+Windows/Linux execution remain release gates; no wide-area performance or
+migration result is inferred from loopback correctness.
+
 ## Apple external link evidence — 2026-10-13 [minor]
 
 The starter's new-window logo has no native popup handler before

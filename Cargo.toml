@@ -14,6 +14,7 @@ members = [
     "moirai-crypto",
     "moirai-tls",
     "moirai-http",
+    "moirai-quic",
     "moirai-metrics",
     "moirai-utils",
     "moirai-gpu",
@@ -25,7 +26,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.8.2"
+version = "0.9.0"
 edition = "2024"
 authors = ["Moirai Team"]
 license = "MIT OR Apache-2.0"
@@ -38,22 +39,23 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 # Internal dependencies
-moirai-core = { path = "moirai-core", version = "0.8.2" }
-moirai-executor = { path = "moirai-executor", version = "0.8.2" }
-moirai-scheduler = { path = "moirai-scheduler", version = "0.8.2" }
-moirai-transport = { path = "moirai-transport", version = "0.8.2" }
-moirai-sync = { path = "moirai-sync", version = "0.8.2" }
-moirai-async = { path = "moirai-async", version = "0.8.2" }
-moirai-async-macros = { path = "moirai-async-macros", version = "0.8.2" }
-moirai-pal = { path = "moirai-pal", version = "0.8.2" }
-moirai-iter = { path = "moirai-iter", version = "0.8.2" }
-moirai-parallel = { path = "moirai-parallel", version = "0.8.2" }
-moirai-tls = { path = "moirai-tls", version = "0.8.2" }
-moirai-crypto = { path = "moirai-crypto", version = "0.8.2" }
-moirai-http = { path = "moirai-http", version = "0.8.2" }
-moirai-metrics = { path = "moirai-metrics", version = "0.8.2" }
-moirai-utils = { path = "moirai-utils", version = "0.8.2", features = ["std"] }
-moirai-gpu = { path = "moirai-gpu", version = "0.8.2" }
+moirai-core = { path = "moirai-core", version = "0.9.0" }
+moirai-executor = { path = "moirai-executor", version = "0.9.0" }
+moirai-scheduler = { path = "moirai-scheduler", version = "0.9.0" }
+moirai-transport = { path = "moirai-transport", version = "0.9.0" }
+moirai-sync = { path = "moirai-sync", version = "0.9.0" }
+moirai-async = { path = "moirai-async", version = "0.9.0" }
+moirai-async-macros = { path = "moirai-async-macros", version = "0.9.0" }
+moirai-pal = { path = "moirai-pal", version = "0.9.0" }
+moirai-iter = { path = "moirai-iter", version = "0.9.0" }
+moirai-parallel = { path = "moirai-parallel", version = "0.9.0" }
+moirai-tls = { path = "moirai-tls", version = "0.9.0" }
+moirai-crypto = { path = "moirai-crypto", version = "0.9.0" }
+moirai-http = { path = "moirai-http", version = "0.9.0" }
+moirai-quic = { path = "moirai-quic", version = "0.1.0" }
+moirai-metrics = { path = "moirai-metrics", version = "0.9.0" }
+moirai-utils = { path = "moirai-utils", version = "0.9.0", features = ["std"] }
+moirai-gpu = { path = "moirai-gpu", version = "0.9.0" }
 melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.10.0", default-features = false }
 themis = { package = "themis-topology", git = "https://github.com/ryancinsight/themis", version = "0.11.1", default-features = false, features = ["std"] }
 # Kernel resource budget vocabulary for the GPU occupancy planner (atlas ADR 0002).
@@ -69,6 +71,8 @@ rustls-pki-types = "1"
 webpki-roots = "0.26"
 http = "1"
 httparse = "1"
+# QUIC owns protocol state only; Moirai supplies scheduling, timers and sockets.
+quinn = { version = "0.11.12", default-features = false, features = ["rustls-ring"] }
 
 # Plain-old-data marker traits (zero-cost bit-pattern validity for shared-memory
 # IPC and GPU buffers). SSOT version for every workspace member.

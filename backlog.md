@@ -6,6 +6,16 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-QUIC-PROMOTION-001"></a>
+## MOI-QUIC-PROMOTION-001 — Promote verified native QUIC [minor]
+- status: todo
+- priority: feature
+- outcome: Moirai 0.9.0 and moirai-quic 0.1.0 are available at the canonical provider revision; Metis resolves its Git lock from that published source.
+- acceptance: ADR 0075, real UDP interoperability/loss/bounds/cancellation tests, clean native diagnostics, compatibility checks and canonical Git lock pass before promotion. Windows/Linux transport evidence remains a platform gate.
+- scope: provider publication and consumer revision adoption; no credentials or trust-store configuration.
+- current increment: native QUIC, shared readiness, fallible facade spawning, bounded framing and fresh-key Metis session integration are implemented. Source verification uses real components; default-branch publication remains pending.
+- next step: review/publish the provider branch, then resolve and verify Metis's exact consumer revision and lock.
+
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
 - status: todo

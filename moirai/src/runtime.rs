@@ -389,3 +389,4 @@ impl Default for Moirai {
         Self::new().expect("Failed to create default Moirai runtime")
     }
 }
+mod spawner;

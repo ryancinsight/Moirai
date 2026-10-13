@@ -1,0 +1,27 @@
+[package]
+name = "moirai-quic"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+description = "Bounded authenticated QUIC multiplexing over Moirai scheduling and socket readiness"
+
+[target.'cfg(any(unix, windows))'.dependencies]
+moirai-core.workspace = true
+moirai-async.workspace = true
+moirai-pal.workspace = true
+quinn.workspace = true
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+moirai-executor.workspace = true
+futures = "0.3"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+proptest.workspace = true
+
+[lints]
+workspace = true

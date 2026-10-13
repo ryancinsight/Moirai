@@ -27,6 +27,7 @@ moirai-iter = { workspace = true, optional = true }
 moirai-parallel = { workspace = true, optional = true }
 moirai-metrics = { workspace = true, optional = true }
 moirai-gpu = { workspace = true, optional = true }
+moirai-quic = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
 mnemosyne = { workspace = true, optional = true }
 melinoe = { workspace = true, optional = true }
@@ -141,7 +142,7 @@ path = "examples/book_parallel_reduce.rs"
 
 [features]
 default = ["async", "iter", "parallel", "local", "mnemosyne-memory", "melinoe"]
-full = ["async", "iter", "parallel", "distributed", "metrics", "encryption", "gpu"]
+full = ["async", "iter", "parallel", "distributed", "metrics", "encryption", "gpu", "quic"]
 mnemosyne = ["dep:mnemosyne", "moirai-core/mnemosyne", "moirai-executor/mnemosyne"]
 mnemosyne-memory = ["mnemosyne"]
 melinoe = ["dep:melinoe"]
@@ -151,6 +152,7 @@ parallel = ["moirai-parallel"]
 gpu = ["moirai-gpu"]
 local = ["moirai-transport/local"]
 network = ["moirai-transport/network"]
+quic = ["async", "dep:moirai-quic"]
 distributed = [
     "moirai-transport/distributed",
     "moirai-transport/scheduler-routes",

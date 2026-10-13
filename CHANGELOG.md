@@ -5,6 +5,34 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - Unreleased
+
+### Added
+
+- `moirai-quic` 0.1.0: TLS 1.3 native QUIC with explicit trust roots, optional
+  mutual TLS, validated ALPN, reliable multiplexed streams, bounded connection,
+  stream/handshake/frame admission and finite operation deadlines (ADR 0075).
+- Optional facade `quic` feature; `Moirai` implements the fallible core
+  `TaskSpawner` trait so protocol drivers share the application's scheduler.
+- PAL shared cancellable UDP readiness, native socket adoption and batched I/O
+  pollers; the timer's maximum admitted duration is authoritative for protocols.
+
+### Changed
+
+- Quinn owns recovery/congestion and delegates task, timer and socket driving to
+  Moirai. Its Tokio synchronization primitives introduce no Tokio runtime;
+  QUIC's upstream rustls/Retry bridge links ring native code statically.
+- Writable readiness remains cached until actual backpressure, avoiding one
+  register/cancel cycle per packet. Shared notification retirement occurs under
+  the registration lock so late subscribers cannot be stranded.
+
+### Fixed
+
+- Partial framing aborts on cancellation, failure and deadline. FIN
+  acknowledgement completes queued output before connection teardown.
+- Spawner rejection retains its original error across Quinn's infallible runtime
+  ABI; message/handshake allocation respects caller budgets.
+
 ## [0.8.2] - Unreleased
 
 ### Added

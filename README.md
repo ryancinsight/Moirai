@@ -88,6 +88,26 @@ Moirai's own partition helpers perform this initialization automatically.
 Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 (`rust-toolchain.toml`).
 
+## Native QUIC sessions
+
+Workspace 0.9.0 adds the optional `quic` facade feature and `moirai-quic` 0.1.0.
+One authenticated UDP connection carries independent bidirectional message
+streams. `QuicConfig` bounds frames, streams, connections, queued handshakes and
+deadlines; cancellation invalidates partial framing. TLS 1.3 authenticates the
+server name and explicit trust roots; optional client roots require mutual TLS.
+Early data and unreliable datagrams are disabled.
+
+`Arc<Moirai>` implements the fallible `TaskSpawner` seam consumed by the provider.
+Quinn owns protocol recovery and congestion control; Moirai owns scheduling,
+timers and shared socket readiness. Quinn's Tokio synchronization primitives
+introduce no Tokio runtime. The optional provider links ring's native code
+statically; ordinary TCP TLS continues to use RustCrypto. This transport serves
+native binary sessions; browser HTTP/3 requires its own HTTP mapping.
+
+[ADR 0075](docs/adr/0075-quic-multiplexed-sessions.md) specifies ownership,
+admission, framing and failure contracts. Existing distributed TCP routes and
+private process IPC remain explicit transport choices.
+
 `moirai-webview` 0.2.0 supplies Rust-owned AppKit application, Edit and Window
 menus and serves packaged Apple resources with Fetch-compatible
 status and MIME/length headers. AppKit and UIKit use the same response law;
@@ -117,6 +137,7 @@ the packaged main frame remains intact (ADR 0074).
 | [`moirai-crypto`](https://docs.rs/moirai-crypto) | Pure-Rust rustls `CryptoProvider` (RustCrypto, no C toolchain) |
 | [`moirai-tls`](https://docs.rs/moirai-tls) | Async TLS client over Moirai sockets, no Tokio |
 | [`moirai-http`](https://docs.rs/moirai-http) | Minimal async HTTP/1.1 client over `moirai-tls` |
+| `moirai-quic` | Bounded native QUIC sessions over Moirai task, timer and UDP readiness providers |
 
 ## Runtime
 

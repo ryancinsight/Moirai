@@ -323,4 +323,7 @@ mod tests;
 // Facade re-exports
 pub use builder::MoiraiBuilder;
 pub use global::{block_on, global, initialize, spawn_async, spawn_fn};
+/// Authenticated bounded QUIC multiplexing for native remote sessions.
+#[cfg(feature = "quic")]
+pub use moirai_quic as quic;
 pub use runtime::Moirai;
