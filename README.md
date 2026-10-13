@@ -88,10 +88,13 @@ Moirai's own partition helpers perform this initialization automatically.
 Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 (`rust-toolchain.toml`).
 
-`moirai-webview` 0.1.2 supplies Rust-owned AppKit application, Edit and Window
+`moirai-webview` 0.2.0 supplies Rust-owned AppKit application, Edit and Window
 menus and serves packaged Apple resources with Fetch-compatible
 status and MIME/length headers. AppKit and UIKit use the same response law;
 the native Metis starter runs its Rust/WASM greeting through this boundary.
+Host-owned `MoiraiExternalLinks` bundle metadata admits exact HTTPS popup
+destinations for an OS browser handoff. Undeclared external navigation is denied;
+the packaged main frame remains intact (ADR 0074).
 
 ## Crates
 

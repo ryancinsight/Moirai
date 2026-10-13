@@ -1446,9 +1446,10 @@ dependencies = [
 
 [[package]]
 name = "moirai-webview"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "block2",
+ "http",
  "libc",
  "objc2",
  "objc2-app-kit",
