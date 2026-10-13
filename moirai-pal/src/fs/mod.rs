@@ -9,5 +9,5 @@ mod file;
 pub use confined::open_file_within_root;
 pub use file::{File, FileOpenOptions};
 
-#[cfg(test)]
+#[cfg(all(test, any(unix, windows)))]
 mod tests;

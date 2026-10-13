@@ -1,5 +1,6 @@
 //! Value and native-host tests for the window provider.
 
+mod destruction;
 mod global_hotkey;
 mod key_message_encoding;
 mod menu_bar;

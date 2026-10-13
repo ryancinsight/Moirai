@@ -23,6 +23,13 @@ pub(super) fn windows_error(error: windows::core::Error) -> io::Error {
     io::Error::from_raw_os_error(error.code().0)
 }
 
+pub(super) fn callback_context(
+    operation: &str,
+    error: windows::core::Error,
+) -> windows::core::Error {
+    windows::core::Error::new(error.code(), format!("{operation}: {error}"))
+}
+
 pub(super) fn callback_error(message: &'static str) -> windows::core::Error {
     windows::core::Error::new(E_ABORT, message)
 }

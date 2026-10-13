@@ -1,9 +1,10 @@
 //! WebView2 COM apartment and asynchronous creation.
 
-use std::{io, sync::mpsc, time::Duration};
+use std::{io, path::Path, sync::mpsc, time::Duration};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    CreateCoreWebView2Environment, ICoreWebView2Controller, ICoreWebView2Environment,
+    CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2Controller, ICoreWebView2Environment,
+    ICoreWebView2Environment7,
 };
 use webview2_com::{
     CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
@@ -13,7 +14,7 @@ use windows::{
         Foundation::{E_POINTER, HWND},
         System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize},
     },
-    core::Error,
+    core::{Error, HSTRING, Interface, PCWSTR, PWSTR},
 };
 
 use super::super::pump::wait_for;
@@ -46,7 +47,10 @@ impl Drop for ComApartment {
     }
 }
 
-pub(super) fn create_environment(wait: Duration) -> io::Result<ICoreWebView2Environment> {
+pub(super) fn create_environment(
+    wait: Duration,
+    profile: Option<&Path>,
+) -> io::Result<ICoreWebView2Environment> {
     let (sender, receiver) = mpsc::sync_channel(1);
     let handler = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(
         move |error_code, environment| {
@@ -57,8 +61,33 @@ pub(super) fn create_environment(wait: Duration) -> io::Result<ICoreWebView2Envi
                 .map_err(|_| callback_error("WebView2 environment waiter was dropped"))
         },
     ));
-    unsafe { CreateCoreWebView2Environment(&handler) }.map_err(windows_error)?;
-    wait_for(receiver, wait)
+    let profile_string = profile.map(|path| HSTRING::from(path.as_os_str()));
+    let profile_path = profile_string
+        .as_ref()
+        .map_or(PCWSTR::null(), |path| PCWSTR(path.as_ptr()));
+    // SAFETY: the SDK copies these optional UTF16 arguments during this call;
+    // the owned profile string and callback outlive the call and finite wait.
+    unsafe {
+        CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), profile_path, None, &handler)
+    }
+    .map_err(windows_error)?;
+    let environment = wait_for(receiver, wait)?;
+    if let Some(expected) = profile {
+        let properties = environment
+            .cast::<ICoreWebView2Environment7>()
+            .map_err(|error| {
+                io::Error::other(format!("WebView2 effective-profile interface: {error}"))
+            })?;
+        let mut raw_path = PWSTR::null();
+        // SAFETY: this exclusive getter output transfers one CoTaskMem buffer.
+        unsafe { properties.UserDataFolder(&mut raw_path) }.map_err(windows_error)?;
+        // SAFETY: nothing else uses or frees the transferred getter buffer.
+        let actual = unsafe { super::text::read_task_mem_profile(raw_path) }.map_err(|error| {
+            io::Error::other(format!("WebView2 actual user-data directory: {error}"))
+        })?;
+        super::super::config::profile::verify_effective(expected, Path::new(&actual))?;
+    }
+    Ok(environment)
 }
 
 pub(super) fn create_controller(

@@ -3,6 +3,39 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Rust page provider acceptance — 2026-10-13 [minor]
+
+Workspace 0.9.0 implements the actual WebView2 browser bridge, explicit callback
+teardown/counts, browser Number formatting, real permission requests and owned
+child working directories. Fresh-profile native admission checks caller-owned
+empty local storage, nonsaved DENY decisions and the actual browser exit before
+caller cleanup. [ADR 0077](docs/adr/0077-rust-page-provider-ownership.md) owns
+the selected contracts and its source-adjacent design records failure behavior.
+
+Eleven portable permission state/identity tests pass, including all four busy
+slots, cancelled guards, exact media ownership sums, deadline caps, stale
+generations and the entire decimal-string identity domain. Strict WASM and
+native PAL Clippy pass. Shared message/directory tests and Windows provider
+diagnostics cover their own source boundaries; the installed repeated-denial
+fixture is compiled but has no local Windows execution evidence.
+
+The complete native PAL/transport suite passes 148 tests without skips. Seven
+actual Chrome tests verify JSON, DOM callback and Number contracts without
+ignored or filtered tests; they do not establish native chrome.webview handoff.
+Locked Rustdoc comparisons pass 196 additive-API checks for each of native
+transport, WASM PAL and Windows PAL. Actual final-destruction and nonsaved
+repeated-denial fixtures remain mandatory Windows runtime evidence.
+
+Actual native Rust-page handoff, repeated denial/profile cleanup, four-kind
+consumer acceptance and consented positive/late media cleanup remain open in
+the two active acceptance items. Two geolocation dispatchers remain realm-owned
+after the first request; up to four genuine settlement guards remain visible
+after cancellation. A cleared watch may never callback, so its guard can remain
+busy until document destruction. A failed DOM/bridge callback removal retains
+its counted owner and prevents further admission. Neither portable tests nor
+successful compilation establish native events, granted device cleanup or
+complete provider-private allocation accounting.
+
 ## WebView2 capture boundary reconciliation — 2026-10-13 [patch]
 
 Workspace 0.8.3 corrects the inclusive decoded-byte law from PR

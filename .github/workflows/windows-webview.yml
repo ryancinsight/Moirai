@@ -48,7 +48,7 @@ jobs:
           cargo nextest run --locked -p moirai-pal --lib
           --no-default-features --features webview2
           --config-file .config/nextest.toml --test-threads 1 --retries 0
-          --no-tests fail --no-fail-fast -E 'test(windows::webview::)'
+          --no-tests fail --no-fail-fast -E 'test(windows::webview::) | test(windows::window::tests::destruction::)'
       # Each nextest process owns its COM apartment and native message pump.
       # The two stress tests retain their real 100-host concurrent scenarios;
       # nextest runs those scenarios sequentially with a 60-second test limit.
@@ -59,6 +59,7 @@ jobs:
             'windows::webview::tests::preview::installed_runtime_refuses_capture_while_hidden',
             'windows::webview::tests::preview::installed_runtime_captures_immediately_after_reshow_concurrently',
             'windows::webview::tests::preview::installed_runtime_captures_after_settled_navigation_and_reshow_concurrently'
+            'windows::webview::tests::permissions::installed_runtime_denies_each_repeated_permission_without_saved_decisions'
           )
           foreach ($previewTest in $previewTests) {
             cargo nextest run --locked -p moirai-pal --lib --no-default-features --features webview2 --config-file .config/nextest.toml --test-threads 1 --retries 0 --run-ignored only --no-tests fail -E "test(=$previewTest)"

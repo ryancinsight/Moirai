@@ -14,7 +14,7 @@ use windows::Win32::{
     },
 };
 
-use super::config::MAX_WEBVIEW_WAIT_MILLISECONDS;
+use crate::webview_limits::MAX_WEBVIEW_WAIT_MILLISECONDS;
 
 pub(super) fn wait_for<T>(
     receiver: Receiver<windows::core::Result<T>>,

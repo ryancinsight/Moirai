@@ -8,15 +8,14 @@ use std::{
 };
 
 use super::super::window::{NativeWindow, WindowConfig, WindowVisibility};
+use crate::webview_limits::{MAX_WEBVIEW_MESSAGE_BYTES, validate_message};
+
 use super::{
-    WebViewHost,
-    config::{MAX_WEBVIEW_MESSAGE_BYTES, WebViewConfig, validate_message},
-    event::WebViewEvent,
-    event::WebViewHostEvent,
-    event::WebViewPermission,
-    state::WebViewState,
+    WebViewHost, config::WebViewConfig, event::WebViewEvent, event::WebViewHostEvent,
+    event::WebViewPermission, state::WebViewState,
 };
 
+mod permissions;
 mod preview;
 
 #[test]
@@ -84,14 +83,14 @@ fn file_configuration_rejects_non_file_and_malformed_uris() {
 #[test]
 fn event_queue_reports_overflow_without_growing() {
     let mut state = WebViewState::new().expect("queue allocation");
-    for index in 0..=super::config::MAX_WEBVIEW_EVENTS {
+    for index in 0..=crate::webview_limits::MAX_WEBVIEW_EVENTS {
         state.push(WebViewEvent::NavigationStarting {
             uri: format!("file:///C:/metis/{index}.html"),
             allowed: true,
         });
     }
     let (events, overflowed) = state.drain();
-    assert_eq!(events.len(), super::config::MAX_WEBVIEW_EVENTS);
+    assert_eq!(events.len(), crate::webview_limits::MAX_WEBVIEW_EVENTS);
     assert!(overflowed);
     let (events, overflowed) = state.drain();
     assert!(events.is_empty());
@@ -165,7 +164,7 @@ navigator.geolocation.getCurrentPosition(
 );
 </script>"#,
     );
-    let config = WebViewConfig::new(package.uri()).expect("packaged URI");
+    let config = package.fresh_config();
     // The runtime holds a hidden document's permission request pending,
     // raising neither `PermissionRequested` nor the page's error callback
     // until the document becomes visible, so this window is shown.
@@ -218,7 +217,16 @@ navigator.geolocation.getCurrentPosition(
         page_denied(&events),
         "page did not observe the denial: {events:?}"
     );
-    host.close().expect("close WebView2 host");
+    host.close()
+        .expect("close WebView2 host and observe owned browser exit");
+    drop(host);
+    assert_eq!(
+        package
+            .cleanup()
+            .expect("actual profile resources are released"),
+        ()
+    );
+    assert!(!package.directory.exists() && !package.profile.exists());
 }
 
 #[test]
@@ -379,13 +387,14 @@ window.chrome.webview.postMessage({"module": origin});"#,
     std::fs::remove_dir_all(&folder).expect("remove mapped folder");
 }
 
-struct TestPackage {
-    directory: PathBuf,
-    entry: PathBuf,
+pub(super) struct TestPackage {
+    pub(super) directory: PathBuf,
+    pub(super) entry: PathBuf,
+    pub(super) profile: PathBuf,
 }
 
 impl TestPackage {
-    fn create() -> Self {
+    pub(super) fn create() -> Self {
         Self::create_with_script(
             br#"<!doctype html><meta charset="utf-8"><script>
 window.chrome.webview.postMessage({"ready":true});
@@ -401,7 +410,35 @@ window.chrome.webview.postMessage({"ready":true});
         std::fs::create_dir(&directory).expect("create unique package directory");
         let entry = directory.join("index.html");
         std::fs::write(&entry, script).expect("write package entry");
-        Self { directory, entry }
+        let profile = directory.with_file_name(format!(
+            "moirai-webview2-profile-{}-{id}",
+            std::process::id()
+        ));
+        Self {
+            directory,
+            entry,
+            profile,
+        }
+    }
+
+    pub(super) fn fresh_config(&self) -> WebViewConfig {
+        std::fs::create_dir(&self.profile).expect("create exclusively owned fresh profile");
+        WebViewConfig::folder(
+            "metis.invalid",
+            &self.directory,
+            "index.html",
+            Duration::from_millis(u64::from(
+                crate::webview_limits::MAX_WEBVIEW_WAIT_MILLISECONDS,
+            )),
+        )
+        .expect("secure packaged origin")
+        .with_user_data_folder(&self.profile)
+        .expect("fresh local profile")
+    }
+
+    fn cleanup(&self) -> io::Result<()> {
+        std::fs::remove_dir_all(&self.directory)?;
+        std::fs::remove_dir_all(&self.profile)
     }
 
     fn uri(&self) -> String {
@@ -415,7 +452,13 @@ window.chrome.webview.postMessage({"ready":true});
 
 impl Drop for TestPackage {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.directory);
+        for folder in [&self.directory, &self.profile] {
+            if let Err(error) = std::fs::remove_dir_all(folder)
+                && error.kind() != io::ErrorKind::NotFound
+            {
+                tracing::error!(path = %folder.display(), error = %error, "WebView2 fixture directory cleanup failed");
+            }
+        }
     }
 }
 

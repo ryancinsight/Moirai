@@ -16,6 +16,7 @@ description = "Platform Abstraction Layer for Moirai async I/O operations"
 [dependencies]
 moirai-core = { workspace = true }
 melinoe = { workspace = true, features = ["std"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 # Non-blocking socket creation for `AsyncTcpStream::connect`: std offers only
@@ -98,6 +99,17 @@ web-sys = { version = "0.3", features = [
     "UrlSearchParams",
     "Window",
     "Navigator",
+    "Geolocation",
+    "Position",
+    "PositionError",
+    "PositionOptions",
+    "MediaDevices",
+    "MediaStream",
+    "MediaStreamConstraints",
+    "MediaStreamTrack",
+    "DomException",
+    "Notification",
+    "NotificationPermission",
     "ReadableStream",
     "ReadableStreamDefaultReader",
     "ReadableStreamReadResult",
@@ -126,10 +138,18 @@ web-sys = { version = "0.3", features = [
 [dev-dependencies]
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
-criterion = { workspace = true }
-proptest = { workspace = true }
 futures = "0.3"
 png = "0.18.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+# A browser has no OS child-process fork; shrinking and real browser RNG remain.
+proptest = { version = "1.9", default-features = false, features = ["std", "bit-set"] }
 
 [features]
 default = ["parallel", "mnemosyne-memory"]
