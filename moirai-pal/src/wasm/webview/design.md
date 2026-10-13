@@ -2,7 +2,7 @@
 
 Owner: [ADR 0077](../../../../docs/adr/0077-rust-page-provider-ownership.md).
 
-State: source implementation; real Windows and positive-grant acceptance pending.
+State: provider Windows fixture verified; consumer Rust handoff and positive-grant acceptance pending.
 
 ## Dependency and API ownership
 
@@ -124,6 +124,23 @@ mark the request handled. The fresh profile supplies independent per-request
 native evidence; an old shared profile does not establish that evidence. Native
 policy does not grant permission for positive browser fixtures.
 
+The SDK [permission Uri](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2permissionrequestedeventargs#get_uri)
+reports the requesting origin, while WebMessageReceived.Source reports the
+document URL. Actual PR 619 CI observes `https://metis.invalid/` for denial and
+`https://metis.invalid/index.html` for a page message. Two same-document API
+calls produce one native denial and two browser errors in that run; call counts
+do not imply native callback counts. The repaired fixture navigates to a second
+packaged document after the first actual native/browser completion under the
+same profile, origin and controller. It still requires two actual denials and
+two actual errors.
+The repaired Windows job [115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
+passes at `0d42510b50cec901852124ddbdcd0727632ebcb9`, observing the real two-document
+denials/errors, browser exit and profile cleanup. This provider evidence does
+not establish the Metis Rust module handoff or four-kind native page acceptance.
+The run passes 25 native policy/destruction tests and four actual capture
+fixtures, including two 100-host cases, with WebView2 `153.0.4234.48` and SDK
+bindings `0.39.1`. The repeated two-document fixture completes in 7.410 seconds.
+
 Fresh-profile close registers BrowserProcessExited for the actual nonzero
 browser PID before closing callbacks/controller. The owner-thread pump observes
 the matching normal exit within the existing operation deadline, then releases
@@ -139,9 +156,11 @@ caller-owned directory. Default profiles retain controller-only close behavior.
 - Shared message/cwd tests inspect actual computed length/admission and native
   child directory/output without global-directory mutation. Rust browser tests
   inspect JSON values/bounds, real DOM registration/removal and Number results.
-- Installed Windows repeated geolocation requests must produce two actual
+- Installed Windows geolocation requests across two packaged documents under
+  the same profile/origin/controller must produce two actual
   native DENY events and two browser errors, then actual browser exit and caller
-  profile cleanup. The compiled fixture is not local execution evidence.
+  profile cleanup. Source `0d42510b50cec901852124ddbdcd0727632ebcb9` passes the actual
+  Windows job above; this macOS host supplies no local Windows execution claim.
 - Consumer acceptance must use the actual Rust-ready native page and four
   native permission kinds, then stop/remount with exact reported resources.
   Unexpected grants, unavailable required APIs and deadlines fail acceptance.

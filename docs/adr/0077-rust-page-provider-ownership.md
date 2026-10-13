@@ -66,9 +66,19 @@ Native/WASM/Windows warning-denying diagnostics verify their respective ABIs.
 Real browser tests exercise message/DOM/Number semantics through generated Rust
 interop; they do not establish actual WebView2 native handoff.
 
-The installed native fixture requests geolocation twice and requires two actual
-native DENY events, two real browser errors and profile cleanup after actual
-exit. Execution on this macOS development host is pending. The consumer's real
+The installed native fixture requests geolocation in two packaged documents
+under the same profile/origin/controller and requires two actual native DENY
+events, two real browser errors and profile cleanup after actual exit. The first
+PR 619 Windows run observes one origin-valued native denial and two browser
+errors from same-document calls; it fails the two-event contract. The repaired
+navigation sequence retains the two-event requirement and passes actual Windows
+[job 115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
+at `0d42510b50cec901852124ddbdcd0727632ebcb9`, including browser exit and caller-owned
+profile cleanup. This verifies the provider fixture's source-bound scope.
+The same run passes 25 native policy/destruction tests and four actual capture
+fixtures, including two 100-host cases, on WebView2 `153.0.4234.48` with SDK
+bindings `0.39.1`; the repeated two-document fixture takes 7.410 seconds.
+The consumer's real
 Windows readiness, four-kind denial, stop/remount, captures and packaged flow
 remain required. Consented ordinary-browser positive grant and late media
 cleanup are separately pending; the native host continues to deny permission.

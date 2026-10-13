@@ -5,6 +5,20 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Rust page provider acceptance — 2026-10-13 [minor]
 
+Actual PR 619 Windows CI reports native permission origin separately from the
+full page-message URL. Two same-document geolocation calls yield one native
+DENY and two browser errors; they do not prove independent callback evidence.
+The repaired fixture navigates to a second packaged document after real first
+settlement under the same profile/origin/controller, retaining the two actual
+DENY/two error requirement. Actual Windows
+[job 115537873626](https://github.com/ryancinsight/Moirai/actions/runs/38467480001/job/115537873626)
+passes at `0d42510b50cec901852124ddbdcd0727632ebcb9`, including actual browser exit and
+caller-owned profile cleanup. Metis Rust page handoff/four-kind acceptance and
+consented ordinary-browser positive cleanup remain pending.
+That source passes 25 native policy/destruction tests and four actual capture
+fixtures, including two 100-host cases. WebView2 is `153.0.4234.48`, SDK bindings
+are `0.39.1`, and the repeated two-document fixture takes 7.410 seconds.
+
 Workspace 0.9.0 implements the actual WebView2 browser bridge, explicit callback
 teardown/counts, browser Number formatting, real permission requests and owned
 child working directories. Fresh-profile native admission checks caller-owned
@@ -24,9 +38,11 @@ actual Chrome tests verify JSON, DOM callback and Number contracts without
 ignored or filtered tests; they do not establish native chrome.webview handoff.
 Locked Rustdoc comparisons pass 196 additive-API checks for each of native
 transport, WASM PAL and Windows PAL. Actual final-destruction and nonsaved
-repeated-denial fixtures remain mandatory Windows runtime evidence.
+repeated-denial fixtures are mandatory Windows runtime gates; the source-bound
+actual Windows job above now passes the provider capture/repeated-denial/cleanup
+scope. Consumer Rust bridge acceptance remains separate.
 
-Actual native Rust-page handoff, repeated denial/profile cleanup, four-kind
+Actual native Rust-page handoff, four-kind
 consumer acceptance and consented positive/late media cleanup remain open in
 the two active acceptance items. Two geolocation dispatchers remain realm-owned
 after the first request; up to four genuine settlement guards remain visible
