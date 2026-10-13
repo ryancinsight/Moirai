@@ -17,7 +17,8 @@ belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
 ## Browser I/O
 
-Workspace 0.8.0 adds `moirai_pal::wasm::WebHttp`, a bounded GET/POST Fetch
+Workspace 0.8.3 fixes the inclusive WebView2 capture byte boundary and wires
+its production PNG validator. Workspace 0.8.0 adds `moirai_pal::wasm::WebHttp`, a bounded GET/POST Fetch
 provider. Declared and streamed response sizes are checked independently;
 future drop aborts the request, and one finite deadline covers headers and body.
 Document listeners unregister through owned handles. `WebLocation` and DOM

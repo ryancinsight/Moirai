@@ -3,16 +3,36 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## WebView2 capture boundary reconciliation — 2026-10-13 [patch]
+
+Workspace 0.8.3 corrects the inclusive decoded-byte law from PR
+[505](https://github.com/ryancinsight/Moirai/pull/505): `L = 3q - padding`.
+The unchanged decoder fails three value tests; the correction passes all five,
+including complete nonconstant payloads at 64 MiB minus two, minus one and
+exactly 64 MiB, and rejects the first excess byte before output allocation.
+The production `webview2` feature enables its PNG validator. Actual Windows
+library compilation and warning-denying Windows Clippy pass without relying
+on development dependency resolution. The portable/Apple provider suite passes
+157 tests in 2.029 seconds; one existing runtime-dependent probe is skipped.
+The full workspace passes 1,278 tests in 7.217 seconds with nine pre-existing
+ignored probes, including the embedded release version contract.
+Native Clippy, browser PAL compilation and warning-denying Rustdoc pass.
+The new Windows job runs the existing installed preview tests; hosted runtime
+results remain a merge gate. The 30-run parallel-host stability item remains
+open. This byte law does not bound CDP response or decoder-private allocations.
+[ADR 0076](docs/adr/0076-webview2-capture-byte-boundary.md) owns the proof.
+
 ## Apple external link evidence — 2026-10-13 [minor]
 
 The starter's new-window logo has no native popup handler before
 moirai-webview 0.2.0. The provider now owns exact HTTPS validation, signed
 bundle authority and one OS handoff in WKUIDelegate, with no remote WebView.
 Twenty policy/resource/Foundation tests and 196 compatibility checks pass.
-The real native preview records one successful Metis link handoff. Canonical
-consumer rebuild and visual browser evidence remain consumer gates; automatic
-approval review blocks Safari inspection because of unrelated signed-in
-content. LinkActivated does not prove event trust (ADR 0074).
+The real native preview records one successful Metis link handoff. Metis PR
+[501](https://github.com/ryancinsight/metis/pull/501) records canonical consumer
+bundles and the user-authorized Safari destination check. Remaining physical
+mobile and native lifecycle acceptance remain consumer gates. LinkActivated
+does not prove event trust (ADR 0074).
 
 ## Stream dictionary regression — 2026-10-12 [patch]
 

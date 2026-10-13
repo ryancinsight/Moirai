@@ -39,6 +39,10 @@ pub mod timer;
 
 mod frame;
 
+#[cfg(all(test, not(all(windows, feature = "webview2"))))]
+#[path = "windows/webview/capture.rs"]
+mod webview_capture;
+
 #[cfg(unix)]
 pub mod unix;
 
