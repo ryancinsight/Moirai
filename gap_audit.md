@@ -34,6 +34,15 @@ The reconciled provider also passes all 27
 full-domain local process-pair probes. No wide-area performance or
 migration result is inferred from loopback correctness.
 
+Controlled CI measures all 108 process pairs at one source tree: 105 validate
+exact bytes; all three maximum-frame 16-stream loss cases exceed 60 seconds.
+All three diagnostic repetitions reproduce that limit with continuing verified
+progress and zero namespace UDP errors. Recovery snapshots identify contracting
+CUBIC windows. [Archived evidence](moirai-quic/measurements/controlled/2026-10-13/README.md)
+retains source, queues, samples and both peer traces; the active recovery-policy
+evaluation belongs to MOI-QUIC-RECOVERY-001 in backlog.md. No deadline or workload
+adjustment establishes a pass.
+
 
 ## Rust page provider acceptance — 2026-10-13 [minor]
 

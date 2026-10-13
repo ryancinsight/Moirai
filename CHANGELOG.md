@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [patch] Preserve the complete 108-pair controlled CI matrix and independent
+  verification: 105 exact-byte successes, three maximum-frame/16-stream loss
+  deadlines and zero kernel UDP errors. Keep the measured recovery limit and
+  failed performance gate explicit; diagnostic/full artifacts have distinct names.
 - [minor] Passive connection metrics expose wire, recovery, congestion-window,
   path-RTT and MTU observations without exposing Quinn types. Controlled probes
   retain verified progress, namespace UDP/socket counters and every failure;
