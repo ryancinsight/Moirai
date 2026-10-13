@@ -260,5 +260,6 @@ belong in [gap_audit.md](gap_audit.md).
 - acceptance: real Rust/WASM input/output, geometry, scene reconnect and bounded shutdown; permission denial is a separate host contract.
 - evidence: six resource byte/MIME/traversal/symlink/socket/FIFO/bound tests pass; Metis macOS/device/simulator apps compile; macOS/iPhone/iPad native hosts deliver all seven assets including real WASM.
 - [x] [patch] Correct Fetch status in moirai-webview 0.1.1: eight resource/response tests pass; real macOS Greet returns the exact Rust result for normal, Unicode and empty names.
+- [x] [patch] Verify moirai-webview 0.1.2's Rust native menus: focused Command-Q and Command-W exit; actual minimize/restore, Zoom geometry and full-screen journeys pass; ADR 0073 records native values and capture limitations.
 - blocker: remaining native geometry/lifecycle evidence and physical device provisioning/availability are unset.
 - scope: moirai-webview; [ADR 0068](docs/adr/0068-apple-webview-host.md).

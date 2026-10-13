@@ -74,6 +74,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resource reads and native navigation use the same origin policy, including
   non-Apple library builds with warning-denying diagnostics.
 
+## [moirai-webview 0.1.2] - Unreleased
+
+### Fixed
+
+- Install Rust-owned AppKit application, Edit and Window menus. Command-Q
+  now invokes native termination while the WebView holds focus; Close,
+  Minimize, Zoom and full-screen actions use the native responder chain.
+  Standard window style flags and page authority remain unchanged (ADR 0073).
+- Emit structured native window lifecycle events with actual geometry, state
+  and standard-button properties, excluding page content.
+
 ## [moirai-webview 0.1.1] - Unreleased
 
 ### Fixed

@@ -10,7 +10,9 @@ mod mobile;
 
 /// Runs a packaged HTML/CSS/WASM application on the native main thread.
 ///
-/// macOS closes when its last window closes. UIKit owns the iPhone/iPad event
+/// macOS supplies native application, editing and window menus. Command-Q
+/// quits; Command-W closes the key window; Command-M minimizes it. The host
+/// terminates after its last window closes. UIKit owns the iPhone/iPad event
 /// loop, rotation, keyboard and application activation. WebKit serves only
 /// the validated resources; it does not grant native filesystem/process APIs.
 /// An explicit title supports development executables; otherwise the title
