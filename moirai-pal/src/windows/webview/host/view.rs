@@ -25,10 +25,8 @@ use windows::{
 
 use super::super::super::window::{NativeWindow, WindowPlacement};
 use super::super::{
-    config::{
-        MAX_WEBVIEW_CAPTURE_BYTES, MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS, WebViewConfig,
-        validate_message,
-    },
+    capture::MAX_WEBVIEW_CAPTURE_BYTES,
+    config::{MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS, WebViewConfig, validate_message},
     event::WebViewHostEvent,
     folder::FolderMapping,
     pump::{dispatch_pending, wait_for, wait_for_messages},
