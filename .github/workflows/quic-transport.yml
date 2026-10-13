@@ -53,10 +53,17 @@ jobs:
         with:
           toolchain: 1.97.0
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc
+      - name: Build the pinned seeded-netem tool
+        run: |
+          git init "$RUNNER_TEMP/quic-iproute2"
+          git -C "$RUNNER_TEMP/quic-iproute2" remote add origin https://git.kernel.org/pub/scm/network/iproute2/iproute2.git
+          git -C "$RUNNER_TEMP/quic-iproute2" fetch --depth=1 origin d2a8ffe85ac64f91ee2aa7679a5046f321b54127
+          git -C "$RUNNER_TEMP/quic-iproute2" checkout --detach FETCH_HEAD
+          make -C "$RUNNER_TEMP/quic-iproute2" -j2
       - name: Build the actual optimized transport probe
         run: cargo build --locked --release -p moirai-quic --example quic_load
       - name: Measure verified exchanges in task-owned namespaces
-        run: python3 scripts/quic_profiles.py --binary target/release/examples/quic_load --network netem --output output/quic/profiles.json
+        run: python3 scripts/quic_profiles.py --binary target/release/examples/quic_load --network netem --tc "$RUNNER_TEMP/quic-iproute2/tc/tc" --output output/quic/profiles.json
       - name: Preserve complete measurements and failure evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

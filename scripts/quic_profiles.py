@@ -10,11 +10,11 @@ import argparse
 import contextlib
 import dataclasses
 import json
-import os
 from pathlib import Path
 import platform
 import queue
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -39,13 +39,18 @@ SEED = 20261013
 
 
 def execute(arguments, **options):
-    return subprocess.run(arguments, check=True, text=True, capture_output=True,
-                          timeout=options.pop("timeout", 60), **options).stdout
+    result = subprocess.run(arguments, text=True, capture_output=True,
+                            timeout=options.pop("timeout", 60), **options)
+    if result.returncode:
+        sys.stderr.write(result.stderr)
+        result.check_returncode()
+    return result.stdout
 
 
 class Network:
-    def __init__(self, shaped):
+    def __init__(self, shaped, tc="tc"):
         self.shaped = shaped
+        self.tc = tc
         self.names = [f"moirai-quic-{uuid.uuid4().hex[:12]}-{role}" for role in ("client", "server")]
         self.created = []
         self.address = "192.0.2.2:4433" if shaped else "127.0.0.1:0"
@@ -81,13 +86,13 @@ class Network:
                 options.extend(["loss", profile.loss])
             if profile.rate:
                 options.extend(["rate", profile.rate])
-            execute([*self.prefix(role), "tc", "qdisc", "replace", "dev", interface,
+            execute([*self.prefix(role), self.tc, "qdisc", "replace", "dev", interface,
                      "root", *options])
 
     def counters(self):
         if not self.shaped:
             return None
-        return [json.loads(execute([*self.prefix(role), "tc", "-s", "-j", "qdisc", "show", "dev", interface]))
+        return [json.loads(execute([*self.prefix(role), self.tc, "-s", "-j", "qdisc", "show", "dev", interface]))
                 for role, interface in [(0, "quic-client"), (1, "quic-server")]]
 
     def close(self):
@@ -147,35 +152,49 @@ def main():
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--network", choices=["loopback", "netem"], default="loopback")
+    parser.add_argument("--tc", default="tc", help="Exact seeded-netem tool selected by the caller")
     arguments = parser.parse_args()
-    network = Network(arguments.network == "netem")
-    report = {"schema": 1, "network": arguments.network, "runner": platform.platform(),
+    network = Network(arguments.network == "netem", arguments.tc)
+    report = {"schema": 1, "status": "running", "network": arguments.network, "runner": platform.platform(),
               "revision": execute(["git", "rev-parse", "HEAD"]).strip(),
               "dirty": bool(execute(["git", "status", "--porcelain"])),
               "rustc": execute(["rustc", "-Vv"]), "seed": SEED, "runs": []}
     if network.shaped:
-        report["iproute2"] = execute(["tc", "-V"])
+        report["iproute2"] = execute([network.tc, "-V"])
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.ExitStack() as cleanup:
-        cleanup.callback(network.close)
-        network.setup()
-        for profile in PROFILES if network.shaped else PROFILES[:1]:
-            for streams in STREAMS:
-                for size in FRAME_BYTES:
-                    for repetition in range(REPETITIONS):
-                        network.shape(profile)
-                        record = {"profile": dataclasses.asdict(profile), "repetition": repetition,
-                                  "streams": streams, "bytes": size, "before": network.counters()}
-                        try:
-                            record["reports"] = pair(arguments.binary.resolve(strict=True), network, streams, size)
-                        except Exception as error:
-                            record["error"] = f"{type(error).__name__}: {error}"
-                            raise
-                        finally:
-                            record["after"] = network.counters()
-                            report["runs"].append(record)
-                            arguments.output.write_text(json.dumps(report, indent=2) + "\n")
-                        print(profile.name, streams, size, repetition, "verified", flush=True)
+    arguments.output.write_text(json.dumps(report, indent=2) + "\n")
+    try:
+        with contextlib.ExitStack() as cleanup:
+            cleanup.callback(network.close)
+            network.setup()
+            for profile in PROFILES if network.shaped else PROFILES[:1]:
+                for streams in STREAMS:
+                    for size in FRAME_BYTES:
+                        for repetition in range(REPETITIONS):
+                            network.shape(profile)
+                            record = {"profile": dataclasses.asdict(profile), "repetition": repetition,
+                                      "streams": streams, "bytes": size, "before": network.counters()}
+                            try:
+                                record["reports"] = pair(arguments.binary.resolve(strict=True), network, streams, size)
+                            except Exception as error:
+                                record["error"] = f"{type(error).__name__}: {error}"
+                                raise
+                            finally:
+                                record["after"] = network.counters()
+                                report["runs"].append(record)
+                                arguments.output.write_text(json.dumps(report, indent=2) + "\n")
+                            print(profile.name, streams, size, repetition, "verified", flush=True)
+    except Exception as error:
+        report["status"] = "failed"
+        report["error"] = f"{type(error).__name__}: {error}"
+        if isinstance(error, subprocess.CalledProcessError):
+            report["error_stdout"] = error.stdout
+            report["error_stderr"] = error.stderr
+        raise
+    else:
+        report["status"] = "passed"
+    finally:
+        arguments.output.write_text(json.dumps(report, indent=2) + "\n")
 
 
 if __name__ == "__main__":
