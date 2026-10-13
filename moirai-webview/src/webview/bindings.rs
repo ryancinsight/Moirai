@@ -9,7 +9,7 @@ use objc2::{
     runtime::ProtocolObject,
 };
 use objc2_foundation::{NSRect, NSURLRequest};
-use objc2_web_kit::{WKNavigation, WKNavigationDelegate, WKWebViewConfiguration};
+use objc2_web_kit::{WKNavigation, WKNavigationDelegate, WKUIDelegate, WKWebViewConfiguration};
 
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSView as PlatformView;
@@ -41,6 +41,10 @@ impl WebView {
             &self,
             delegate: Option<&ProtocolObject<dyn WKNavigationDelegate>>,
         );
+
+        // Protocol erasure is required by the system's Objective-C boundary.
+        #[unsafe(method(setUIDelegate:))]
+        pub(crate) fn set_ui_delegate(&self, delegate: Option<&ProtocolObject<dyn WKUIDelegate>>);
 
         #[unsafe(method(loadRequest:))]
         pub(crate) fn load(&self, request: &NSURLRequest) -> Option<Retained<WKNavigation>>;

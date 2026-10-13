@@ -99,7 +99,7 @@ impl SceneDelegate {
             .ok_or_else(|| io::Error::other("application scene is not a window scene"))?;
         let mtm = self.mtm();
         let window = UIWindow::initWithWindowScene(UIWindow::alloc(mtm), scene);
-        let content = webview::Content::new(root, mtm);
+        let content = webview::Content::new(root, mtm)?;
         let view = webview::create(&content, window.bounds())?;
         let controller = UIViewController::new(mtm);
         controller.setTitle(Some(&NSString::from_str(&title)));

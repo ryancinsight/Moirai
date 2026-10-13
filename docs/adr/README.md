@@ -79,3 +79,4 @@
 | [0071](0071-bind-remote-reply-before-dispatch.md) | Bind the remote reply receiver before dispatch | Accepted |
 | [0072](0072-browser-bodyless-responses.md) | Interpret browser bodyless responses before byte admission | Accepted |
 | [0073](0073-apple-native-window-commands.md) | Rust-owned AppKit application and window commands | Accepted |
+| [0074](0074-apple-external-links.md) | Host-authorized Apple external links | Accepted |

@@ -66,7 +66,7 @@ pub(super) fn run(
     title: &str,
     mtm: objc2::MainThreadMarker,
 ) -> io::Result<()> {
-    let content = webview::Content::new(resources, mtm);
+    let content = webview::Content::new(resources, mtm)?;
     let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(800.0, 600.0));
     let view = webview::create(&content, rect)?;
     let app = NSApplication::sharedApplication(mtm);

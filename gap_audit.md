@@ -3,6 +3,17 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Apple external link evidence — 2026-10-13 [minor]
+
+The starter's new-window logo has no native popup handler before
+moirai-webview 0.2.0. The provider now owns exact HTTPS validation, signed
+bundle authority and one OS handoff in WKUIDelegate, with no remote WebView.
+Twenty policy/resource/Foundation tests and 196 compatibility checks pass.
+The real native preview records one successful Metis link handoff. Canonical
+consumer rebuild and visual browser evidence remain consumer gates; automatic
+approval review blocks Safari inspection because of unrelated signed-in
+content. LinkActivated does not prove event trust (ADR 0074).
+
 ## Stream dictionary regression — 2026-10-12 [patch]
 
 The real Metis HTTP page fails at Fetch stream decoding because a Web IDL

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.2] - Unreleased
 
+### Added
+
+- `moirai-webview` 0.2.0 validates host-owned exact HTTPS destinations from
+  `MoiraiExternalLinks` bundle metadata and hands admitted popup links to the
+  operating system browser. AppKit and UIKit share the same bounded Rust
+  policy; remote content never replaces the packaged frame (ADR 0074).
+
 ### Fixed
 
 - Interpret bodyless Fetch statuses before payload admission. A 304's
