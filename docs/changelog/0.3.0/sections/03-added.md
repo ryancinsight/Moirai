@@ -30,3 +30,4 @@
   `HybridExecutor<S>`; the default type parameter keeps every existing call site
   unchanged.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

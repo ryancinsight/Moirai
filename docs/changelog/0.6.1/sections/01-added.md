@@ -157,3 +157,4 @@
   ~7.2 MB high-water worker scratch at quiescence
   (`ATLAS-APOLLO-WORKER-RETENTION-2026-09-03`).
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

@@ -6,3 +6,4 @@
   bodies, or trickling header bytes — every read now funnels through one
   size-checked chokepoint, and an oversized `Content-Length` is rejected up front.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

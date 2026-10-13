@@ -48,3 +48,4 @@
 - Bind the `mnemosyne` and `mnemosyne_core` crate aliases to packages
   `mnemosyne-memory` and `mnemosyne-memory-core` while preserving Rust imports.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

@@ -18,3 +18,4 @@
   Verified by the full async net suite plus direct reactor tests (readiness
   delivery, wake interruption, stale-socket self-cleaning).
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

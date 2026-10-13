@@ -36,3 +36,4 @@
   construct the runtime via `moirai::Moirai`/the global runtime rather than the
   removed scheduler types directly.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

@@ -19,3 +19,5 @@ Historical sections, in recorded order:
 - [15. Added](sections/15-added.md)
 - [16. Fixed](sections/16-fixed.md)
 - [17. Changed](sections/17-changed.md)
+
+[Current changelog](../../../CHANGELOG.md)

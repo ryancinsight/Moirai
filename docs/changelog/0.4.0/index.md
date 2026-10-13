@@ -36,3 +36,4 @@
   `close`/`is_closed`/`len`/`stats` — implementors must provide or accept
   default impls.
 
+[Current changelog](../../../CHANGELOG.md)

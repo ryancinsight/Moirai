@@ -40,3 +40,4 @@
   planner consumes that same public type, preventing downstream providers
   from splitting the planner contract across Mnemosyne source revisions.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

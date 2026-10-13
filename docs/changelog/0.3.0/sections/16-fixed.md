@@ -16,3 +16,4 @@
   computation (`numerical_discipline`); documented the limiter's approximate
   (non-hard-quota) semantics.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

@@ -229,3 +229,4 @@
   whose `Drop` panics aborts instead of unwinding out of job execution.
 
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

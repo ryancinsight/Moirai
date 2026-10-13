@@ -29,3 +29,4 @@
   fan-out use `moirai_parallel`'s data-parallel operators or
   `moirai_executor::global()`.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

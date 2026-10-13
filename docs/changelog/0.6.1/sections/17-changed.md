@@ -7,3 +7,4 @@
   `moirai-core` or `moirai-pal` public item changes (cargo-semver-checks
   against 0.6.0 reports no required update).
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

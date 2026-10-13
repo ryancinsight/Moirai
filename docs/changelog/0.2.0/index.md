@@ -199,3 +199,4 @@
 - Added comprehensive documentation for utility functions
 - Added AtomicCounter fetch_add method for benchmark compatibility
 
+[Current changelog](../../../CHANGELOG.md)

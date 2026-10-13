@@ -57,3 +57,4 @@
   paths assert their full-queue state before timing and use bounded Criterion
   windows; the rows compare rejection latency only, not scheduler semantics.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

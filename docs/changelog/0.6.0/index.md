@@ -14,3 +14,4 @@
   0.6.0, with the scheduler, iterator, and GPU surfaces sharing the current
   first-party dependency contracts.
 
+[Current changelog](../../../CHANGELOG.md)

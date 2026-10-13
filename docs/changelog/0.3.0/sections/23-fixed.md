@@ -6,3 +6,4 @@
 - Fixed async `RwLock` release-handoff coverage by adding value-semantic tests for final-reader-to-writer and writer-to-multiple-reader grant paths.
 - Fixed utility SIMD benchmark coverage so the wide vector-addition row asserts expected values before timing and benchmark contracts reject reintroduced type-suffixed private SIMD routing.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

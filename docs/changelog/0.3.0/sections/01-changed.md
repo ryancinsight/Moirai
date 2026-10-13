@@ -16,3 +16,4 @@
 - The Mnemosyne facade contract now targets 0.3.0, removing the obsolete 0.2
   facade and its duplicate backend type identity from integrated consumers.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

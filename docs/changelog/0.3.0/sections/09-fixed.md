@@ -28,3 +28,4 @@
 - `moirai-async` `io::compat`: feature-gate the `tokio-compat`-only imports so the
   crate is warning-clean without the feature.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

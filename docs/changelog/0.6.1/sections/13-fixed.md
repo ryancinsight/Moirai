@@ -28,3 +28,4 @@
   exactly once on whichever lane reaches it, and backpressure makes a join
   sequential rather than fatal.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

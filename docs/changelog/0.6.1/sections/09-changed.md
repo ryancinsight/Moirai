@@ -132,3 +132,4 @@
   to their published package identities, and correct registry metadata to the
   owning repository.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

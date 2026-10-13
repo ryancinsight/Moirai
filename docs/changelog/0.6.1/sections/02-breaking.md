@@ -22,3 +22,4 @@
   instead of Moirai's pool, with the same results. Migration: move those
   dependencies to `themis-topology` 0.11 and `melinoe` 0.10.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

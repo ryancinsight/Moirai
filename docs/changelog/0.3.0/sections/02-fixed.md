@@ -31,3 +31,4 @@
   the reactor remains `Send + Sync` without an unsafe marker implementation or
   a per-poll allocation.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

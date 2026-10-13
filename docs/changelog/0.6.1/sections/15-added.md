@@ -26,3 +26,4 @@
   is published, then publish the same artifacts to PyPI through OIDC Trusted
   Publishing.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

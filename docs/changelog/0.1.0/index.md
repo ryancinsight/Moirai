@@ -57,3 +57,5 @@
 - **Architecture Guide**: Detailed design documentation
 - **Performance Guide**: Optimization recommendations
 - **Migration Guide**: From std::thread and other frameworks
+
+[Current changelog](../../../CHANGELOG.md)

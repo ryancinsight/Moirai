@@ -22,3 +22,4 @@
   behaviour is unchanged, since the table was cleared on single-node hosts
   anyway. The same-node steal tier remains for injected assignments.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

@@ -32,3 +32,4 @@
   cleared the single-permit flag, so a subsequent `notified().await` could block
   forever. Regression test `notify_waiters_preserves_stored_notify_one_permit`.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

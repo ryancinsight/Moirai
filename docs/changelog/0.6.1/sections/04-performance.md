@@ -12,3 +12,4 @@
   `for_each_chunk_mut_with_state`: 23.84 us/call with 77 allocations before,
   10.50 us/call with none after.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

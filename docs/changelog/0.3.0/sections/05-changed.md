@@ -75,3 +75,4 @@
   separate cache lines, eliminating intra- and inter-deque false sharing; a
   compile-time assertion locks the ≥64-byte alignment invariant.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

@@ -8,3 +8,4 @@
   documents that it consumes the message on `Full`/`Closed`; callers needing the
   value back to retry use `try_send`. `overflow_count` is documented as advisory.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

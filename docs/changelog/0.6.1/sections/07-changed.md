@@ -121,3 +121,4 @@
   remaining allocation owns the wakers until callers release the state lock and
   wake them.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

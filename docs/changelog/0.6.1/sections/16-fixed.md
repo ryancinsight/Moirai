@@ -57,3 +57,4 @@
   check, wait for the lock, and then poll a future that completed meanwhile —
   which panics with "resumed after completion".
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

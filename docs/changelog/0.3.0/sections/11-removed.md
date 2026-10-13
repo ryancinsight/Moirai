@@ -4,3 +4,4 @@
   a channel generic over an arbitrary `Send` `T` cannot serialize for transport).
   The working archive channels (above) are their realized replacement.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

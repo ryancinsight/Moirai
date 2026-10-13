@@ -11,3 +11,4 @@
 - The optional Mnemosyne integration now requires mnemosyne-memory 0.7.0;
   consumers must update their dependency graph to the 0.7 provider line.
 
+[Current changelog](../../../CHANGELOG.md)

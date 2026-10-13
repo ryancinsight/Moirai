@@ -17,3 +17,4 @@
   `ConnectionManager::{state, is_connected, connected_addresses}` query methods;
   `ConnectionState` is now a public, `Copy` enum.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

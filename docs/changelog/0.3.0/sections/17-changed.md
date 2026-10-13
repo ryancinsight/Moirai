@@ -8,3 +8,4 @@
   `add_connection`/`add_connection_reserved` return the id. Streams untrack by id
   at drop. (Pre-1.0 breaking change to the connection-pool surface.)
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

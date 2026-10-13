@@ -103,3 +103,4 @@
 - Added a registry-owned after-send quiescent diagnostic row to separate public result availability from worker-tail metrics completion.
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

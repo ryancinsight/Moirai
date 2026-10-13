@@ -10,3 +10,4 @@
   performs identically. `DequeCapacity::minimum()` and `ChaseLevDeque::capacity`
   are new. ADR 0035 carries the dated revision.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

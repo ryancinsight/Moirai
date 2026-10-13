@@ -31,3 +31,4 @@
   than `len / (workers * 8)` so fork count follows machine width rather than
   input size. `ThreadPool` remains for flat fan-out only.
 
+[Version 0.6.1 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

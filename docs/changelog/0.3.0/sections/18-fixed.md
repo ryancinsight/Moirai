@@ -51,3 +51,4 @@
   for the exponential delay so a pathologically large base delay cannot overflow
   (panic under `overflow-checks`).
 
+[Version 0.3.0 index](../index.md) · [Current changelog](../../../../CHANGELOG.md)

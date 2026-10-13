@@ -30,3 +30,5 @@ Historical sections, in recorded order:
 - [21. Changed](sections/21-changed.md)
 - [22. Breaking](sections/22-breaking.md)
 - [23. Fixed](sections/23-fixed.md)
+
+[Current changelog](../../../CHANGELOG.md)
