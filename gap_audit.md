@@ -13,14 +13,16 @@ slice. Quinn uses Tokio sync primitives without its runtime and links ring's
 native code. Shared readiness retires notifications under the registration lock;
 legacy UDP allocates no fan-out state until the shared poller API is used.
 
-All 129 PAL/facade/QUIC tests pass against the canonical Git lock without path
+All 187 HTTP/PAL/facade/QUIC tests pass against the canonical Git lock without path
 patches; native warning-denying Clippy and changed-source formatting pass.
 Native loopback checks cover full byte domains, finite loss and pathological
 perpetual loss, certificate/name/ALPN/mutual-TLS rejection, truncation, resource
 limits, stopped spawners, FIN acknowledgement and sibling isolation. The earlier
 readiness implementation deadlocks under the new late-subscriber regression;
-the corrected transition passes. Compatibility runs 669 applicable checks with
-the stricter patch override against 0.8.2. Canonical provider promotion and
+the corrected transition passes. Compatibility runs 892 applicable checks with
+the stricter patch override against 0.8.2. Metis passes 176 real backend/IPC/core
+tests and native workspace checks against the published Git provider with no
+path patches. The two-process mutual-TLS CLI passes on IPv4 and IPv6. Canonical provider promotion and
 Windows/Linux execution remain release gates; no wide-area performance or
 migration result is inferred from loopback correctness.
 

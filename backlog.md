@@ -13,8 +13,8 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Moirai 0.9.0 and moirai-quic 0.1.0 are available at the canonical provider revision; Metis resolves its Git lock from that published source.
 - acceptance: ADR 0075, real UDP interoperability/loss/bounds/cancellation tests, clean native diagnostics, compatibility checks and canonical Git lock pass before promotion. Windows/Linux transport evidence remains a platform gate.
 - scope: provider publication and consumer revision adoption; no credentials or trust-store configuration.
-- current increment: native QUIC, shared readiness, fallible facade spawning, bounded framing and fresh-key Metis session integration are implemented. Source verification uses real components; default-branch publication remains pending.
-- next step: review/publish the provider branch, then resolve and verify Metis's exact consumer revision and lock.
+- current increment: native QUIC, shared readiness, fallible facade spawning, bounded framing and fresh-key Metis sessions are implemented in [PR 618](https://github.com/ryancinsight/Moirai/pull/618). Canonical verification passes 187 provider and 176 consumer tests; the consumer Git lock pins published source. Default-branch promotion remains pending.
+- next step: review/promote provider and dependent consumer changes; collect Windows/Linux native transport evidence before release.
 
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts

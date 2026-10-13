@@ -2,6 +2,10 @@
 
 use std::io;
 
+mod close;
+pub use close::WebSocketPeerClosed;
+use close::{parse_close_payload, protocol_error};
+
 use moirai_async::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use moirai_async::timer::timeout;
 
@@ -117,7 +121,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> WebSocketStream<S> {
         let mut payload = Vec::with_capacity(capacity);
         payload.extend_from_slice(&code.to_be_bytes());
         payload.extend_from_slice(reason);
-        validate_close_payload(&payload)?;
+        parse_close_payload(&payload)?;
         let timeout_duration = self.config.frame_timeout;
         let result = match timeout(timeout_duration, self.send_frame(CLOSE, &payload)).await {
             Ok(result) => result,
@@ -188,13 +192,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> WebSocketStream<S> {
             }
             if opcode == CLOSE {
                 let payload = self.read_payload(payload_length, mask).await?;
-                validate_close_payload(&payload)?;
+                let peer_close = WebSocketPeerClosed::from(parse_close_payload(&payload)?);
                 self.closed = true;
                 self.send_frame(CLOSE, &payload).await?;
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "WebSocket peer closed the connection",
-                ));
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, peer_close));
             }
             return Err(protocol_error("WebSocket frame opcode is not supported"));
         }
@@ -322,30 +323,6 @@ impl<S: AsyncRead + AsyncWrite + Unpin> WebSocketStream<S> {
     {
         self.stream.output_bytes()
     }
-}
-
-fn validate_close_payload(payload: &[u8]) -> io::Result<()> {
-    if payload.len() == 1 {
-        return Err(protocol_error("WebSocket close payload has one byte"));
-    }
-    if payload.len() >= 2 {
-        let code = payload
-            .get(..2)
-            .and_then(|bytes| bytes.try_into().ok())
-            .map(u16::from_be_bytes)
-            .ok_or_else(|| protocol_error("WebSocket close code is truncated"))?;
-        let valid_range = (1000..=2999).contains(&code) || (3000..=4999).contains(&code);
-        if !valid_range || matches!(code, 1004 | 1005 | 1006 | 1015) {
-            return Err(protocol_error("WebSocket close code is reserved"));
-        }
-        std::str::from_utf8(payload.get(2..).unwrap_or_default())
-            .map_err(|_| protocol_error("WebSocket close reason is not UTF-8"))?;
-    }
-    Ok(())
-}
-
-fn protocol_error(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
 fn timed_out(operation: &str) -> io::Error {

@@ -14,13 +14,13 @@ moirai-core.workspace = true
 moirai-async.workspace = true
 moirai-pal.workspace = true
 quinn.workspace = true
-tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing.workspace = true
 
 [dev-dependencies]
 moirai-executor.workspace = true
 futures = "0.3"
-tracing = { version = "0.1", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
 proptest.workspace = true
 
 [lints]

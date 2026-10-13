@@ -1303,6 +1303,8 @@ dependencies = [
  "moirai-crypto",
  "moirai-runtime",
  "moirai-tls",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

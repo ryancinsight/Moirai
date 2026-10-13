@@ -1,6 +1,9 @@
 # ADR 0075: QUIC multiplexed native sessions
 
-Date: 2026-10-13. Status: Accepted for the user-requested transport increment.
+Date: 2026-10-13
+Status: Accepted
+
+Decision scope: the user-requested native transport increment.
 Change class: [minor]. Target: workspace 0.9.0.
 
 ## Intent and boundaries
@@ -79,3 +82,11 @@ References: [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000),
 [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001),
 [RFC 9114](https://www.rfc-editor.org/rfc/rfc9114),
 [Quinn runtime interface](https://docs.rs/quinn/0.11.12/quinn/trait.Runtime.html).
+
+## Typed session closure
+
+The shared native session seam identifies a validated WebSocket close through
+`WebSocketPeerClosed`, preserving its status/reason and keeping truncated input
+as an error. Close validation returns borrowed fields; only a received peer
+close allocates its owned diagnostic cause. No diagnostic string establishes
+protocol state.

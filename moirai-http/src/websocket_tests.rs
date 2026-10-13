@@ -291,3 +291,84 @@ fn close_frame_is_terminal_and_echoed() {
     let error = moirai::block_on(stream.recv_message()).expect_err("closed stream");
     assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
 }
+
+fn trace_validation() -> tracing::subscriber::DefaultGuard {
+    tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_max_level(tracing::Level::TRACE)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+            .finish(),
+    )
+}
+
+#[test]
+fn clean_close_retains_validated_wire_code_and_unicode_reason() {
+    let _trace = trace_validation();
+    for (payload, code, reason) in [
+        (Vec::new(), None, ""),
+        (
+            [1000_u16.to_be_bytes().as_slice(), "closed λ".as_bytes()].concat(),
+            Some(1000),
+            "closed λ",
+        ),
+        (
+            [4999_u16.to_be_bytes().as_slice(), b"application"].concat(),
+            Some(4999),
+            "application",
+        ),
+    ] {
+        let _case = tracing::info_span!("peer_close", payload_bytes = payload.len()).entered();
+        let mut connection = {
+            let _phase = tracing::info_span!("arrange").entered();
+            stream(masked_frame(CLOSE, &payload, [17, 29, 43, 71]))
+        };
+        let error = {
+            let _phase = tracing::info_span!("act").entered();
+            moirai::block_on(connection.recv_message()).expect_err("peer close")
+        };
+        let _phase = tracing::info_span!("assert").entered();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        let close = error
+            .get_ref()
+            .and_then(|cause| cause.downcast_ref::<WebSocketPeerClosed>())
+            .expect("validated close retains its typed cause");
+        assert_eq!(close.code(), code);
+        assert_eq!(close.reason(), reason);
+        let mut acknowledgement = vec![
+            FIN | CLOSE,
+            u8::try_from(payload.len()).expect("bounded control frame"),
+        ];
+        acknowledgement.extend_from_slice(&payload);
+        assert_eq!(connection.output_bytes(), acknowledgement);
+    }
+}
+
+#[test]
+fn truncated_frames_and_invalid_close_payloads_never_report_a_clean_peer_close() {
+    let _trace = trace_validation();
+    for frame in [
+        vec![FIN | BINARY, MASK | 1, 0, 0, 0, 0],
+        masked_frame(CLOSE, &[3], [17, 29, 43, 71]),
+        masked_frame(CLOSE, &1005_u16.to_be_bytes(), [17, 29, 43, 71]),
+        masked_frame(CLOSE, &[3, 232, 255], [17, 29, 43, 71]),
+    ] {
+        let _case = tracing::info_span!("invalid_close", frame_bytes = frame.len()).entered();
+        let mut connection = {
+            let _phase = tracing::info_span!("arrange").entered();
+            stream(frame)
+        };
+        let error = {
+            let _phase = tracing::info_span!("act").entered();
+            moirai::block_on(connection.recv_message()).expect_err("invalid or truncated frame")
+        };
+        let _phase = tracing::info_span!("assert").entered();
+        assert!([io::ErrorKind::UnexpectedEof, io::ErrorKind::InvalidData].contains(&error.kind()));
+        assert!(
+            error
+                .get_ref()
+                .is_none_or(|cause| !cause.is::<WebSocketPeerClosed>())
+        );
+        assert_eq!(connection.output_bytes(), b"");
+    }
+}

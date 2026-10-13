@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `WebSocketPeerClosed` carries a validated close code/reason as an I/O cause;
+  native session dispatch identifies clean closure without comparing diagnostics.
 - `moirai-quic` 0.1.0: TLS 1.3 native QUIC with explicit trust roots, optional
   mutual TLS, validated ALPN, reliable multiplexed streams, bounded connection,
   stream/handshake/frame admission and finite operation deadlines (ADR 0075).
