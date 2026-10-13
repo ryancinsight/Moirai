@@ -78,3 +78,4 @@
 | [0070](0070-shared-scheduler-scope-wait.md) | Share the scheduler wait primitive across borrowing scopes | Accepted |
 | [0071](0071-bind-remote-reply-before-dispatch.md) | Bind the remote reply receiver before dispatch | Accepted |
 | [0072](0072-browser-bodyless-responses.md) | Interpret browser bodyless responses before byte admission | Accepted |
+| [0073](0073-apple-native-window-commands.md) | Rust-owned AppKit application and window commands | Accepted |
