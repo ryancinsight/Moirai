@@ -188,7 +188,7 @@ fn packaged_existing_frames_remain_admitted_and_empty_policy_denies_external() {
     for links in tracing::info_span!("arrange").in_scope(|| {
         [
             ExternalLinks::default(),
-            ExternalLinks::new([] as [&str; 0]).expect("empty policy"),
+            ExternalLinks::new(std::iter::empty::<&str>()).expect("empty policy"),
         ]
     }) {
         for destination in [SOURCE, "metis://app/other.html?revision=2#part"] {
