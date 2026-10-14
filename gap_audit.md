@@ -5,10 +5,22 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
+Fresh Linux native validation passes at 03d640b8. The fresh Windows QUIC job
+fails six unused-WebView diagnostics because the shared-limits module compiles
+without its optional WebView2 consumer. Installed MSVC cross-compilation
+reproduces the same failure. The corrected module predicate is
+`(Windows && WebView2) || Browser || Test`; default Windows diagnostics pass
+without suppression. Default, minimal and WebView2-enabled Windows PAL
+cross-compilation and strict browser PAL diagnostics pass. The complete native
+workspace still passes 1,329 tests with its nine existing ignored probes.
+Actual Windows WebView2/capture execution passes at 03d640b8; the final native
+QUIC runtime must still pass at the corrected revision.
+
 Current-main integration uses 7828f5df and preserves PR 617 capture admission
 and PNG validation plus PR 619 page mechanisms. The transport/evidence audit
-compares 47 paths with the previous PR head and 64 code paths with main; all
-match, allowing only the UDP ADR comment renumbering. The socket-test split
+compares 47 paths with the previous PR head; all match, allowing only the UDP
+ADR comment renumbering. Of 64 main code paths, 63 retain exact bytes and the
+private PAL module gate follows its actual optional consumers. The socket-test split
 requires its two leaf fixtures in the embedded benchmark inventory; the
 unmodified contract fails without them and the complete corrected workspace
 passes 1,329 tests (nine existing ignored probes). The native integration suite

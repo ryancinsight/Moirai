@@ -87,6 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Compile shared WebView limits only for opted-in Windows WebView2,
+  browser consumers or portable tests. Default/minimal Windows transport
+  builds retain strict diagnostics without unused optional-provider state.
 - [patch] The embedded benchmark source inventory includes both socket-test
   leaves after the TCP/UDP split; loopback, readiness, backpressure and
   cancellation assertions retain their full computed-value requirements.
