@@ -26,5 +26,7 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [ ] [minor] Complete protected default-branch promotion before release.
 - [x] [minor] Specify bounded stock-controller selection and matched full-matrix/shared-queue measurements in ADR 0079; preserve CUBIC as the default.
 - [ ] [patch] Complete and archive 108 original pairs per policy, competing-flow fairness, latency and queue-growth evidence; retain every failure and the original promotion gate.
+- [x] [patch] Archive the complete first stock-policy comparison and all 30 shared-queue experiments; independently validate actual network settings, complete bytes, rates, percentiles, sampled fairness and queue evidence, including two failed collector cleanups.
+- [x] [patch] Correct observer/namespace cleanup ordering and preserve failure origin before endpoint drain; all 21 real QUIC tests and strict diagnostics pass. A fresh complete Linux comparison remains required.
 
 Next increment: evaluate the recorded recovery-policy limit with matched full-domain and competing-flow measurements, then complete protected review/promotion for [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and its dependent Metis change.

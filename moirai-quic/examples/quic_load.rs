@@ -56,9 +56,24 @@ fn probe<const RESPONDER: bool>(address: SocketAddr, plan: Plan) -> ProbeResult<
         Duration::from_secs(60),
         run::<RESPONDER>(&endpoint, address, plan, started),
     ));
+    // Preserve the originating error before a peer observes connection close
+    // and its controller terminates this process during endpoint drain.
+    match &outcome {
+        Err(error) => {
+            tracing::error!(phase = "pair", %error, "load probe fails before endpoint drain")
+        }
+        Ok(Err(error)) => {
+            tracing::error!(phase = "exchange", %error, "load probe fails before endpoint drain")
+        }
+        Ok(Ok(_)) => {}
+    }
     endpoint.close();
-    moirai_executor::block_on(endpoint.wait_idle())?;
+    let drained = moirai_executor::block_on(endpoint.wait_idle());
+    if let Err(error) = &drained {
+        tracing::error!(phase = "drain", %error, "load probe endpoint drain fails");
+    }
     let result = outcome??;
+    drained?;
     println!(
         "{}",
         serde_json::to_string(&report::<RESPONDER>(plan, result)?)?

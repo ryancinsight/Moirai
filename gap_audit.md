@@ -8,8 +8,17 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 ADR 0079 defines matched stock CUBIC, NewReno and experimental-BBR evaluation.
 Policy selection preserves the original CUBIC default and all security/resource
 contracts. The independent original 108-pair promotion job remains unchanged.
-Comparison and shared-queue results are pending; no recovery correction or
-fairness/latency/queue-growth acceptance is claimed from the configuration seam.
+The first comparison records 105/108 CUBIC, 104/108 NewReno and 107/108
+experimental-BBR complete reports; two failures come from collector cleanup
+and obscure those pair outcomes. They remain failed experiments. All three
+maximum loss cases fail under CUBIC/NewReno and complete under experimental
+BBR, whose mixed-policy sampled fairness and larger queues prevent default
+selection. The collector joins its observer before namespace cleanup and checks
+actual absence after a raced kill; a fresh complete matrix is required. All
+30 competing experiments retain zero UDP-error deltas. One unshaped CUBIC pair
+records two receive-buffer drops and still verifies all bytes; controlled loss
+failures retain zero error deltas. No root-cause closure follows from that
+unshaped observation. The recovery gap and protected promotion gate remain open.
 
 Fresh Linux native validation passes at 03d640b8. The fresh Windows QUIC job
 fails six unused-WebView diagnostics because the shared-limits module compiles

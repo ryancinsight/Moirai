@@ -110,7 +110,16 @@ class Network:
             if any(not value.isdecimal() or int(value) <= 1 for value in processes):
                 raise RuntimeError("owned namespace process inventory is invalid")
             if processes:
-                execute(["sudo", "kill", "-KILL", *processes])
+                result = subprocess.run(["sudo", "kill", "-KILL", *processes],
+                                        text=True, capture_output=True, timeout=60)
+                if result.returncode:
+                    # An inventoried process can exit before kill. Accept that
+                    # race only after a fresh kernel inventory proves the owned
+                    # namespace is empty; retain real cleanup/permission errors.
+                    remaining = execute(["sudo", "ip", "netns", "pids", self.names[role]]).split()
+                    if remaining:
+                        sys.stderr.write(result.stderr)
+                        result.check_returncode()
 
     def close(self):
         for role in range(len(self.names)):
@@ -133,7 +142,8 @@ def verify(report, responder, streams, size):
         assert report[f"p{percent}_ns"] == samples[(percent * len(samples) + 99) // 100 - 1]
 
 
-def pair(binary, network, streams, size, *, policy="cubic", address=None, barrier=None):
+def pair(binary, network, streams, size, *, policy="cubic", address=None, barrier=None,
+         cleanup_namespace=True):
     deadline = time.monotonic() + 60
     command = [str(binary), "server", address or network.address, str(streams), str(MESSAGES), str(size), policy]
     server = subprocess.Popen([*network.prefix(1), *command], text=True,
@@ -163,7 +173,16 @@ def pair(binary, network, streams, size, *, policy="cubic", address=None, barrie
         failure = sys.exception()
         # A shared-queue experiment owns several pairs in these namespaces.
         # The controller drains/kills its namespace only after all pairs finish.
-        if barrier is None:
+        if failure is not None and server.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                try:
+                    # An early client failure still leaves its peer the
+                    # original budget to emit the originating failure/drain.
+                    server.communicate(timeout=min(5, remaining))
+                except subprocess.TimeoutExpired:
+                    pass
+        if cleanup_namespace:
             network.stop(0)
             network.stop(1)
         if server.poll() is None:

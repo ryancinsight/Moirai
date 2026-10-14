@@ -90,7 +90,12 @@ def matrix(binary, network, repetition):
                   "bytes": size, "repetition": repetition,
                   "before": network.counters()}
         with QueueSamples(network) as queues:
-            record.update(record_pair(binary, network, streams, size, policy))
+            record.update(record_pair(binary, network, streams, size, policy,
+                                      cleanup_namespace=False))
+        # Join the observer before namespace-wide process cleanup. Its short
+        # kernel counter readers are not transport processes to terminate.
+        network.stop(0)
+        network.stop(1)
         record["queue_samples"] = queues.samples
         record["after"] = network.counters()
         yield record
@@ -109,7 +114,7 @@ def fairness(binary, network, repetition):
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as workers:
                     tasks = [workers.submit(record_pair, binary, network, 16, 65_560,
                                              policy, address=f"192.0.2.2:{4433 + index}",
-                                             barrier=barrier)
+                                             barrier=barrier, cleanup_namespace=False)
                              for index, policy in enumerate(policies)]
                     record["flows"] = [task.result(timeout=70) for task in tasks]
             network.stop(0)

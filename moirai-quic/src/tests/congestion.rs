@@ -88,3 +88,53 @@ fn selected_controllers_preserve_authenticated_bytes_and_acknowledged_fin() {
     }
     moirai_core::executor::ExecutorControl::shutdown(executor.as_ref());
 }
+
+use std::any::TypeId;
+use std::time::Instant;
+
+#[test]
+fn stock_factories_preserve_controller_identity_and_compute_distinct_loss_responses() {
+    let _trace = trace();
+    let _arrange = tracing::info_span!("arrange").entered();
+    let now = Instant::now();
+    // Published Quinn defaults: CUBIC/NewReno start at 10*1200 bytes;
+    // experimental BBR starts at 200*1200 bytes. Stock loss multipliers
+    // are 7/10 and 1/2 respectively; BBR records loss for its ACK phase.
+    let cases = [
+        (
+            CongestionPolicy::Cubic,
+            TypeId::of::<quinn::congestion::Cubic>(),
+            12_000,
+            8_400,
+        ),
+        (
+            CongestionPolicy::NewReno,
+            TypeId::of::<quinn::congestion::NewReno>(),
+            12_000,
+            6_000,
+        ),
+        (
+            CongestionPolicy::ExperimentalBbr,
+            TypeId::of::<quinn::congestion::Bbr>(),
+            240_000,
+            240_000,
+        ),
+    ];
+    drop(_arrange);
+    for (policy, identity, initial, reduced) in cases {
+        let _act = tracing::info_span!("act", ?policy).entered();
+        let mut controller = policy.factory().build(now, 1200);
+        assert_eq!(controller.initial_window(), initial);
+        assert_eq!(controller.window(), initial);
+        controller.on_congestion_event(
+            now + Duration::from_millis(2),
+            now + Duration::from_millis(1),
+            false,
+            1200,
+        );
+        drop(_act);
+        let _assert = tracing::info_span!("assert").entered();
+        assert_eq!(controller.window(), reduced);
+        assert_eq!(controller.into_any().as_ref().type_id(), identity);
+    }
+}

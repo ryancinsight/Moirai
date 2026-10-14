@@ -15,6 +15,11 @@ socket overflow, but do not identify its complete cause.
 
 Expose one bounded configuration choice over the pinned Quinn controllers:
 CUBIC (the unchanged default), NewReno, and explicitly experimental BBR.
+The pinned stock initial windows differ: CUBIC/NewReno use 12,000 bytes and
+experimental BBR uses 240,000 bytes. These values remain unchanged; the study
+compares complete stock configurations rather than attributing all differences
+to the steady-state recovery algorithm. BBR also randomizes its gain-cycle
+offset internally; the shared netem seed does not seed that upstream RNG.
 Select Quinn's factory once when constructing transport configuration. Quinn
 continues to own the controller algorithms and its erased controller ABI;
 Moirai adds neither a parallel transport nor a cloned recovery algorithm.
@@ -67,6 +72,19 @@ unrelated security/framing types without removing Quinn's existing erased ABI.
 An enum selects existing supported factories at construction and preserves one
 transport API. Tests check policy selection and real authenticated bytes/FIN;
 the full Linux matrix and shared-queue experiments provide performance evidence.
+
+## Collector lifecycle evidence
+
+The first full comparison exposes two cleanup failures while a queue observer
+can still own short-lived namespace readers. Join that observer before
+namespace-wide process cleanup. An inventoried process can exit before kill;
+accept a failed kill only after a fresh kernel inventory proves the owned
+namespace empty. A remaining process preserves the actual cleanup error.
+Log primary probe errors before endpoint drain and retain drain errors as
+additional diagnostics. None of these lifecycle corrections changes workload,
+security, congestion algorithms or successful-exchange timing. Archive the
+unsuccessful experiment and rerun all original cases, without reconstructing
+successful reports or splicing adjacent repetitions into an acceptance matrix.
 
 References: [Quinn's controller catalog](https://docs.rs/quinn/0.11.12/quinn/congestion/index.html),
 [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002),

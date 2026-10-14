@@ -154,7 +154,7 @@ impl QuicConfig {
             .checked_mul(u64::from(self.max_streams))
             .ok_or(QuicError::InvalidConfig("connection window overflows"))?;
         let mut transport = quinn::TransportConfig::default();
-        self.congestion_policy.configure(&mut transport);
+        transport.congestion_controller_factory(self.congestion_policy.factory());
         transport.max_concurrent_bidi_streams(self.max_streams.into());
         transport.max_concurrent_uni_streams(0_u8.into());
         transport.stream_receive_window(

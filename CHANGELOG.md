@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same authenticated transport. ADR 0079 preserves the original full-matrix
   promotion gate and adds shared-queue evidence collection without changing
   deadlines, flow-control windows, socket buffers or security contracts.
+- [patch] Archive unsuccessful stock-policy experiments and correct measured
+  observer/namespace-cleanup races. Verify kernel process absence before
+  accepting a raced kill; retain real cleanup errors. Log originating probe
+  failures before endpoint drain without emitting successful partial reports.
 
 - [minor] PAL-owned applied UDP buffer/broadcast/multicast configuration and
   effective kernel queue readback, shared by async UDP and QUIC. QUIC queue
