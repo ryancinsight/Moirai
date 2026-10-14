@@ -6,6 +6,15 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-WEBVIEW-STARTUP-OBSERVATION-2026-10-14"></a>
+## MOI-WEBVIEW-STARTUP-OBSERVATION-2026-10-14 [patch] — Verify private native startup observations
+- status: todo
+- priority: correctness
+- outcome: Explicit fixture selection retains actual resource/error/DOM evidence before consumer Ready without changing public API or deadlines.
+- acceptance: Portable closed-selection/quota/ownership properties and actual Windows fixture prove selected status, missing selector, bounded trace and callback cleanup; the next consumer run retains actual startup evidence.
+- scope: Private PAL WebView2 observation ownership and source-adjacent design; no JavaScript execution or synthetic page events.
+- next step: Run the installed Windows observation fixture and retain actual status/resource/cleanup evidence before provider delivery; thirteen portable tests and strict native/SDK checks pass.
+
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
 - status: todo

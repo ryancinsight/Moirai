@@ -82,3 +82,4 @@
 | [0074](0074-apple-external-links.md) | Host-authorized Apple external links | Accepted |
 | [0076](0076-webview2-capture-byte-boundary.md) | Exact WebView2 capture byte admission | Accepted |
 | [0077](0077-rust-page-provider-ownership.md) | Rust page provider ownership | Accepted |
+| [0078](0078-private-webview-startup-observation.md) | Private native startup observation | Accepted |

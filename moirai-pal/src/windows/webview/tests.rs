@@ -17,6 +17,7 @@ use super::{
 
 mod permissions;
 mod preview;
+mod startup;
 
 #[test]
 fn file_policy_allows_only_the_packaged_directory() {

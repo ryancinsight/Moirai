@@ -3,6 +3,22 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Native startup attribution — 2026-10-14 [patch]
+
+Metis [actual Windows run 38516491259](https://github.com/ryancinsight/metis/actions/runs/38516491259)
+retains successful allowed top-level navigation and exact prepared JS/WASM
+identities, then a Ready deadline failure. The desktop frame is blank and its
+occlusion is unknown; no actual resource response, runtime exception or DOM
+status identifies a cause. The private
+[startup observation contract](moirai-pal/src/windows/webview/host/diagnostics/design.md)
+adds explicitly selected native evidence under unchanged deadlines and bounded
+retention. Thirteen portable tests and strict native/Windows all-target checks
+pass; the actual installed Windows observation fixture remains pending. This
+diagnostic is not a product startup repair or a supported public API.
+The active [verification item](backlog.md#MOI-WEBVIEW-STARTUP-OBSERVATION-2026-10-14)
+owns implementation acceptance. Consumer handoff, four-kind denials and positive
+permission cleanup remain independent runtime requirements.
+
 ## Rust page provider acceptance — 2026-10-13 [minor]
 
 Actual PR 619 Windows CI reports native permission origin separately from the

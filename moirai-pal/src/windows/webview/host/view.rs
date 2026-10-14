@@ -43,6 +43,7 @@ use super::{
 
 /// A thread-affine WebView2 controller hosted inside one [`NativeWindow`].
 pub struct WebViewHost {
+    pub(super) startup: Option<super::diagnostics::Startup>,
     pub(super) window: NativeWindow,
     pub(super) callbacks: Callbacks,
     pub(super) webview: Option<ICoreWebView2>,
@@ -115,6 +116,7 @@ impl WebViewHost {
         let state = Rc::new(RefCell::new(WebViewState::new()?));
         let current_uri = Rc::new(RefCell::new(String::new()));
         let mut host = Self {
+            startup: None,
             window,
             callbacks: Callbacks::empty(),
             webview: Some(webview),

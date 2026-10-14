@@ -2,6 +2,7 @@
 
 mod callbacks;
 mod com;
+mod diagnostics;
 mod error;
 mod frame;
 mod hotkey;

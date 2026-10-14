@@ -42,6 +42,9 @@ mod frame;
 #[cfg(any(windows, target_arch = "wasm32", test))]
 mod webview_limits;
 
+#[cfg(any(test, all(windows, feature = "webview2")))]
+mod webview_startup;
+
 #[cfg(any(target_arch = "wasm32", test))]
 #[path = "wasm/permission_state.rs"]
 mod permission_state;

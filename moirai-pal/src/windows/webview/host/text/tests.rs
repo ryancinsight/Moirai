@@ -3,7 +3,7 @@
 use windows::core::PCWSTR;
 
 use super::super::com::ComApartment;
-use super::{MAX_WEBVIEW_MESSAGE_UNITS, MessageText, read_bounded_pcwstr};
+use super::{MAX_WEBVIEW_MESSAGE_UNITS, read_borrowed_message};
 use crate::webview_limits::MAX_WEBVIEW_MESSAGE_BYTES;
 
 fn trace() -> tracing::subscriber::DefaultGuard {
@@ -32,8 +32,8 @@ fn bounded_native_pointer_preserves_exact_ascii_and_supplementary_scalars() {
         let pointer = PCWSTR(units.as_ptr());
         // SAFETY: the actual vector contains the complete terminated UTF16
         // allocation and stays borrowed through the production conversion.
-        let actual = tracing::info_span!("act")
-            .in_scope(|| unsafe { read_bounded_pcwstr::<MessageText>(&pointer) });
+        let actual =
+            tracing::info_span!("act").in_scope(|| unsafe { read_borrowed_message(&pointer) });
         tracing::info_span!("assert").in_scope(|| {
             let actual = actual.expect("inclusive native message bound");
             assert_eq!(actual.len(), MAX_WEBVIEW_MESSAGE_BYTES);
@@ -65,8 +65,8 @@ fn bounded_native_scan_rejects_unit_and_byte_overflow_before_copying() {
         let pointer = PCWSTR(units.as_ptr());
         // SAFETY: the borrowed vector contains every scanned unit and its
         // terminator; the provider stops after at most bound+1 units.
-        let actual = tracing::info_span!("act")
-            .in_scope(|| unsafe { read_bounded_pcwstr::<MessageText>(&pointer) });
+        let actual =
+            tracing::info_span!("act").in_scope(|| unsafe { read_borrowed_message(&pointer) });
         tracing::info_span!("assert").in_scope(|| {
             assert_eq!(
                 actual.expect_err("oversized representation").message(),
@@ -92,8 +92,8 @@ fn native_pointer_and_surrogate_errors_preserve_the_actual_failure() {
     ] {
         // SAFETY: null is rejected before a read; the second pointer borrows
         // an actual terminated allocation throughout the conversion.
-        let actual = tracing::info_span!("act")
-            .in_scope(|| unsafe { read_bounded_pcwstr::<MessageText>(&pointer) });
+        let actual =
+            tracing::info_span!("act").in_scope(|| unsafe { read_borrowed_message(&pointer) });
         tracing::info_span!("assert").in_scope(|| {
             assert_eq!(
                 actual.expect_err("invalid native representation").message(),
