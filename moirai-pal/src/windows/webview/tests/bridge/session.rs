@@ -146,6 +146,7 @@ pub(super) fn package() -> TestPackage {
     names.sort();
     let expected = [
         "bootstrap.js",
+        "favicon.svg",
         "index.html",
         "webview_bridge_fixture.js",
         "webview_bridge_fixture_bg.wasm",

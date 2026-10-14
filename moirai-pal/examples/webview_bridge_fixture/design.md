@@ -46,3 +46,10 @@ source/tool/lock/command/file-hash receipt; the native test copies the original
 payload into its owned package. Successful completion requires real Destroyed,
 surface drop and actual package/profile removal. Source compilation cannot
 substitute for execution on the installed Windows runtime.
+
+The document declares its packaged SVG icon. The first installed run performs
+the Unicode/maximum-string-identity computation, then the unchanged error
+observer rejects a missing implicit `/favicon.ico` request. The package now
+includes and hashes the actual declared icon; missing resources and browser
+errors remain failures. Boundary/remount/cleanup still require the repaired
+installed-runtime run.

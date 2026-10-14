@@ -21,6 +21,7 @@ SOURCE_PATHS = (
     "moirai-pal/examples/webview_bridge_fixture.rs",
     "moirai-pal/examples/webview_bridge_fixture/browser.rs",
     "moirai-pal/examples/webview_bridge_fixture/protocol.rs",
+    "moirai-pal/examples/webview_bridge_fixture/favicon.svg",
     "moirai-pal/src/wasm/webview.rs",
     "moirai-pal/src/wasm/webview/listener.rs",
     "moirai-pal/src/wasm/webview/endpoint.rs",
@@ -94,8 +95,11 @@ def build(args):
         # This is only the ABI loader. Every fixture operation is authored Rust.
         (payload / "bootstrap.js").write_text(
             "import init from './webview_bridge_fixture.js';\nawait init();\n")
+        shutil.copyfile(root / "moirai-pal/examples/webview_bridge_fixture/favicon.svg",
+                        payload / "favicon.svg")
         (payload / "index.html").write_text(
-            '<!doctype html><meta charset="utf-8"><body>'
+            '<!doctype html><meta charset="utf-8">'
+            '<link rel="icon" type="image/svg+xml" href="./favicon.svg"><body>'
             '<p id="fixture-status">Rust bridge fixture loading</p>'
             '<script type="module" src="./bootstrap.js"></script></body>')
         if sources != {name: file_digest(root / name) for name in SOURCE_PATHS}:
@@ -104,7 +108,7 @@ def build(args):
             raise ValueError("The selected wasm-bindgen executable changes during compilation")
         files = [{"path": p.name, "bytes": p.stat().st_size, "sha256": file_digest(p)}
                  for p in sorted(payload.iterdir())]
-        if [p["path"] for p in files] != ["bootstrap.js", "index.html",
+        if [p["path"] for p in files] != ["bootstrap.js", "favicon.svg", "index.html",
                                            EXAMPLE + ".js", EXAMPLE + "_bg.wasm"]:
             raise ValueError("Actual compiler output contains unexpected fixture payload members")
         evidence = {"schema": 1, "kind": "actual-rust-native-bridge-payload",
