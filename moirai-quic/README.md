@@ -9,8 +9,11 @@ socket features remain disabled. Moirai owns all task, timer and socket driving.
 `QuicConfig::with_congestion_policy` selects the pinned Quinn stock controller
 once at endpoint construction: CUBIC (the unchanged default), NewReno, or
 `ExperimentalBbr`. Upstream BBR remains experimental. Selection changes no
-TLS, framing, flow-control, native buffer or deadline contract. ADR 0079
-requires matched full-matrix and shared-queue evidence before a default change.
+TLS, framing, flow-control, native buffer or deadline contract.
+[ADR 0079](../docs/adr/0079-congestion-policy-measurements.md) requires matched
+full-matrix and shared-queue evidence before a default change. The
+[complete comparison](measurements/recovery/2026-10-13/README.md) retains both
+studies and their failures; no production replacement is accepted.
 
 `QuicEndpoint` binds before advertising readiness. Clients supply trusted roots
 and the certificate's server name; servers supply their certificate chain/key

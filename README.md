@@ -118,6 +118,13 @@ deadlines; cancellation invalidates partial framing. TLS 1.3 authenticates the
 server name and explicit trust roots; optional client roots require mutual TLS.
 Early data and unreliable datagrams are disabled.
 
+`QuicConfig::with_congestion_policy` selects stock CUBIC, NewReno or explicitly
+experimental BBR at endpoint construction. CUBIC remains the default. The
+[matched recovery study](moirai-quic/measurements/recovery/2026-10-13/README.md)
+retains 108 original cases per policy and competing-flow evidence: NewReno does
+not close the loss deadline, while BBR's mixed-policy fairness and queue tradeoff
+does not justify default adoption. The original promotion gate remains enforced.
+
 `Arc<Moirai>` implements the fallible `TaskSpawner` seam consumed by the provider.
 Quinn owns protocol recovery and congestion control; Moirai owns scheduling,
 timers and shared socket readiness. Quinn's Tokio synchronization primitives

@@ -14,11 +14,17 @@ and obscure those pair outcomes. They remain failed experiments. All three
 maximum loss cases fail under CUBIC/NewReno and complete under experimental
 BBR, whose mixed-policy sampled fairness and larger queues prevent default
 selection. The collector joins its observer before namespace cleanup and checks
-actual absence after a raced kill; a fresh complete matrix is required. All
-30 competing experiments retain zero UDP-error deltas. One unshaped CUBIC pair
+actual absence after a raced kill. The fresh complete study at 8e9dd137 records
+CUBIC 105/108, NewReno 105/108 and experimental BBR 108/108, with no collector
+errors and zero UDP-error deltas in every matrix/competing role. BBR's large
+loss median is 74.241825 Mbit/s and 181.234076 ms client RTT p95; mixed-policy
+sampled Jain indices 0.569–0.598 and larger queues prevent default adoption.
+Four early competing failures retain server accept/handshake-deadline origins;
+the underlying recovery cause remains unproved. In the preceding study, one unshaped CUBIC pair
 records two receive-buffer drops and still verifies all bytes; controlled loss
 failures retain zero error deltas. No root-cause closure follows from that
-unshaped observation. The recovery gap and protected promotion gate remain open.
+unshaped observation. Both complete studies and all failures remain archived.
+The recovery gap and protected promotion gate remain open.
 
 Fresh Linux native validation passes at 03d640b8. The fresh Windows QUIC job
 fails six unused-WebView diagnostics because the shared-limits module compiles

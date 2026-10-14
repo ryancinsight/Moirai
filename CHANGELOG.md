@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   observer/namespace-cleanup races. Verify kernel process absence before
   accepting a raced kill; retain real cleanup errors. Log originating probe
   failures before endpoint drain without emitting successful partial reports.
+- [patch] Complete a fresh original-domain comparison after collector correction:
+  CUBIC and NewReno each verify 105/108 pairs; experimental BBR verifies 108/108.
+  Archive all matched fairness/latency/queue evidence and unsuccessful earlier
+  experiments. BBR's mixed-policy tradeoff does not justify a default change;
+  the original CUBIC promotion gate and MOI-QUIC-RECOVERY-001 remain open.
 
 - [minor] PAL-owned applied UDP buffer/broadcast/multicast configuration and
   effective kernel queue readback, shared by async UDP and QUIC. QUIC queue

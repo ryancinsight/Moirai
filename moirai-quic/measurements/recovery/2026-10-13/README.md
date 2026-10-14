@@ -4,6 +4,89 @@ MOI-QUIC-RECOVERY-001 remains open. CUBIC remains the production default and
 the original 108-case promotion gate remains enforced. No congestion-recovery
 correction or controller replacement is established by these experiments.
 
+## Corrected complete comparison
+
+Source `8e9dd137e7cbf37c643b67b724c4f1a945bb6021`,
+[Actions run 38504359446](https://github.com/ryancinsight/Moirai/actions/runs/38504359446).
+This is a fresh complete study after the collector lifecycle correction. Its
+six shards use one clean source tree, dependency lock, platform and pinned
+netem tool. No case or repetition is imported from the preceding study.
+The independent audit verifies all original settings and every complete report.
+There are no collector failures; every role of all 384 pairs retains zero
+UDP-error deltas. Both peers still compare every application-message byte
+and complete acknowledged FIN; failures never emit successful partial reports.
+
+| Stock policy | Complete verified pairs | Original large loss case | Complete application bytes per direction |
+|---|---:|---|---:|
+| CUBIC | 105 / 108 | all three reach 60 seconds | 1,844,797,440 |
+| NewReno | 105 / 108 | all three reach 60 seconds | 1,844,797,440 |
+| Experimental BBR | 108 / 108 | all three complete | 2,247,598,080 |
+
+For 16 streams and 65,560-byte messages, medians over all three complete pairs
+are below. A failed case has no completed-exchange rate or percentile.
+
+| Profile | Policy | Application Mbit/s | Client RTT p95, ms |
+|---|---|---:|---:|
+| 10 ms, 100 Mbit/s | CUBIC | 79.058477 | 151.896802 |
+| 10 ms, 100 Mbit/s | NewReno | 79.066128 | 162.152973 |
+| 10 ms, 100 Mbit/s | Experimental BBR | 77.021295 | 161.515831 |
+| 50 ms, 100 Mbit/s | CUBIC | 35.776186 | 317.812962 |
+| 50 ms, 100 Mbit/s | NewReno | 33.234380 | 321.042282 |
+| 50 ms, 100 Mbit/s | Experimental BBR | 37.059911 | 226.006527 |
+| 10 ms, 1% loss, 100 Mbit/s | CUBIC | deadline exceeded | unavailable |
+| 10 ms, 1% loss, 100 Mbit/s | NewReno | deadline exceeded | unavailable |
+| 10 ms, 1% loss, 100 Mbit/s | Experimental BBR | 74.241825 | 181.234076 |
+
+BBR's median large-loss exchange takes 14.468058079 seconds. The last one-second
+CUBIC client observations count 1389/1315/1401 complete validated echoes;
+NewReno counts 832/814/844, out of 2048. Large-loss sampled queue maxima are
+55,278 bytes for CUBIC and NewReno and 808,029 bytes for BBR. Continuing progress
+and zero socket errors remain consistent with the observed recovery limitation,
+without establishing its complete cause.
+
+The corrected shared-queue study again executes all 30 experiments / 60 pairs:
+39 complete pair reports and 21 failures. Seventeen reach the pair deadline;
+four fail early. All four early failures now retain the originating server
+`QUIC accept deadline elapsed` error. `QuicEndpoint::accept` includes incoming
+admission and handshake completion; this failure precedes server stream
+admission. The logs distinguish that stage from subsequent client receive or
+peer-close errors, but do not prove the underlying handshake recovery cause.
+
+| Corrected loss-profile pairing | Sampled Jain index, repetitions 0/1/2 | Largest observed backlog per repetition, bytes |
+|---|---|---|
+| CUBIC / CUBIC | 0.999126, 0.999087, 0.998519 | 107,568; 86,652; 111,176 |
+| NewReno / CUBIC | 0.500000, 0.500000, 0.955338 | 69,088; 44,820; 94,122 |
+| NewReno / NewReno | 0.995376, 0.500000, 0.500000 | 105,289; 56,772; 64,242 |
+| Experimental BBR / CUBIC | 0.598001, 0.568881, 0.572124 | 766,133; 813,562; 797,691 |
+| Experimental BBR / BBR | 0.999540, 0.999866, 0.999976 | 774,674; 1,048,345; 1,037,137 |
+
+Every loss-profile BBR/CUBIC experiment completes BBR's workload while its
+CUBIC competitor reaches the deadline. BBR's three complete client RTT p95
+values range from 191.554117 to 198.542538 ms. BBR/BBR completes both workloads,
+with client RTT p95 from 293.268283 to 333.671371 ms. Every competing queue
+reports zero backlog after cleanup. The exact sampled fairness fractions,
+common intervals, observation ages, queue slopes and both peer diagnostics
+remain in the input archives and computed audit. Sampling and finite-workload
+limitations below apply to both studies.
+
+**Decision:** NewReno does not close recovery. Experimental BBR improves the
+original loss workload but supplies a mixed-policy fairness and queue tradeoff
+that does not justify a production default change. No regression tolerance is
+invented. The stock initial-window difference and upstream experimental status
+remain explicit. Keep CUBIC as default, retain MOI-QUIC-RECOVERY-001 and block
+provider promotion. Metis receives no provider-pin or transport-policy change.
+Further recovery work needs handshake/flight/pacing evidence and a justified
+candidate measured under these same original acceptance conditions.
+
+The independent [original CUBIC acceptance run 38504359933](https://github.com/ryancinsight/Moirai/actions/runs/38504359933)
+also executes all 108 pairs: 105 complete exact-byte reports and the same three
+large-loss 60-second timeouts. Its checkout is merge revision
+`b76ca0af52bcb52597ecf74403f2098c560a591f`, whose Git tree
+`65afa7712e2850b0d70bc47b384b06b5270efa3b` equals provider `8e9dd137`.
+`8e9dd137-default-matrix.json.gz` preserves that independent failed gate;
+both peers' report values and all successful kernel byte deltas are verified.
+The required Verification result fails. This is a measured promotion block.
+
 ## First complete comparison
 
 Source `3e353caf4f2c805fd30b3556c11162461f3b958e`,
@@ -33,7 +116,7 @@ BBR failure (50 ms, one stream, 24 bytes, repetition 2) report collector
 still own short-lived counter-reader processes during pair cleanup. These
 are failed experiments with obscured pair outcomes, not established controller
 failures. No successful report is reconstructed from queue bytes or adjacent
-repetitions. A fresh complete comparison is required after collector correction.
+repetitions. The corrected study above supplies a fresh independent comparison.
 
 For the successfully completed BBR maximum-frame/16-stream loss case, median
 client application goodput is 75.413700 Mbit/s, exchange duration is
@@ -108,11 +191,14 @@ verification, not a substitute workload or performance result.
 
 ## Reproduction and integrity
 
-The six `3e353caf-*.json.gz` input archives retain the first comparison,
-including both cleanup failures. `archives.json` records canonical decompressed
+The twelve `3e353caf-*.json.gz` and `8e9dd137-*.json.gz` matrix/fairness input
+archives retain both complete studies, including the first study's cleanup
+failures. `archives.json` records canonical decompressed
 JSON hashes, original downloaded JSON hashes, source tree and Actions run.
 Canonical JSON uses sorted keys, compact separators and a final newline; gzip
-uses `mtime=0`. `3e353caf-audit.json.gz` is reproducible computed evidence.
+uses `mtime=0`. Each source prefix also has reproducible `*-audit.json.gz`
+computed evidence.
+The thirteenth input archive preserves the separate original default gate.
 
 ```sh
 cargo build --locked --release -p moirai-quic --example quic_load
@@ -124,8 +210,8 @@ python3 scripts/quic_recovery.py --binary target/release/examples/quic_load \
   --tc /absolute/path/to/pinned/iproute2/tc/tc --suite fairness --repetition 0 \
   --output output/quic-recovery/fairness-0.json
 python3 scripts/quic_recovery_audit.py \
-  moirai-quic/measurements/recovery/2026-10-13/3e353caf-matrix-*.json.gz \
-  moirai-quic/measurements/recovery/2026-10-13/3e353caf-fairness-*.json.gz \
+  moirai-quic/measurements/recovery/2026-10-13/8e9dd137-matrix-*.json.gz \
+  moirai-quic/measurements/recovery/2026-10-13/8e9dd137-fairness-*.json.gz \
   --output output/quic-recovery/audit.json
 ```
 
