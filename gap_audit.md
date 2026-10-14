@@ -5,6 +5,12 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
+Current-main integration retains 2b189f0a's WebView bridge/startup fixes and
+version 0.9.2 history. The pending additive QUIC/native surface and documented
+pre-1.0 UDP migration target workspace 0.10.0. ADR 0081 replaces the PR-only
+UDP decision number because main now owns ADR 0078. All pre-existing external
+package identities remain unchanged; main adds tracing-serde 0.2.0.
+
 ADR 0080 adds opt-in protocol-event, phase and timer-driver wake observations
 for the next complete matched study. Initial local ready-poll instrumentation
 records no timer readiness: pinned Quinn checks monotonic time before polling
@@ -64,7 +70,7 @@ Windows/Linux runtime and protected default-branch promotion remain gates.
 Historical platform and controlled-profile evidence below retains its source
 revisions and does not certify the reconciled tree.
 
-ADR 0078 closes ignored UDP configuration: positive, native-range-checked
+ADR 0081 closes ignored UDP configuration: positive, native-range-checked
 receive/send requests apply through PAL, typed multicast joins the specified
 group/interface, and readback reports kernel queue values. The original ignored
 buffer regression fails with a 786,896-byte effective queue instead of the
@@ -76,7 +82,7 @@ multicast covers group/family validation and real invalid-interface failure;
 positive IPv6 multicast delivery remains unmeasured. Queue sizes do not change
 protocol windows or deadlines and supply no evidence to close the recovery limit.
 
-Moirai 0.9.0 includes moirai-quic 0.1.0 in every native facade build, without
+Moirai 0.10.0 includes moirai-quic 0.1.0 in every native facade build, without
 a QUIC feature flag. The default suite passes 187 tests; the minimal facade
 completes authenticated frame exchange and acknowledged teardown. Browser
 facade compilation excludes native QUIC. CI checks both native modes. The provider owns
@@ -114,6 +120,22 @@ retains source, queues, samples and both peer traces; the active recovery-policy
 evaluation belongs to MOI-QUIC-RECOVERY-001 in backlog.md. No deadline or workload
 adjustment establishes a pass.
 
+## Native bridge verification boundary — 2026-10-14 [patch]
+
+The private startup observer is verified by its protected provider run. In
+[Metis run 38531378051](https://github.com/ryancinsight/metis/actions/runs/38531378051),
+all five resources return 200 with correct MIME types, Runtime/Log activation
+and current navigation complete, and selected native DOM retains the handled
+error `WebView2 bridge is not an EventTarget`. The exact nominal cast is the
+rejected operation; no injected script supplies that evidence.
+
+The [checked native contract](moirai-pal/src/wasm/webview/design.md) now
+passes its [installed Rust/WASM regression](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+in 8.155 seconds: bidirectional computed Unicode/string values, inclusive byte
+bounds, exact callback retirement/remount, and actual profile destruction.
+All five declared resources load successfully; error rejection stays enabled.
+Consumer Ready/Submit/Stop, ordinary unselected startup, all four native denials
+and positive permission cleanup remain separate runtime requirements.
 
 ## Rust page provider acceptance — 2026-10-13 [minor]
 

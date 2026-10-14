@@ -173,3 +173,13 @@ Existing default-profile close behavior remains its controller lifecycle.
 contracts. Portable tests and strict native/WASM/Windows diagnostics establish
 source behavior; real Windows repeated-denial/profile cleanup, native page
 handoff and consented positive/late media cleanup remain acceptance gates.
+
+## Private native startup verification
+
+The source-adjacent [startup observation contract](src/windows/webview/host/diagnostics/design.md)
+defines an unstable fixture-only diagnostic, disabled during ordinary usage.
+It observes actual native resources, exceptions and explicitly selected DOM
+nodes under bounded retained bytes and the existing navigation deadline.
+No public API, injected JavaScript, Ready substitution or permission override is
+introduced. Actual Windows observation and consumer startup attribution remain
+pending; successful source compilation alone does not establish either.

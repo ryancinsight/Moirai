@@ -2,7 +2,7 @@
 
 Date: 2026-10-14
 Status: Accepted
-Change class: [patch], diagnostic investigation within unreleased workspace 0.9.0.
+Change class: [patch], diagnostic investigation within unreleased workspace 0.10.0.
 
 ## Specification
 

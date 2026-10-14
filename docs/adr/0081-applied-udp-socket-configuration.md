@@ -1,9 +1,9 @@
-# ADR 0078: Applied UDP socket configuration
+# ADR 0081: Applied UDP socket configuration
 
 Date: 2026-10-13
 Status: Accepted
 Change class: [minor], with a pre-1.0 breaking configuration migration.
-Target: workspace 0.9.0; moirai-quic 0.1.0.
+Target: workspace 0.10.0; moirai-quic 0.1.0.
 
 ## Intent and selected architecture
 

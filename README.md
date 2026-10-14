@@ -17,6 +17,25 @@ belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
 ## Browser I/O
 
+Workspace 0.9.2 corrects native WebView2 method admission after an installed
+Rust consumer rejects the host object through a DOM `EventTarget` cast. The
+private interface checks real callable methods and preserves their original
+receiver and listener teardown ownership. Public Rust signatures and message
+bounds remain unchanged. Fourteen actual Chrome contracts and strict WASM and
+Windows compilation pass. The [installed Windows regression](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+passes real bidirectional values, inclusive byte bounds, close/remount and fresh
+profile cleanup. Metis adoption and complete consumer journeys remain gates
+under the [bridge contract](moirai-pal/src/wasm/webview/design.md).
+
+Workspace 0.9.1 adds private fixture-only WebView2 startup observations with
+bounded resource, exception and selected DOM evidence. Both explicit private
+selection and a dedicated diagnostic tracing filter are required. Ordinary
+applications do not capture DOM content. The
+[source contract](moirai-pal/src/windows/webview/host/diagnostics/design.md)
+defines activation, callback ownership and trace quotas. The protected provider
+run verifies selected native DOM/shutdown; the subsequent consumer trace
+identifies the native bridge admission failure.
+
 Workspace 0.9.0 adds the Rust-owned page-side WebView2 bridge, real browser
 permission requests, explicit callback teardown and native Number formatting.
 Message admission shares the native 64 KiB limits; permission guards remain
@@ -103,14 +122,14 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 ## Native QUIC sessions
 
 UDP queue requests and multicast membership use the shared PAL configuration
-in [ADR 0078](docs/adr/0078-applied-udp-socket-configuration.md). Async UDP applies
+in [ADR 0081](docs/adr/0081-applied-udp-socket-configuration.md). Async UDP applies
 `UdpConfig` before publishing a socket; `UdpBufferConfig` carries independent
 positive receive/send requests. `MulticastConfig` carries an IP group and its
 interface. Effective queue readback exposes kernel caps, rounding and accounting.
 QUIC accepts the same buffer vocabulary through `with_udp_buffers` and reports
 bound queue sizes; its trust, stream budgets and deadlines remain independent.
 
-Workspace 0.9.0 includes `moirai-quic` 0.1.0 in every Unix/Windows facade build,
+Workspace 0.10.0 includes `moirai-quic` 0.1.0 in every Unix/Windows facade build,
 including `--no-default-features`. Import `moirai::quic`; no feature flag is needed.
 One authenticated UDP connection carries independent bidirectional message
 streams. `QuicConfig` bounds frames, streams, connections, queued handshakes and

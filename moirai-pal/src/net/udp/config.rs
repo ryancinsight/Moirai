@@ -1,4 +1,4 @@
-//! Applied native datagram configuration; see ADR 0078.
+//! Applied native datagram configuration; see ADR 0081.
 
 use socket2::{Domain, Protocol, SockRef, Socket, Type};
 use std::io;

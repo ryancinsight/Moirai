@@ -3,7 +3,7 @@
 Date: 2026-10-13
 Status: Accepted
 
-Change class: [minor]. Target: unreleased workspace 0.9.0 / moirai-quic 0.1.0.
+Change class: [minor]. Target: unreleased workspace 0.10.0 / moirai-quic 0.1.0.
 This decision authorizes policy evaluation, not a production default change.
 
 ## Intent and constraints

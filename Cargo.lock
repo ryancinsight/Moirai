@@ -1198,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "futures",
@@ -1221,7 +1221,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async-macros"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-core"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-crypto"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -1295,7 +1295,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-executor"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "loom",
@@ -1311,7 +1311,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-gpu"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "mnemosyne-memory-core",
@@ -1320,7 +1320,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-http"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "http",
  "httparse",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-iter"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "futures",
@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-metrics"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "moirai-core",
@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-pal"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -1377,6 +1377,7 @@ dependencies = [
  "moirai-core",
  "png",
  "proptest",
+ "serde",
  "serde_json",
  "socket2 0.6.5",
  "tracing",
@@ -1387,11 +1388,12 @@ dependencies = [
  "web-sys",
  "webview2-com",
  "windows",
+ "windows-core",
 ]
 
 [[package]]
 name = "moirai-parallel"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "melinoe",
@@ -1404,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-python"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "moirai-runtime",
  "pyo3",
@@ -1429,7 +1431,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-runtime"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "fastrand",
@@ -1457,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-scheduler"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "loom",
@@ -1471,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-sync"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "libc",
@@ -1483,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tests"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "fastrand",
  "futures",
@@ -1495,7 +1497,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tls"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "futures-io",
  "futures-rustls",
@@ -1508,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-transport"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1524,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-utils"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "proptest",
@@ -2854,6 +2856,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2863,12 +2875,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]

@@ -78,6 +78,16 @@ unsafe fn read_bounded_pcwstr<P: TextBudget>(uri: &PCWSTR) -> windows::core::Res
     decode_utf16::<P>(units)
 }
 
+/// Reads a borrowed native completion payload before making a retained copy.
+///
+/// # Safety
+/// `value` is null or points to an SDK-owned terminated buffer valid until
+/// the callback returns. No pointer or borrow survives this call.
+pub(super) unsafe fn read_borrowed_message(value: &PCWSTR) -> windows::core::Result<String> {
+    // SAFETY: the callback supplies the documented borrowed terminated buffer.
+    unsafe { read_bounded_pcwstr::<MessageText>(value) }
+}
+
 pub(super) fn encode_utf16(value: &str, max_units: usize) -> io::Result<Vec<u16>> {
     let units = value.encode_utf16().count();
     if units > max_units {

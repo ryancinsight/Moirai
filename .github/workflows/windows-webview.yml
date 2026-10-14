@@ -31,12 +31,29 @@ jobs:
         with:
           toolchain: 1.97.0
           components: clippy,rustfmt
+          targets: wasm32-unknown-unknown
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - name: Install the isolated test runner
+      - name: Read the exact locked WASM compiler version
+        id: wasm-tool
+        shell: python
+        run: |
+          import os
+          import tomllib
+
+          with open("Cargo.lock", "rb") as source:
+              versions = [p["version"] for p in tomllib.load(source)["package"]
+                          if p["name"] == "wasm-bindgen"]
+          if len(versions) != 1:
+              raise RuntimeError("the canonical lock must select one WASM compiler")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={versions[0]}\n")
+      - name: Install the isolated test runner and lock-matched WASM compiler
         uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
         with:
-          tool: cargo-nextest@0.9.143
+          tool: |
+            cargo-nextest@0.9.143
+            wasm-bindgen@${{ steps.wasm-tool.outputs.version }}
           checksum: true
       # Check the normal library before tests can activate dev-dependencies.
       - name: Check production Windows WebView2 without dev-dependencies
@@ -67,6 +84,64 @@ jobs:
               throw "Installed-runtime scenario failed: $previewTest (exit $LASTEXITCODE)"
             }
           }
+      - name: Observe selected native DOM and owned shutdown on the installed runtime
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+
+          environment = os.environ.copy()
+          environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+              "start_uri": "https://metis.invalid/index.html",
+              "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
+          }, separators=(",", ":"))
+          # The CLI process has a separate bound; nextest retains the existing
+          # strict 60-second per-test profile and one owner-thread fixture.
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
+              "test(=windows::webview::tests::startup::installed_runtime_observes_selected_dom_and_owned_shutdown)",
+          ], env=environment, check=True, timeout=120)
+      - name: Compile the actual Rust native bridge payload
+        shell: pwsh
+        run: >-
+          python scripts/webview/build_bridge.py
+          --manifest-path "$env:GITHUB_WORKSPACE/Cargo.toml"
+          --target-dir "$env:GITHUB_WORKSPACE/target"
+          --output "$env:GITHUB_WORKSPACE/bridge-fixture-evidence"
+      - name: Roundtrip the compiled Rust bridge and retire actual callbacks
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          environment = os.environ.copy()
+          environment["MOIRAI_WEBVIEW_BRIDGE_FIXTURE"] = str(
+              Path("bridge-fixture-evidence/payload").resolve(strict=True))
+          environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+              "start_uri": "https://metis.invalid/index.html",
+              "selectors": ["#fixture-status"],
+          }, separators=(",", ":"))
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+              "--success-output", "immediate", "-E",
+              "test(=windows::webview::tests::bridge::installed_runtime_roundtrips_rust_bridge_and_retires_closed_listeners)",
+          ], env=environment, check=True, timeout=120)
+      - name: Retain the original generated Rust bridge payload and provenance
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-rust-bridge-payload
+          path: bridge-fixture-evidence/
+          if-no-files-found: ignore
       # Query the same default SDK runtime selection used by the native host.
       # This is evidence after execution, never an installation or skip gate.
       - name: Record the native SDK selected runtime version

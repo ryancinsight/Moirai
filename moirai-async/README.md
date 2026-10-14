@@ -47,7 +47,7 @@ reads effective native sizes, including caps, rounding and metadata accounting.
 `UdpConfig.multicast` takes an explicit `MulticastConfig` group/interface variant
 and joins that group while selecting the same outgoing interface. Invalid
 native integer ranges, groups, families and interfaces return errors. See
-[ADR 0078](../docs/adr/0078-applied-udp-socket-configuration.md) for the migration
+[ADR 0081](../docs/adr/0081-applied-udp-socket-configuration.md) for the migration
 from the former ignored `buffer_size` and multicast boolean.
 
 ## License

@@ -1,6 +1,6 @@
 # Moirai transport checklist
 
-Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
+Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Closure.
 
 - [x] [minor] Specify native QUIC ownership, trust, ALPN, resource and cancellation contracts in ADR 0075.
 - [x] [minor] Implement shared cancellable socket readiness and one scheduler/timer/UDP runtime boundary.
@@ -17,7 +17,7 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Verify native QUIC on Linux and Windows at published revision 54568557; both 193-test suites, strict diagnostics and minimal authenticated facade sessions pass. The full Linux workspace passes 1,301 tests and 702 minimal-feature tests.
 - [x] [patch] Measure and archive all 108 controlled process pairs at source tree 60db5f8c: 105 exact-byte successes and three unchanged 60-second loss-case failures. Independently recalculate rates/percentiles and verify both kernel queue-byte deltas; the performance gate remains failed.
 - [x] [minor] Expose passive recovery metrics and preserve all profile outcomes, verified progress, namespace UDP/socket counters and both peer diagnostics; 17 focused real tests and strict diagnostics pass.
-- [x] [minor] Replace ignored UDP options with one PAL-owned applied buffer/broadcast/multicast contract; share native queue requests and readback with QUIC (ADR 0078). The ignored-buffer regression fails before the change and passes afterward; all 338 native transport/async tests and strict diagnostics pass.
+- [x] [minor] Replace ignored UDP options with one PAL-owned applied buffer/broadcast/multicast contract; share native queue requests and readback with QUIC (ADR 0081). The ignored-buffer regression fails before the change and passes afterward; all 338 native transport/async tests and strict diagnostics pass.
 - [x] [patch] Rebase on main 7828f5df, retaining PR 617 capture decoding and PR 619 page ownership. Initial preservation audit matches 47 transport/evidence paths and 64 main code paths; the subsequent private Windows module-gate correction follows its actual consumer features. both canonical locks resolve without changing external dependency identities.
 - [x] [patch] Repair the socket-test embedded inventory without changing assertions; the full macOS workspace passes 1,329 tests with nine existing ignored probes, and the 397-test native integration suite and minimal facade session pass.
 - [x] [major] Classify the existing PAL-owned UDP configuration migration against current main and document it under Breaking; four native API surfaces pass, while async configuration reports the intentional type-owner change.
@@ -30,5 +30,6 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Correct observer/namespace cleanup ordering and preserve failure origin before endpoint drain; all 21 real QUIC tests and strict diagnostics pass. The fresh complete Linux study has no collector errors; four early competing failures retain server accept-deadline origins.
 
 - [ ] [patch] Complete ADR 0080's opt-in recovery tracing study and independent audit over all original matrix and competing cases; retain pre-admission failures, PTO flight bytes and shared timer-driver wake lateness.
+- [x] [minor] Integrate current main 2b189f0a without replacing its WebView bridge/startup fixes. Advance the QUIC increment to workspace 0.10.0 after main's 0.9.2, retain moirai-quic 0.1.0, and move the PR-only applied-UDP decision to ADR 0081 to preserve main's ADR 0078.
 
 Next increment [patch]: complete the original-domain diagnostic study before selecting a recovery candidate. The measured policy comparison is complete; [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and dependent Metis promotion remain blocked by the open recovery limit and required review/checks.

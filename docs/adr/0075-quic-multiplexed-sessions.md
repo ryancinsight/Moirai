@@ -4,7 +4,7 @@ Date: 2026-10-13
 Status: Accepted
 
 Decision scope: the user-requested native transport increment.
-Change class: [minor]. Target: workspace 0.9.0.
+Change class: [minor]. Target: workspace 0.10.0.
 
 Native-build contract: QUIC is a required dependency and the facade exports
 `moirai::quic` on Unix and Windows, including `--no-default-features` builds.

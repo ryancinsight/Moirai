@@ -41,7 +41,7 @@ after configuration, including OS rounding, caps and bookkeeping. These queues
 remain independent of protocol memory windows and deadlines. Broadcast and
 multicast belong to the raw UDP contract and are excluded from QUIC configuration.
 The shared PAL implementation and migration are specified in
-[ADR 0078](../docs/adr/0078-applied-udp-socket-configuration.md).
+[ADR 0081](../docs/adr/0081-applied-udp-socket-configuration.md).
 
 Keep the supplied Moirai executor running until endpoints close and drain.
 The facade implements the fallible `TaskSpawner` trait, so an `Arc<Moirai>` and

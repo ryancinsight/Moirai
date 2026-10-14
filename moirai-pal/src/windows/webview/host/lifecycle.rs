@@ -1,6 +1,6 @@
 //! WebView2 navigation and event-batch lifecycle.
 
-use std::{cell::Cell, io, rc::Rc, sync::mpsc};
+use std::{cell::Cell, io, rc::Rc, sync::mpsc, time::Instant};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_ERROR_STATUS;
 use webview2_com::{NavigationCompletedEventHandler, NavigationStartingEventHandler};
@@ -17,7 +17,23 @@ use super::view::WebViewHost;
 
 impl WebViewHost {
     pub(super) fn navigate_and_wait(&mut self, uri: String) -> io::Result<()> {
+        let observation_started = Instant::now();
         let webview = self.webview.as_ref().ok_or_else(closed_error)?.clone();
+        self.startup = super::diagnostics::Startup::selected(&webview, &self.config)?;
+        let deadline = if let Some(startup) = &self.startup {
+            let deadline = observation_started
+                .checked_add(self.config.wait())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "WebView2 navigation deadline overflow",
+                    )
+                })?;
+            startup.activate(deadline)?;
+            Some(deadline)
+        } else {
+            None
+        };
         let expected_navigation = Rc::new(Cell::new(None));
         let starting_expected = Rc::clone(&expected_navigation);
         let starting_handler =
@@ -74,7 +90,10 @@ impl WebViewHost {
             let _ = unsafe { webview.remove_NavigationStarting(starting_token) };
             return Err(error);
         }
-        let result = wait_for(receiver, self.config.wait());
+        let remaining = deadline.map_or(self.config.wait(), |deadline| {
+            deadline.saturating_duration_since(Instant::now())
+        });
+        let result = wait_for(receiver, remaining);
         let removal = unsafe { webview.remove_NavigationCompleted(token) }.map_err(windows_error);
         let starting_removal =
             unsafe { webview.remove_NavigationStarting(starting_token) }.map_err(windows_error);
@@ -129,6 +148,9 @@ impl WebViewHost {
 
     pub(super) fn collect_events(&mut self) -> io::Result<Vec<WebViewHostEvent>> {
         let window_events = self.window.poll_events()?;
+        if let Some(startup) = &self.startup {
+            startup.tick();
+        }
         let (webview_events, overflowed) = self
             .state
             .try_borrow_mut()

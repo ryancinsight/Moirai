@@ -5,7 +5,7 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0] - Unreleased
+## [0.10.0] - Unreleased
 
 ### Added
 
@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [minor] PAL-owned applied UDP buffer/broadcast/multicast configuration and
   effective kernel queue readback, shared by async UDP and QUIC. QUIC queue
-  requests leave TLS, stream windows and finite deadlines intact (ADR 0078).
+  requests leave TLS, stream windows and finite deadlines intact (ADR 0081).
 
 - [patch] Preserve the complete 108-pair controlled CI matrix and independent
   verification: 105 exact-byte successes, three maximum-frame/16-stream loss
@@ -55,29 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PAL shared cancellable UDP readiness, native socket adoption and batched I/O
   pollers; the timer's maximum admitted duration is authoritative for protocols.
 
-- [minor] `wasm::WebViewBridge` and its owned message listener post/receive actual
-  WebView2 JSON under the existing shared native/browser message limits.
-  Explicit listener close and counted failed-cleanup guards preserve callback
-  lifetime when the browser refuses teardown.
-- [minor] `wasm::WebPermissions` supplies real geolocation, camera, microphone
-  and notification requests with typed native outcomes, finite deadlines,
-  one unsettled slot per kind/document and owned media leases. Snapshots retain
-  cancelled settlement guards and zero-or-two geolocation dispatchers; late
-  media acquisition stops every track when publication has been cancelled.
-- [minor] DOM listener explicit close and actual active/retained counts expose
-  failed teardown ownership. `wasm::WebNumber::decimal` uses the native
-  ECMAScript formatter; `WebViewBridge::operation_wait_limit` exposes the shared
-  30-second provider bound.
-- [minor] `ProcessSpec::working_directory` owns an absolute child directory
-  validated before process resources are created, with native OS failures
-  retained and no process-global directory mutation.
-- [minor] `WebViewConfig::with_user_data_folder` admits a fresh caller-owned
-  local profile, checks the runtime's effective directory and waits for the
-  actual normal browser-process exit during close. Directory cleanup remains
-  caller-owned (ADR 0077).
-
 ### Changed
 
+- [minor] Reconcile current main 0.9.2 and classify the pending QUIC additions
+  and pre-1.0 UDP migration under workspace 0.10.0; moirai-quic remains 0.1.0.
+  Preserve main's accepted ADR 0078 and number the applied UDP decision 0081.
 - Quinn owns recovery/congestion and delegates task, timer and socket driving to
   Moirai. Its Tokio synchronization primitives introduce no Tokio runtime;
   QUIC's upstream rustls/Retry bridge links ring native code statically.
@@ -92,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `moirai_async::net::UdpConfig`; use `buffers.receive`/`buffers.send` with
   `NonZeroUsize` and an explicit multicast group/interface instead of the
   former ignored `buffer_size` and boolean. Native clients update the same
-  change; no compatibility facade retains the old type owner (ADR 0078).
+  change; no compatibility facade retains the old type owner (ADR 0081).
 
 - Replace `UdpConfig.buffer_size` with independent `buffers.receive` and
   `buffers.send` requests using `NonZeroUsize`. Replace the ignored multicast
@@ -116,6 +98,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   acknowledgement completes queued output before connection teardown.
 - Spawner rejection retains its original error across Quinn's infallible runtime
   ABI; message/handshake allocation respects caller budgets.
+
+## [0.9.2] - Unreleased
+
+### Fixed
+
+- [patch] Check the actual WebView2 object's callable methods instead of
+  requiring this realm's DOM `EventTarget` prototype identity. Cache the real
+  receiver and methods; retain exact listener ownership through successful
+  removal, including compensation after a registration exception. Missing,
+  noncallable and throwing operations preserve member context. No supported
+  public signature or message limit changes, and no JavaScript bridge is added.
+
+Fourteen actual Chrome contracts pass, including seven new real-object checks.
+Strict WASM and Windows diagnostics and the original Rust/WASM producer pass.
+The [installed Windows fixture](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+passes real bidirectional Unicode/identity values, inclusive payload bounds,
+close/remount, and actual profile cleanup in 8.155 seconds. Its document owns a
+packaged SVG icon; missing resources and browser errors still reject acceptance.
+Metis adoption and native consumer journeys remain separate requirements.
+
+## [0.9.1] - Unreleased
+
+### Fixed
+
+- [patch] An explicitly selected private verification diagnostic observes native
+  WebView2 resource MIME/status, lifecycle/process errors, CDP exceptions/logs
+  and bounded selected DOM status without evaluating JavaScript. Registration
+  and enable completions share the original navigation deadline; callback
+  teardown and incomplete requests remain observable. This adds no supported
+  public API and leaves ordinary application observation disabled.
+
+The protected provider run passes 31 Windows policy/frame cases and six
+installed-runtime fixtures, including selected native DOM and owned shutdown.
+The subsequent consumer trace identifies the nominal bridge cast rejection;
+this instrumentation diagnoses that failure without repairing it.
+
+## [0.9.0] - Unreleased
+
+### Added
+
+- [minor] `wasm::WebViewBridge` and its owned message listener post/receive actual
+  WebView2 JSON under the existing shared native/browser message limits.
+  Explicit listener close and counted failed-cleanup guards preserve callback
+  lifetime when the browser refuses teardown.
+- [minor] `wasm::WebPermissions` supplies real geolocation, camera, microphone
+  and notification requests with typed native outcomes, finite deadlines,
+  one unsettled slot per kind/document and owned media leases. Snapshots retain
+  cancelled settlement guards and zero-or-two geolocation dispatchers; late
+  media acquisition stops every track when publication has been cancelled.
+- [minor] DOM listener explicit close and actual active/retained counts expose
+  failed teardown ownership. `wasm::WebNumber::decimal` uses the native
+  ECMAScript formatter; `WebViewBridge::operation_wait_limit` exposes the shared
+  30-second provider bound.
+- [minor] `ProcessSpec::working_directory` owns an absolute child directory
+  validated before process resources are created, with native OS failures
+  retained and no process-global directory mutation.
+- [minor] `WebViewConfig::with_user_data_folder` admits a fresh caller-owned
+  local profile, checks the runtime's effective directory and waits for the
+  actual normal browser-process exit during close. Directory cleanup remains
+  caller-owned (ADR 0077).
+
+### Fixed
 
 - [patch] Native WebView2 permission callbacks mark DENY decisions as nonsaved, so a
   fresh profile can produce independent repeated-request denial evidence.
