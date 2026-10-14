@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 fn main() -> ProbeResult<()> {
-    tracing_subscriber::fmt().with_writer(io::stderr).init();
+    let recovery = load::recovery::Recovery::install()?;
     let arguments: Vec<_> = std::env::args().skip(1).collect();
     if !(5..=6).contains(&arguments.len()) || !matches!(arguments[0].as_str(), "server" | "client")
     {
@@ -36,13 +36,18 @@ fn main() -> ProbeResult<()> {
         }
     };
     if arguments[0] == "server" {
-        probe::<true>(peer, plan)
+        probe::<true>(peer, plan, &recovery)
     } else {
-        probe::<false>(peer, plan)
+        probe::<false>(peer, plan, &recovery)
     }
 }
 
-fn probe<const RESPONDER: bool>(address: SocketAddr, plan: Plan) -> ProbeResult<()> {
+fn probe<const RESPONDER: bool>(
+    address: SocketAddr,
+    plan: Plan,
+    recovery: &load::recovery::Recovery,
+) -> ProbeResult<()> {
+    recovery.emit("start")?;
     let endpoint = endpoint::<RESPONDER>(address, plan)?;
     if RESPONDER {
         println!(
@@ -54,7 +59,15 @@ fn probe<const RESPONDER: bool>(address: SocketAddr, plan: Plan) -> ProbeResult<
     let started = Instant::now();
     let outcome = moirai_executor::block_on(moirai_async::timer::timeout(
         Duration::from_secs(60),
-        run::<RESPONDER>(&endpoint, address, plan, started),
+        async {
+            let exchange = run::<RESPONDER>(&endpoint, address, plan, started);
+            let observe = recovery.observe();
+            futures::pin_mut!(exchange, observe);
+            match futures::future::select(exchange, observe).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right((never, _)) => match never {},
+            }
+        },
     ));
     // Preserve the originating error before a peer observes connection close
     // and its controller terminates this process during endpoint drain.
@@ -67,11 +80,22 @@ fn probe<const RESPONDER: bool>(address: SocketAddr, plan: Plan) -> ProbeResult<
         }
         Ok(Ok(_)) => {}
     }
+    recovery.emit(if matches!(&outcome, Ok(Ok(_))) {
+        "success"
+    } else {
+        "failure"
+    })?;
+    tracing::info!(target: "quic_load::load", phase = "drain", "load probe phase");
     endpoint.close();
     let drained = moirai_executor::block_on(endpoint.wait_idle());
     if let Err(error) = &drained {
         tracing::error!(phase = "drain", %error, "load probe endpoint drain fails");
     }
+    recovery.emit(if drained.is_ok() {
+        "drained"
+    } else {
+        "drain_failure"
+    })?;
     let result = outcome??;
     drained?;
     println!(

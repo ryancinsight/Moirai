@@ -5,6 +5,14 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
+ADR 0080 adds opt-in protocol-event, phase and timer-driver wake observations
+for the next complete matched study. Initial local ready-poll instrumentation
+records no timer readiness: pinned Quinn checks monotonic time before polling
+its async timer. That diagnostic path is rejected; actual shared-driver wake
+lateness includes QUIC, operation and observation timers and excludes subsequent
+protocol scheduling. It cannot establish pacing duration or complete flight
+history. Concurrent server-output draining prevents diagnostic pipe pressure.
+
 ADR 0079 defines matched stock CUBIC, NewReno and experimental-BBR evaluation.
 Policy selection preserves the original CUBIC default and all security/resource
 contracts. The independent original 108-pair promotion job remains unchanged.

@@ -29,4 +29,6 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Archive the complete first stock-policy comparison and all 30 shared-queue experiments; independently validate actual network settings, complete bytes, rates, percentiles, sampled fairness and queue evidence, including two failed collector cleanups.
 - [x] [patch] Correct observer/namespace cleanup ordering and preserve failure origin before endpoint drain; all 21 real QUIC tests and strict diagnostics pass. The fresh complete Linux study has no collector errors; four early competing failures retain server accept-deadline origins.
 
-Next increment [minor]: obtain handshake/flight/pacing evidence for a justified recovery candidate under the same original acceptance conditions. The measured policy comparison is complete; [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and dependent Metis promotion remain blocked by the open recovery limit and required review/checks.
+- [ ] [patch] Complete ADR 0080's opt-in recovery tracing study and independent audit over all original matrix and competing cases; retain pre-admission failures, PTO flight bytes and shared timer-driver wake lateness.
+
+Next increment [patch]: complete the original-domain diagnostic study before selecting a recovery candidate. The measured policy comparison is complete; [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and dependent Metis promotion remain blocked by the open recovery limit and required review/checks.

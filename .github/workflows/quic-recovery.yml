@@ -46,10 +46,13 @@ jobs:
           make -C "$RUNNER_TEMP/quic-iproute2" -j2
       - name: Build the authenticated byte-verifying probe
         run: cargo build --locked --release -p moirai-quic --example quic_load
+      - name: Verify aggregation of actual recovery trace events
+        run: cargo test --locked -p moirai-quic --example quic_load recovery::tests
       - name: Compare all stock policies with unchanged deadlines and workloads
         env:
           SUITE: ${{ matrix.suite }}
           REPETITION: ${{ matrix.repetition }}
+          MOIRAI_QUIC_RECOVERY_TRACE: '1'
         run: >-
           python3 scripts/quic_recovery.py
           --binary target/release/examples/quic_load

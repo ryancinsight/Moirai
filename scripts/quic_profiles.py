@@ -149,7 +149,18 @@ def pair(binary, network, streams, size, *, policy="cubic", address=None, barrie
     server = subprocess.Popen([*network.prefix(1), *command], text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     ready = queue.Queue()
-    reader = threading.Thread(target=lambda: ready.put(server.stdout.readline()), daemon=True)
+    collected = {}
+
+    def collect_server():
+        try:
+            ready.put(server.stdout.readline())
+            # Drain both pipes while the client runs. Diagnostic volume must
+            # never impose pipe backpressure on the real transport process.
+            collected["stdout"], collected["stderr"] = server.communicate()
+        except Exception as error:
+            collected["error"] = error
+
+    reader = threading.Thread(target=collect_server, daemon=True)
     reader.start()
     try:
         line = ready.get(timeout=min(5, deadline - time.monotonic()))
@@ -160,7 +171,12 @@ def pair(binary, network, streams, size, *, policy="cubic", address=None, barrie
                                  str(streams), str(MESSAGES), str(size), policy], text=True,
                                 capture_output=True, timeout=deadline - time.monotonic())
         client.check_returncode()
-        stdout, stderr = server.communicate(timeout=deadline - time.monotonic())
+        reader.join(timeout=max(0, deadline - time.monotonic()))
+        if reader.is_alive():
+            raise subprocess.TimeoutExpired(command, 60)
+        if "error" in collected:
+            raise collected["error"]
+        stdout, stderr = collected["stdout"], collected["stderr"]
         if server.returncode != 0:
             raise RuntimeError(f"QUIC server fails: {stderr}")
         reports = {"client": json.loads(client.stdout), "server": json.loads(stdout)}
@@ -176,30 +192,27 @@ def pair(binary, network, streams, size, *, policy="cubic", address=None, barrie
         if failure is not None and server.poll() is None:
             remaining = deadline - time.monotonic()
             if remaining > 0:
-                try:
-                    # An early client failure still leaves its peer the
-                    # original budget to emit the originating failure/drain.
-                    server.communicate(timeout=min(5, remaining))
-                except subprocess.TimeoutExpired:
-                    pass
+                # An early client failure still leaves its peer the original
+                # budget to emit the originating failure/drain.
+                reader.join(timeout=min(5, remaining))
         if cleanup_namespace:
             network.stop(0)
             network.stop(1)
         if server.poll() is None:
             server.terminate()
             try:
-                stdout, stderr = server.communicate(timeout=5)
+                server.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 server.kill()
-                stdout, stderr = server.communicate(timeout=5)
-        else:
-            stdout, stderr = server.communicate(timeout=5)
-        if failure is not None:
-            failure.server_stdout = stdout
-            failure.server_stderr = stderr
+                server.wait(timeout=5)
         reader.join(timeout=5)
         if reader.is_alive():
-            raise RuntimeError("task-owned readiness reader did not terminate")
+            raise RuntimeError("task-owned output reader did not terminate")
+        if "error" in collected:
+            raise collected["error"]
+        if failure is not None:
+            failure.server_stdout = collected["stdout"]
+            failure.server_stderr = collected["stderr"]
 
 
 def main():

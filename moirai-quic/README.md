@@ -14,6 +14,13 @@ TLS, framing, flow-control, native buffer or deadline contract.
 full-matrix and shared-queue evidence before a default change. The
 [complete comparison](measurements/recovery/2026-10-13/README.md) retains both
 studies and their failures; no production replacement is accepted.
+The probe's `MOIRAI_QUIC_RECOVERY_TRACE=1` opt-in aggregates pinned Quinn's
+congestion, pacing, anti-amplification, flow-blocked and PTO-space events
+from endpoint creation through drain. It retains authenticated/admitted phases
+and shared timer-driver wake lateness, including non-QUIC timers. Counts do
+not measure blocking duration; PTO bytes are flight observations only at probe
+timeouts. [ADR 0080](../docs/adr/0080-recovery-trace-evidence.md) defines the
+diagnostic bounds. Instrumented observations do not replace the original gate.
 
 `QuicEndpoint` binds before advertising readiness. Clients supply trusted roots
 and the certificate's server name; servers supply their certificate chain/key

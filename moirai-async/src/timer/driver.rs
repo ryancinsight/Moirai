@@ -200,6 +200,15 @@ impl TimerDriver {
                 timer.registration.clear_in_heap();
                 drop(state);
                 if !timer.registration.is_cancelled() {
+                    // A disabled trace evaluates no clock/field arguments.
+                    // Observe the shared driver's wake point, including QUIC,
+                    // operation and probe timers; protocol execution follows.
+                    tracing::trace!(
+                        lateness_ns = Instant::now()
+                            .saturating_duration_since(timer.deadline)
+                            .as_nanos(),
+                        "timer driver wakes registration"
+                    );
                     timer.registration.wake();
                 }
                 state = self.state.lock().unwrap();

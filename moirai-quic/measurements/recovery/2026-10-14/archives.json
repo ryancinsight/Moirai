@@ -1,0 +1,10 @@
+{
+  "archives": [
+    {
+      "name": "loopback-trace.json.gz",
+      "compressed_sha256": "2e30f15743a698e0b09c2f6e1f677f73422ac1a6bfd129e6ba9c4090307bda1d",
+      "uncompressed_sha256": "e91146e3d17ce6d249a0aa4304900a5c5a869f5a9c61b0d86c3147e2603d0397",
+      "context": "local pre-commit diagnostic verification; not controlled acceptance"
+    }
+  ]
+}

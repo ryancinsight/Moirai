@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [patch] Add opt-in load-probe aggregation of pinned Quinn recovery/PTO events,
+  handshake/admission/exchange phases and actual shared timer-driver wake
+  lateness (ADR 0080). Drain server diagnostics concurrently with client work;
+  retain the full original workloads, deadlines and CUBIC promotion gate.
 - [minor] Bounded stock congestion-policy selection retains CUBIC as default;
   NewReno and explicitly experimental BBR permit matched measurements through
   the same authenticated transport. ADR 0079 preserves the original full-matrix

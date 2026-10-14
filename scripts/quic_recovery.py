@@ -12,6 +12,7 @@ import contextlib
 import dataclasses
 import hashlib
 import json
+import os
 from pathlib import Path
 import platform
 import threading
@@ -143,6 +144,7 @@ def main():
               "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
               "policies": POLICIES, "messages_per_stream": MESSAGES,
               "pair_deadline_seconds": 60, "operation_deadline_seconds": 5,
+              "recovery_trace": os.environ.get("MOIRAI_QUIC_RECOVERY_TRACE") == "1",
               "runs": []}
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
 

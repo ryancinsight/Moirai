@@ -3,6 +3,7 @@
 mod material;
 mod metrics;
 mod observation;
+pub(super) mod recovery;
 
 pub(super) use material::endpoint;
 pub(super) use metrics::report;
@@ -62,6 +63,11 @@ pub(super) async fn run<const RESPONDER: bool>(
     };
     material::authorize(&connection)?;
     let connection_setup_ns = nanos(started)?;
+    tracing::info!(
+        phase = "authenticated",
+        connection_setup_ns,
+        "load probe phase"
+    );
     let exchanged = Instant::now();
     let progress = observation::Progress::new(exchanged);
     let mut sessions = Vec::new();
@@ -74,6 +80,11 @@ pub(super) async fn run<const RESPONDER: bool>(
         };
         sessions.push(session::<RESPONDER>(stream, plan, &progress));
     }
+    tracing::info!(
+        phase = "exchange",
+        elapsed_ns = nanos(started)?,
+        "load probe phase"
+    );
     let exchange = futures::future::try_join_all(sessions);
     let observe = progress.observe(&connection);
     futures::pin_mut!(exchange, observe);
@@ -82,6 +93,11 @@ pub(super) async fn run<const RESPONDER: bool>(
         futures::future::Either::Right((never, _)) => match never {},
     };
     let samples = result.into_iter().flatten().collect();
+    tracing::info!(
+        phase = "complete",
+        elapsed_ns = nanos(started)?,
+        "load probe phase"
+    );
     Ok(Exchange {
         connection_setup_ns,
         elapsed_ns: nanos(exchanged)?,
