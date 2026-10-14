@@ -1,27 +1,27 @@
 //! The actual WebView2 browser bridge; no authored JavaScript forwarding layer.
 
+mod endpoint;
 mod listener;
 mod message;
 
 use std::{io, time::Duration};
 
-use js_sys::{Function, Reflect};
-use wasm_bindgen::{JsCast, JsValue};
-use web_sys::EventTarget;
+use js_sys::Function;
 
 use crate::webview_limits::{
     MAX_WEBVIEW_MESSAGE_BYTES, MAX_WEBVIEW_WAIT_MILLISECONDS, validate_message,
 };
 
 use super::browser_error::javascript_error;
+use endpoint::{NativeMessageTarget, callable, property, unavailable};
 pub use listener::WebViewMessageListener;
 
-/// A handle to this document's actual `window.chrome.webview` EventTarget.
+/// A checked handle to this document's actual `window.chrome.webview` methods.
 ///
 /// It is unavailable in an ordinary browser. Native-origin messages are
 /// delivered synchronously to one Rust callback; this handle retains no queue.
 pub struct WebViewBridge {
-    target: EventTarget,
+    target: NativeMessageTarget,
     post: Function,
 }
 
@@ -35,20 +35,8 @@ impl WebViewBridge {
         let window = web_sys::window().ok_or_else(|| unavailable("browser Window"))?;
         let chrome = property(window.as_ref(), "chrome")?;
         let webview = property(&chrome, "webview")?;
-        let post = property(&webview, "postMessage")?
-            .dyn_into::<Function>()
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "WebView2 postMessage is not callable",
-                )
-            })?;
-        let target = webview.dyn_into::<EventTarget>().map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "WebView2 bridge is not an EventTarget",
-            )
-        })?;
+        let target = NativeMessageTarget::new(webview)?;
+        let post = callable(&target.receiver, "postMessage")?;
         Ok(Self { target, post })
     }
 
@@ -87,7 +75,7 @@ impl WebViewBridge {
         })?;
         message::validate_serialization(&value)?;
         self.post
-            .call1(self.target.as_ref(), &value)
+            .call1(&self.target.receiver, &value)
             .map_err(|error| {
                 javascript_error("WebView2 postMessage", io::ErrorKind::Other, error)
             })?;
@@ -105,25 +93,6 @@ impl WebViewBridge {
     {
         WebViewMessageListener::attach(self.target.clone(), callback)
     }
-}
-
-fn property(object: &JsValue, name: &str) -> io::Result<JsValue> {
-    if object.is_null() || object.is_undefined() {
-        return Err(unavailable(name));
-    }
-    let value = Reflect::get(object, &JsValue::from_str(name))
-        .map_err(|error| javascript_error("WebView2 bridge lookup", io::ErrorKind::Other, error))?;
-    if value.is_null() || value.is_undefined() {
-        return Err(unavailable(name));
-    }
-    Ok(value)
-}
-
-fn unavailable(member: &str) -> io::Error {
-    io::Error::new(
-        io::ErrorKind::Unsupported,
-        format!("WebView2 bridge has no {member}"),
-    )
 }
 
 #[cfg(test)]

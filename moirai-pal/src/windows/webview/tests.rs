@@ -15,6 +15,7 @@ use super::{
     event::WebViewPermission, state::WebViewState,
 };
 
+mod bridge;
 mod permissions;
 mod preview;
 mod startup;
