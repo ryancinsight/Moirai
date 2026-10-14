@@ -17,12 +17,23 @@ belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
 ## Browser I/O
 
+Workspace 0.9.2 corrects native WebView2 method admission after an installed
+Rust consumer rejects the host object through a DOM `EventTarget` cast. The
+private interface checks real callable methods and preserves their original
+receiver and listener teardown ownership. Public Rust signatures and message
+bounds remain unchanged. Fourteen actual Chrome contracts and strict WASM and
+Windows compilation pass. The compiled Rust/WASM installed-runtime regression
+and consumer acceptance remain gates under the
+[bridge contract](moirai-pal/src/wasm/webview/design.md).
+
 Workspace 0.9.1 adds private fixture-only WebView2 startup observations with
 bounded resource, exception and selected DOM evidence. Both explicit private
 selection and a dedicated diagnostic tracing filter are required. Ordinary
 applications do not capture DOM content. The
 [source contract](moirai-pal/src/windows/webview/host/diagnostics/design.md)
-defines activation, callback ownership, trace quotas and pending verification.
+defines activation, callback ownership and trace quotas. The protected provider
+run verifies selected native DOM/shutdown; the subsequent consumer trace
+identifies the native bridge admission failure.
 
 Workspace 0.9.0 adds the Rust-owned page-side WebView2 bridge, real browser
 permission requests, explicit callback teardown and native Number formatting.

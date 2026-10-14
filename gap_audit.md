@@ -3,21 +3,20 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
-## Native startup attribution — 2026-10-14 [patch]
+## Native bridge verification boundary — 2026-10-14 [patch]
 
-Metis [actual Windows run 38516491259](https://github.com/ryancinsight/metis/actions/runs/38516491259)
-retains successful allowed top-level navigation and exact prepared JS/WASM
-identities, then a Ready deadline failure. The desktop frame is blank and its
-occlusion is unknown; no actual resource response, runtime exception or DOM
-status identifies a cause. The private
-[startup observation contract](moirai-pal/src/windows/webview/host/diagnostics/design.md)
-adds explicitly selected native evidence under unchanged deadlines and bounded
-retention. Thirteen portable tests and strict native/Windows all-target checks
-pass; the actual installed Windows observation fixture remains pending. This
-diagnostic is not a product startup repair or a supported public API.
-The active [verification item](backlog.md#MOI-WEBVIEW-STARTUP-OBSERVATION-2026-10-14)
-owns implementation acceptance. Consumer handoff, four-kind denials and positive
-permission cleanup remain independent runtime requirements.
+The private startup observer is verified by its protected provider run. In
+[Metis run 38531378051](https://github.com/ryancinsight/metis/actions/runs/38531378051),
+all five resources return 200 with correct MIME types, Runtime/Log activation
+and current navigation complete, and selected native DOM retains the handled
+error `WebView2 bridge is not an EventTarget`. The exact nominal cast is the
+rejected operation; no injected script supplies that evidence.
+
+The active [native bridge item](backlog.md#MOI-WEBVIEW-NATIVE-BRIDGE-2026-10-14)
+owns the checked structural interface and installed Rust/WASM regression.
+Ordinary-browser codec checks do not establish native method admission. Final
+consumer Ready/Submit/Stop, ordinary unselected startup, all four native denials
+and positive permission cleanup remain separate runtime requirements.
 
 ## Rust page provider acceptance — 2026-10-13 [minor]
 

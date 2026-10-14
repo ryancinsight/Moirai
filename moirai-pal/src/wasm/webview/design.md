@@ -2,7 +2,7 @@
 
 Owner: [ADR 0077](../../../../docs/adr/0077-rust-page-provider-ownership.md).
 
-State: provider Windows fixture verified; consumer Rust handoff and positive-grant acceptance pending.
+State: protected profile/observer fixtures verified; 0.9.2 native bridge and consumer Rust handoff runtime acceptance pending.
 
 ## Dependency and API ownership
 
@@ -27,7 +27,7 @@ message byte/unit/event and operation wait constants shared by native/WASM.
 
 ## Message and callback law
 
-`WebViewBridge::current` checks the actual native EventTarget/method. Absence is
+`WebViewBridge::current` checks the actual native object and callable methods. Absence is
 Unsupported; invalid shape and thrown native operations retain context. Posting
 validates supplied JSON before parsing and native serialization, then calls
 postMessage with its object value. Receiving accepts actual object/string data
@@ -40,6 +40,45 @@ Successful explicit close detaches before releasing the Rust closure. A failed
 close leaves the handle active; a failed Drop moves its existing ownership to
 one counted realm guard. New attachment returns WouldBlock while an owner or
 guard exists. Browser destruction releases the remaining realm.
+
+### Checked native method contract — 0.9.2 [patch]
+
+The installed consumer in [Metis run 38531378051](https://github.com/ryancinsight/metis/actions/runs/38531378051)
+loads all five resources with correct MIME types, then Rust reports
+`WebView2 bridge is not an EventTarget`. Native DOM observations identify this
+nominal cast as the rejection. Microsoft's [WebView interface](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/javascript/webview)
+specifies `postMessage`, `addEventListener` and `removeEventListener`; the
+observed object fails this realm's DOM prototype identity test.
+
+The private handle checks a non-null object and caches all three callable
+properties once. Each invocation uses the same actual receiver. Missing or
+noncallable members and getter/call exceptions retain their operation context.
+No prototype mutation, unchecked native-object cast, injected page code or
+replacement host object supplies compatibility. Public signatures stay unchanged.
+
+The listener retains the exact callback, receiver and cached methods. Failed
+registration requires matching removal before callback release. If removal
+fails, the same single realm guard retains ownership and the returned error
+preserves both failures. Successful registration keeps the existing close/drop
+law. At most one active or retained listener exists; failed registration never
+reports successful attachment or cleanup.
+
+The installed consumer supplies the pre-correction failing case. Positive
+regression compiles Rust/WASM and exercises current/listen, a real native JSON
+roundtrip, close and reattachment inside installed WebView2. Ordinary browser
+tests verify checked extraction and negative values, not native delivery. All
+message bounds and native fixture deadlines remain unchanged.
+
+Local verification runs 14 actual Chrome contracts with no skipped cases,
+including seven structural checks on real browser objects. Strict WASM and
+Windows PAL diagnostics pass; the actual Cargo/bindgen producer retains its
+original generated payload and selected-source/tool/lock hashes. The full
+workspace passes 1,310 native tests with nine existing ignored probes. These
+checks do not establish installed Windows bridge delivery. The dedicated
+[compiled Rust fixture](../../../examples/webview_bridge_fixture/design.md)
+requires native roundtrips, close/remount and actual profile destruction in CI.
+Observed exception absence covers records received before teardown; it does not
+prove every possible future browser dispatch is error-free.
 
 `WebEventListener` applies the same detach-before-release rule to DOM events.
 On the first failed Drop, let A be the finite number of already-admitted live

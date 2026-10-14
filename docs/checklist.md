@@ -4,7 +4,11 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: 0.9.1 (workspace); moirai-webview 0.2.0
+**Target Version**: 0.9.2 (workspace); moirai-webview 0.2.0
+
+- [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.
+- [ ] [patch] Checked native method admission, registration compensation and exact callback lifetime.
+- [ ] [patch] Compiled Rust/WASM installed-WebView2 roundtrip, payload bounds, close/remount and profile cleanup.
 
 ## Apple local increment
 

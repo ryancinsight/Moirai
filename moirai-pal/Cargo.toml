@@ -156,6 +156,10 @@ getrandom = { version = "0.3.4", features = ["wasm_js"] }
 # A browser has no OS child-process fork; shrinking and real browser RNG remain.
 proptest = { version = "1.9", default-features = false, features = ["std", "bit-set"] }
 
+[[example]]
+name = "webview_bridge_fixture"
+crate-type = ["cdylib"]
+
 [features]
 default = ["parallel", "mnemosyne-memory"]
 parallel = []

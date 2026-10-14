@@ -1,15 +1,17 @@
-//! One EventTarget callback owner, including a counted failed teardown guard.
+//! One native callback owner, including a counted failed teardown guard.
 
 use std::{
     cell::{Cell, RefCell},
     io,
 };
 
-use wasm_bindgen::{JsCast, closure::Closure};
-use web_sys::{EventTarget, MessageEvent};
+use wasm_bindgen::closure::Closure;
+use web_sys::MessageEvent;
 
-use super::message;
-use crate::wasm::browser_error::javascript_error;
+use super::{
+    endpoint::{EventOperation, NativeMessageTarget},
+    message,
+};
 
 thread_local! {
     static ACTIVE: Cell<bool> = const { Cell::new(false) };
@@ -17,7 +19,7 @@ thread_local! {
 }
 
 struct ListenerParts {
-    target: EventTarget,
+    target: NativeMessageTarget,
     // Type erasure is the runtime browser callback ABI (interop condition 2),
     // not a throughput policy or an application callback collection.
     callback: Closure<dyn FnMut(MessageEvent)>,
@@ -34,7 +36,7 @@ pub struct WebViewMessageListener {
 }
 
 impl WebViewMessageListener {
-    pub(super) fn attach<F>(target: EventTarget, mut callback: F) -> io::Result<Self>
+    pub(super) fn attach<F>(target: NativeMessageTarget, mut callback: F) -> io::Result<Self>
     where
         F: FnMut(io::Result<String>) + 'static,
     {
@@ -46,19 +48,24 @@ impl WebViewMessageListener {
         }
         let callback =
             Closure::new(move |event: MessageEvent| callback(message::receive(event.data())));
-        if let Err(error) =
-            target.add_event_listener_with_callback("message", callback.as_ref().unchecked_ref())
+        let parts = ListenerParts { target, callback };
+        if let Err(registration) = parts
+            .target
+            .event(EventOperation::Attach, parts.callback.as_ref())
         {
+            // A thrown host operation does not prove that it registered nothing.
+            // The exact cached inverse must detach before callback release.
+            if let Err(cleanup) = parts.detach() {
+                retain_failed_cleanup(parts);
+                return Err(io::Error::new(
+                    registration.kind(),
+                    format!("{registration}; registration cleanup failed: {cleanup}"),
+                ));
+            }
             ACTIVE.with(|active| active.set(false));
-            return Err(javascript_error(
-                "WebView2 addEventListener",
-                io::ErrorKind::Other,
-                error,
-            ));
+            return Err(registration);
         }
-        Ok(Self {
-            parts: Some(ListenerParts { target, callback }),
-        })
+        Ok(Self { parts: Some(parts) })
     }
 
     /// Detaches this callback before releasing its Rust closure.
@@ -70,12 +77,7 @@ impl WebViewMessageListener {
         let Some(parts) = self.parts.as_ref() else {
             return Ok(());
         };
-        parts
-            .target
-            .remove_event_listener_with_callback("message", parts.callback.as_ref().unchecked_ref())
-            .map_err(|error| {
-                javascript_error("WebView2 removeEventListener", io::ErrorKind::Other, error)
-            })?;
+        parts.detach()?;
         self.parts.take();
         ACTIVE.with(|active| active.set(false));
         Ok(())
@@ -87,16 +89,26 @@ impl Drop for WebViewMessageListener {
         if let Err(error) = self.close() {
             tracing::error!(error = %error, "WebView2 callback teardown failed; retaining the realm owner");
             if let Some(parts) = self.parts.take() {
-                // ACTIVE admits exactly one owner, and FAILED_CLEANUP blocks
-                // every subsequent attachment, so this slot cannot be occupied.
-                FAILED_CLEANUP.with(|guard| {
-                    let previous = guard.borrow_mut().replace(parts);
-                    assert!(previous.is_none(), "single WebView2 failed cleanup owner");
-                });
-                ACTIVE.with(|active| active.set(false));
+                retain_failed_cleanup(parts);
             }
         }
     }
+}
+
+impl ListenerParts {
+    fn detach(&self) -> io::Result<()> {
+        self.target
+            .event(EventOperation::Detach, self.callback.as_ref())
+    }
+}
+
+fn retain_failed_cleanup(parts: ListenerParts) {
+    // ACTIVE admits one owner; this guard blocks all subsequent attachments.
+    FAILED_CLEANUP.with(|guard| {
+        let previous = guard.borrow_mut().replace(parts);
+        assert!(previous.is_none(), "single WebView2 failed cleanup owner");
+    });
+    ACTIVE.with(|active| active.set(false));
 }
 
 pub(super) fn retained_cleanup_count() -> usize {

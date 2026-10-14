@@ -6,14 +6,16 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
-<a id="MOI-WEBVIEW-STARTUP-OBSERVATION-2026-10-14"></a>
-## MOI-WEBVIEW-STARTUP-OBSERVATION-2026-10-14 [patch] — Verify private native startup observations
+<a id="MOI-WEBVIEW-NATIVE-BRIDGE-2026-10-14"></a>
+## MOI-WEBVIEW-NATIVE-BRIDGE-2026-10-14 [patch] — Admit the actual native bridge interface
 - status: todo
 - priority: correctness
-- outcome: Explicit fixture selection retains actual resource/error/DOM evidence before consumer Ready without changing public API or deadlines.
-- acceptance: Portable closed-selection/quota/ownership properties and actual Windows fixture prove selected status, missing selector, bounded trace and callback cleanup; the next consumer run retains actual startup evidence.
-- scope: Private PAL WebView2 observation ownership and source-adjacent design; no JavaScript execution or synthetic page events.
-- next step: Run the installed Windows observation fixture and retain actual status/resource/cleanup evidence before provider delivery; thirteen portable tests and strict native/SDK checks pass.
+- outcome: Rust acquires the actual installed WebView2 bridge without an invalid DOM prototype requirement; public signatures and resource limits stay unchanged.
+- basis: [Metis run 38531378051](https://github.com/ryancinsight/metis/actions/runs/38531378051) loads all five resources, then native DOM retains `WebView2 bridge is not an EventTarget`. Private observations activate and remain within quotas.
+- scope: One checked private native receiver/method owner, matching callback registration/removal, bounded failed cleanup and compiled Rust/WASM native regression; no injected JavaScript or replacement host object.
+- acceptance: Real installed native roundtrip computes Unicode/string identities and values, tests exact payload boundaries, detaches before callback release, remounts without old callback invocation, and closes/destroys/removes the fresh profile under existing deadlines.
+- next step: Complete strict browser/native diagnostics and the new installed Rust fixture, then publish the patch through protected checks before consumer adoption.
+- design: [Native bridge contract](moirai-pal/src/wasm/webview/design.md).
 
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts

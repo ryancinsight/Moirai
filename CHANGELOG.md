@@ -5,6 +5,24 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - Unreleased
+
+### Fixed
+
+- [patch] Check the actual WebView2 object's callable methods instead of
+  requiring this realm's DOM `EventTarget` prototype identity. Cache the real
+  receiver and methods; retain exact listener ownership through successful
+  removal, including compensation after a registration exception. Missing,
+  noncallable and throwing operations preserve member context. No supported
+  public signature or message limit changes, and no JavaScript bridge is added.
+
+Fourteen actual Chrome contracts pass, including seven new real-object checks.
+Strict WASM and Windows diagnostics and the original Rust/WASM producer pass.
+The new installed-runtime fixture requires real bidirectional Unicode/identity
+values, inclusive payload bounds, close/remount, and actual profile cleanup.
+Its execution and native consumer acceptance remain required; ordinary Chrome
+and compilation do not establish installed bridge delivery.
+
 ## [0.9.1] - Unreleased
 
 ### Fixed
@@ -16,9 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teardown and incomplete requests remain observable. This adds no supported
   public API and leaves ordinary application observation disabled.
 
-Thirteen portable quota/state tests and strict native/Windows SDK compilation
-pass. Actual Windows runtime verification remains pending; this instrumentation
-does not identify or repair the consumer's startup cause.
+The protected provider run passes 31 Windows policy/frame cases and six
+installed-runtime fixtures, including selected native DOM and owned shutdown.
+The subsequent consumer trace identifies the nominal bridge cast rejection;
+this instrumentation diagnoses that failure without repairing it.
 
 ## [0.9.0] - Unreleased
 
