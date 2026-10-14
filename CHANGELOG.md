@@ -68,6 +68,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- [major] The pre-1.0 UDP configuration moves from the async crate to PAL.
+  Replace `moirai_async::net::types::UdpConfig` imports with
+  `moirai_async::net::UdpConfig`; use `buffers.receive`/`buffers.send` with
+  `NonZeroUsize` and an explicit multicast group/interface instead of the
+  former ignored `buffer_size` and boolean. Native clients update the same
+  change; no compatibility facade retains the old type owner (ADR 0078).
+
 - Replace `UdpConfig.buffer_size` with independent `buffers.receive` and
   `buffers.send` requests using `NonZeroUsize`. Replace the ignored multicast
   boolean with an explicit `MulticastConfig` group/interface variant. Import
@@ -80,6 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] The embedded benchmark source inventory includes both socket-test
+  leaves after the TCP/UDP split; loopback, readiness, backpressure and
+  cancellation assertions retain their full computed-value requirements.
 - Partial framing aborts on cancellation, failure and deadline. FIN
   acknowledgement completes queued output before connection teardown.
 - Spawner rejection retains its original error across Quinn's infallible runtime

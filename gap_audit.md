@@ -5,6 +5,24 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
+Current-main integration uses 7828f5df and preserves PR 617 capture admission
+and PNG validation plus PR 619 page mechanisms. The transport/evidence audit
+compares 47 paths with the previous PR head and 64 code paths with main; all
+match, allowing only the UDP ADR comment renumbering. The socket-test split
+requires its two leaf fixtures in the embedded benchmark inventory; the
+unmodified contract fails without them and the complete corrected workspace
+passes 1,329 tests (nine existing ignored probes). The native integration suite
+passes 397 tests with no skips; minimal authenticated facade exchange passes.
+Both canonical locks resolve and preserve every external dependency identity.
+Current-main API comparison passes 979 of 980 applicable checks and reports the
+existing async UDP type-owner migration. CHANGELOG.md records the pre-1.0 break;
+this is not a backward-compatibility pass. Comparison with the previous QUIC
+head passes all 980 applicable checks across five native surfaces. Local
+validation runs on macOS; fresh
+Windows/Linux runtime and protected default-branch promotion remain gates.
+Historical platform and controlled-profile evidence below retains its source
+revisions and does not certify the reconciled tree.
+
 ADR 0078 closes ignored UDP configuration: positive, native-range-checked
 receive/send requests apply through PAL, typed multicast joins the specified
 group/interface, and readback reports kernel queue values. The original ignored
