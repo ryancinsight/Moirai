@@ -12,10 +12,12 @@ and current navigation complete, and selected native DOM retains the handled
 error `WebView2 bridge is not an EventTarget`. The exact nominal cast is the
 rejected operation; no injected script supplies that evidence.
 
-The active [native bridge item](backlog.md#MOI-WEBVIEW-NATIVE-BRIDGE-2026-10-14)
-owns the checked structural interface and installed Rust/WASM regression.
-Ordinary-browser codec checks do not establish native method admission. Final
-consumer Ready/Submit/Stop, ordinary unselected startup, all four native denials
+The [checked native contract](moirai-pal/src/wasm/webview/design.md) now
+passes its [installed Rust/WASM regression](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+in 8.155 seconds: bidirectional computed Unicode/string values, inclusive byte
+bounds, exact callback retirement/remount, and actual profile destruction.
+All five declared resources load successfully; error rejection stays enabled.
+Consumer Ready/Submit/Stop, ordinary unselected startup, all four native denials
 and positive permission cleanup remain separate runtime requirements.
 
 ## Rust page provider acceptance — 2026-10-13 [minor]

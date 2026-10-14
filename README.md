@@ -22,9 +22,10 @@ Rust consumer rejects the host object through a DOM `EventTarget` cast. The
 private interface checks real callable methods and preserves their original
 receiver and listener teardown ownership. Public Rust signatures and message
 bounds remain unchanged. Fourteen actual Chrome contracts and strict WASM and
-Windows compilation pass. The compiled Rust/WASM installed-runtime regression
-and consumer acceptance remain gates under the
-[bridge contract](moirai-pal/src/wasm/webview/design.md).
+Windows compilation pass. The [installed Windows regression](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+passes real bidirectional values, inclusive byte bounds, close/remount and fresh
+profile cleanup. Metis adoption and complete consumer journeys remain gates
+under the [bridge contract](moirai-pal/src/wasm/webview/design.md).
 
 Workspace 0.9.1 adds private fixture-only WebView2 startup observations with
 bounded resource, exception and selected DOM evidence. Both explicit private

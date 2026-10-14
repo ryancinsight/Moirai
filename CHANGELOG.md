@@ -18,10 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Fourteen actual Chrome contracts pass, including seven new real-object checks.
 Strict WASM and Windows diagnostics and the original Rust/WASM producer pass.
-The new installed-runtime fixture requires real bidirectional Unicode/identity
-values, inclusive payload bounds, close/remount, and actual profile cleanup.
-Its execution and native consumer acceptance remain required; ordinary Chrome
-and compilation do not establish installed bridge delivery.
+The [installed Windows fixture](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+passes real bidirectional Unicode/identity values, inclusive payload bounds,
+close/remount, and actual profile cleanup in 8.155 seconds. Its document owns a
+packaged SVG icon; missing resources and browser errors still reject acceptance.
+Metis adoption and native consumer journeys remain separate requirements.
 
 ## [0.9.1] - Unreleased
 

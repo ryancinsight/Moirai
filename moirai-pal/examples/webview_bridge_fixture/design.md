@@ -51,5 +51,8 @@ The document declares its packaged SVG icon. The first installed run performs
 the Unicode/maximum-string-identity computation, then the unchanged error
 observer rejects a missing implicit `/favicon.ico` request. The package now
 includes and hashes the actual declared icon; missing resources and browser
-errors remain failures. Boundary/remount/cleanup still require the repaired
-installed-runtime run.
+errors remain failures. The [corrected installed run](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+passes both byte boundaries, remount/callback assertions and final native
+browser/profile destruction in 8.155 seconds. Its source is
+`e15604d39dd4a9fe7912bc0c39f01cbacae2cfde`; later documentation edits do not
+substitute for a new production or consumer runtime result.

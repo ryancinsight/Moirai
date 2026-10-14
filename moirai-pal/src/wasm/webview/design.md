@@ -2,7 +2,7 @@
 
 Owner: [ADR 0077](../../../../docs/adr/0077-rust-page-provider-ownership.md).
 
-State: protected profile/observer fixtures verified; 0.9.2 native bridge and consumer Rust handoff runtime acceptance pending.
+State: profile/observer and 0.9.2 installed Rust bridge fixtures verified; consumer Rust handoff and positive-grant acceptance pending.
 
 ## Dependency and API ownership
 
@@ -77,8 +77,17 @@ workspace passes 1,310 native tests with nine existing ignored probes. These
 checks do not establish installed Windows bridge delivery. The dedicated
 [compiled Rust fixture](../../../examples/webview_bridge_fixture/design.md)
 requires native roundtrips, close/remount and actual profile destruction in CI.
-Observed exception absence covers records received before teardown; it does not
-prove every possible future browser dispatch is error-free.
+The [installed Windows run](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)
+at source `e15604d39dd4a9fe7912bc0c39f01cbacae2cfde` passes the Rust fixture
+in 8.155 seconds. Both directions admit 65,536 bytes and reject 65,537 bytes;
+Unicode/string identities and computed sums 65,793/197,379 survive both mounts.
+The first retired callback remains at three calls, the second computed reply
+reports two calls, and the final guard count is zero. Actual Destroyed and
+package/profile absence assertions pass. All five resources return 200. Final
+observer closure has no pending request or observed failure. Observed exception
+absence covers records received before teardown; it does not prove every
+possible future browser dispatch is error-free. Native consumer acceptance
+remains separate.
 
 `WebEventListener` applies the same detach-before-release rule to DOM events.
 On the first failed Drop, let A be the finite number of already-admitted live
