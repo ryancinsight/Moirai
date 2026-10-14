@@ -32,14 +32,14 @@ mod state;
 
 #[cfg(all(windows, feature = "webview2"))]
 pub(crate) use config::Selection;
-pub(crate) use quota::{RecordAdmission, TraceBudget};
 #[cfg(test)]
 pub(crate) use quota::BudgetSnapshot;
-pub(crate) use state::{RequestSlot, Start};
+pub(crate) use quota::{RecordAdmission, TraceBudget};
 #[cfg(all(windows, feature = "webview2"))]
 pub(crate) use state::RequestId;
 #[cfg(test)]
 pub(crate) use state::{Finish, RequestSnapshot};
+pub(crate) use state::{RequestSlot, Start};
 
 /// The dedicated diagnostic layer's exact tracing target.
 pub(crate) const TRACE_TARGET: &str = "moirai_pal::windows::webview::startup";
