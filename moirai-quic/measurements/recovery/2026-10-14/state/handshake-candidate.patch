@@ -1,0 +1,22 @@
+--- a/src/connection/mod.rs
++++ b/src/connection/mod.rs
+@@ -1851,12 +1851,16 @@
+ 
+         let mut result = None;
+         for space in SpaceId::iter() {
+-            if !self.spaces[space].has_in_flight() {
++            // Lost CRYPTO can be queued behind a reduced congestion window
++            // after its original packet leaves flight. It still needs a PTO.
++            if !self.spaces[space].has_in_flight() && self.spaces[space].pending.crypto.is_empty() {
+                 continue;
+             }
+             if space == SpaceId::Data {
+-                // Skip ApplicationData until handshake completes.
+-                if self.is_handshaking() {
++                // RFC 9002 section 6.2.1: ApplicationData PTO requires confirmation.
++                if self.is_handshaking()
++                    || (self.side.is_client() && self.spaces[SpaceId::Handshake].crypto.is_some())
++                {
+                     return result;
+                 }
+                 // Include max_ack_delay and backoff for ApplicationData.

@@ -13,7 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for per-space ACK/CRYPTO, actual flight, flow credit and timer state (ADR 0082).
   Preserve canonical transport/locks and the original CUBIC promotion gate.
   Validate all 81 corrected local policy pairs and retain the rejected off-timer
-  PTO-selector capture; require the full matched Linux study before interpretation.
+  PTO-selector capture. The complete Linux state study retains 105/108 CUBIC/
+  NewReno, 108/108 BBR and all 30 competing experiments; the unchanged pristine
+  CUBIC job independently reproduces 105/108 at the same source tree.
+- [patch] Retain a real maximum-workload handshake-loss experiment and isolated
+  recovery candidate: 17/27 baseline versus 27/27 candidate complete exchanges,
+  plus 23 native candidate contract tests. Correlate all six Linux early failures
+  with queued Handshake CRYPTO and Data-only PTOs. Keep the patch experimental,
+  the canonical dependency unchanged and the original promotion gate enforced.
 
 - [patch] Archive and independently audit the complete October 14 recovery trace
   study and independent original CUBIC gate. Preserve 105/108 CUBIC/NewReno,

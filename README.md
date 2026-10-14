@@ -149,7 +149,10 @@ actual peer preflights and recovery events. CUBIC/NewReno remain 105/108;
 experimental BBR remains 108/108 with fairness, queue and window-growth concerns.
 The independent original CUBIC gate reproduces the same three deadlines;
 Linux/Windows, workspace, supply-chain and lockfile checks pass. No default change
-is accepted.
+is accepted. [ADR 0082](docs/adr/0082-recovery-state-observation.md) isolates
+read-only engine-state capture and a real handshake-loss experiment. Its local
+candidate remains experimental; the canonical dependency and promotion job
+remain unchanged.
 
 `Arc<Moirai>` implements the fallible `TaskSpawner` seam consumed by the provider.
 Quinn owns protocol recovery and congestion control; Moirai owns scheduling,

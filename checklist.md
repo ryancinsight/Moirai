@@ -1,6 +1,6 @@
 # Moirai transport checklist
 
-Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Execution.
+Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Closure.
 
 - [x] [minor] Specify native QUIC ownership, trust, ALPN, resource and cancellation contracts in ADR 0075.
 - [x] [minor] Implement shared cancellable socket readiness and one scheduler/timer/UDP runtime boundary.
@@ -37,8 +37,11 @@ Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Execution.
 - [x] [patch] Revalidate the complete policy/shared-queue study, independent original CUBIC matrix and required security gates at 140d60cf after the Rustls 0.23.46 security floor. CUBIC/NewReno remain 105/108, BBR 108/108; all applicable non-performance jobs pass, including Linux/Windows, workspace, supply-chain and lockfile integrity. Retain 733afc9f's previous-stack evidence independently.
 - [x] [patch] Replay both complete trace studies and independent original matrices against their archived computed audits; verify every compressed/decompressed archive hash and retain six patched early handshakes separately from 15 pair deadlines. No recovery correction is accepted.
 
-Next increment [patch]: obtain per-space handshake ACK/CRYPTO state and established-session flight/flow-credit/pacing timelines for a justified recovery candidate. The security-patched comparison and trace study are complete; [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and dependent Metis promotion remain blocked by the measured recovery limit and required review/checks.
+Next increment [patch]: measure the focused handshake candidate over the full Linux policy/competing domain and establish a reviewed supported production path; continue the distinct established-throughput investigation using actual flight/credit/pacing timelines. The complete state study and pristine original gate remain separate; [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and dependent Metis promotion remain blocked by the measured recovery limit and required review/checks.
 
 - [x] [patch] Specify immutable engine-state observation in ADR 0082; verify pristine registry bytes, an addition-only private patch, and source/checksum-only diagnostic-lock changes. The canonical transport, locks and promotion job remain unchanged.
 - [x] [patch] Validate all 81 original local policy/shape/repetition pairs with actual peer state. Reject and retain the earlier off-timer PTO-selector observation; enforce armed-timer and cross-space/peer CRYPTO invariants.
-- [ ] [patch] Complete all six matched Linux state-observation shards and independently audit every real peer, original workload, fairness/queue outcome and provenance; repeat the untouched original gate before selecting a recovery correction.
+- [x] [patch] Complete all six matched Linux state-observation shards at 03dcc4a3 and independently audit every real peer, original workload, fairness/queue outcome and provenance. CUBIC/NewReno remain 105/108, BBR 108/108; the untouched original gate reproduces 105/108 at the same tree. Feature/security jobs pass; the original performance job fails and aggregate result is queued in the archived snapshot.
+
+- [x] [patch] Reproduce queued Handshake CRYPTO starvation using 27 real maximum-workload local datagram-loss cases per engine: baseline 17 complete, isolated candidate 27 complete; native QUIC contract tests pass 23/23 against the candidate. Retain prior nine-case trials and the failed result-file collection separately.
+- [ ] [patch] Measure the experimental handshake candidate's complete Linux policy, fairness, latency and queue domain and establish a reviewed supported production path before adoption. Keep the canonical provider and original promotion gate unchanged.

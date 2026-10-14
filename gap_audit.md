@@ -10,9 +10,20 @@ ACK/CRYPTO, actual flight, credit and timer observations. The original transport
 locks and CUBIC gate remain unchanged. All 81 corrected local original-domain
 policy pairs validate bytes and state invariants. The preceding observer calls
 the PTO selector without timer/flight preconditions; retain that unsuccessful
-capture and reject its selected-space claims. The corrected full Linux matched
-study remains required. Instrumented measurements do not certify pristine-engine
+capture and reject its selected-space claims. The corrected full Linux matched study completes at 03dcc4a3: CUBIC/NewReno
+105/108, BBR 108/108; independent pristine CUBIC remains 105/108 at the same
+tree. All six shards and every engine-state invariant pass independent audit. Instrumented measurements do not certify pristine-engine
 performance or establish a causal correction by themselves.
+
+The completed Linux competing shards narrow the early failures to queued
+Handshake CRYPTO starvation: 634 client bytes remain queued outside flight,
+Data PTOs repeat and the server consumes only 2246/2880 handshake bytes. A
+separate real maximum-workload datagram-loss experiment completes 17/27 baseline
+and 27/27 candidate cases; the isolated candidate passes all 23 native QUIC
+contract tests. The candidate preserves queued CRYPTO PTO eligibility and client
+handshake confirmation. It is not adopted: full candidate Linux competing/rate/
+latency/queue evidence and a supported reviewed production dependency remain
+required, and established-session congestion throughput remains unresolved.
 
 The completed supply-chain job at 733afc9f reports four Rustls 0.23.45
 advisories. The shared dependency and standalone QUIC boundary require released

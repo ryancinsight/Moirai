@@ -212,8 +212,74 @@ preserves the selector's flight/timer preconditions; `state-native.json.gz`
 retains all 81 local policy/shape/repetition pairs with exact bytes, cross-space
 flight sums and cross-peer Initial/Handshake CRYPTO generation/consumption.
 Both captures retain binary, patch and measured-source hashes; neither supplies
-shaped-network acceptance. All six fresh Linux diagnostic shards and the separate
-untouched original gate remain required before interpreting causes.
+shaped-network acceptance. The full Linux observer study runs at 03dcc4a3 in
+[run 38612818404](https://github.com/ryancinsight/Moirai/actions/runs/38612818404);
+the unchanged original gate runs separately in
+[run 38612819578](https://github.com/ryancinsight/Moirai/actions/runs/38612819578).
+All six shards complete and pass independent state/numerical auditing. The source
+is `03dcc4a31d7f793e4cb1cb7d96ff74f47033946c`, tree
+`48c5d032d581b2a2af78686da7eade7444537947`. CUBIC/NewReno again complete
+105/108 each (1,844,797,440 bytes per direction); experimental BBR completes
+108/108 (2,247,598,080). The same three maximum loss cases fail under CUBIC and
+NewReno. All matrix/competing UDP-error deltas are zero. All 384 process pairs
+retain actual engine state and verified child preflights; no earlier case fills
+the inventory. The instrumented BBR loss medians are 70.367697 Mbit/s,
+15.264604061 s exchange and 187.650529 ms client p95. These diagnostic timings
+do not replace pristine-engine acceptance.
+
+The independent original gate runs all 108 uninstrumented CUBIC pairs: 105
+complete exact-byte reports, the same three 60-second loss failures and zero
+UDP-error deltas. Its merge checkout `631753d691d2fdd1b0b2f2f4ec32746d8c26b3d4`
+has the identical tree above. Linux/Windows native, workspace, Rust 1.95 floor,
+Loom, fuzz, supply-chain, lockfile, ADR and informational SemVer jobs pass.
+The original performance job fails; aggregate Verification result remains queued
+in the archived required-check snapshot. This is not a full-check success.
+
+For the three maximum loss repetitions, observed per-role timeline extrema and
+last-observed connection credit are:
+
+| Policy / role | Flight range, bytes | Congestion-window range, bytes | Final observed connection-credit range, bytes |
+|---|---:|---:|---:|
+| CUBIC / client | 0–101,640 | 12,000–120,506 | 630,718–881,290 |
+| CUBIC / server | 0–540,868 | 5,880–544,476 | 560,200–703,434 |
+| NewReno / client | 0–84,216 | 10,551–88,671 | 521,161–1,045,341 |
+| NewReno / server | 0–88,572 | 3,000–287,793 | 204,268–941,563 |
+
+These ranges include startup and retain actual driver-boundary values. Interval
+extrema are not continuous bounds; positive final credit does not exclude earlier
+credit stalls (each policy reaches zero credit in some observations). Pacing,
+credit and congestion events still do not establish blocked wall-time fractions.
+The established-session throughput cause remains incomplete.
+
+All 30 competing experiments run: 39/60 pairs complete, six fail at server
+handshake/accept and 15 reach the pair deadline. Mixed BBR/CUBIC loss Jain values
+are 0.567320/0.583655/0.572130, with sampled queue peaks
+633,275/671,276/520,820 bytes. BBR completes and CUBIC times out in all three.
+BBR/BBR peaks reach 1,243,444 bytes; completed client p95 spans
+303.302522–331.717687 ms. Every competing queue reports zero backlog after
+cleanup. These remain finite sampled observations without an invented regression
+tolerance, steady-state fairness conclusion or continuous queue guarantee.
+
+The completed competing shards independently validate all 60 actual peer pairs.
+All six early failures retain 634 queued client Handshake CRYPTO bytes with zero
+Handshake flight and Data PTO selection. The server consumes 2246/2880 client
+Handshake bytes and remains in TLS handshake. The focused real UDP experiment
+retains 27 local maximum-workload cases per engine: baseline 17/27 complete,
+experimental correction 27/27 complete. Each case drops one of the first three
+client datagrams containing Handshake packets; all other datagrams pass unchanged.
+Every baseline failure exhibits queued Handshake CRYPTO blocked by the shared
+window while PTO selects Data. Packet batching varies, so this is a matched
+fault rule, not an identical encrypted packet tape or throughput comparison.
+
+The [candidate patch](state/handshake-candidate.patch) makes queued CRYPTO eligible
+for PTO and distinguishes confirmation from local TLS completion. It passes all
+23 native QUIC contract tests in an isolated build. It remains experimental:
+the canonical dependency is unchanged, its complete Linux fairness/latency/queue
+matrix is unmeasured, and established-session throughput is a separate limit.
+See ADR 0082 for the causal argument and standards references. The additional
+[state archive ledger](state/archives.json) retains both repeated experiments,
+preceding nine-case experiments and the failed result-file recorder. No failed
+or candidate case supplies baseline acceptance.
 
 ## Reproduction and decision
 
@@ -224,7 +290,29 @@ Run the Python contract tests, then independently recompute:
 python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'
 python3 scripts/quic_trace_audit.py moirai-quic/measurements/recovery/2026-10-14/140d60cf-{matrix,fairness}-*.json.gz --output /tmp/quic-trace-audit.json
 python3 scripts/quic_recovery_audit.py --original-gate moirai-quic/measurements/recovery/2026-10-14/140d60cf-default-matrix.json.gz --output /tmp/quic-original-audit.json
+python3 scripts/quic_trace_audit.py moirai-quic/measurements/recovery/2026-10-14/state/03dcc4a3-{matrix,fairness}-*.json.gz --output /tmp/quic-state-audit.json
+python3 scripts/quic_recovery_audit.py --original-gate moirai-quic/measurements/recovery/2026-10-14/state/03dcc4a3-original-matrix.json.gz --output /tmp/quic-state-original-audit.json
 ```
+
+To reproduce the supplementary local fault experiment, choose a fresh task-owned
+output directory and build the observer as in the workflow. Preserve its baseline
+binary before applying the candidate to that copied engine only. The manifest
+records the baseline observation patch; the candidate is identified separately:
+
+```sh
+cargo fetch --locked
+python3 scripts/quic_observation/prepare.py --output /tmp/moirai-quic-state-repro
+CARGO_TARGET_DIR=/tmp/moirai-quic-state-repro/target cargo --config /tmp/moirai-quic-state-repro/config.toml build --manifest-path /tmp/moirai-quic-state-repro/workspace/Cargo.toml --locked --release -p moirai-quic --example quic_load
+cp /tmp/moirai-quic-state-repro/target/release/examples/quic_load /tmp/moirai-quic-state-repro/baseline
+python3 scripts/quic_observation/handshake.py --binary /tmp/moirai-quic-state-repro/baseline --engine-provenance /tmp/moirai-quic-state-repro/provenance.json --output /tmp/moirai-quic-state-repro/baseline-pairs.json
+git -C /tmp/moirai-quic-state-repro/engine apply "$PWD/moirai-quic/measurements/recovery/2026-10-14/state/handshake-candidate.patch"
+CARGO_TARGET_DIR=/tmp/moirai-quic-state-repro/target cargo --config /tmp/moirai-quic-state-repro/config.toml build --manifest-path /tmp/moirai-quic-state-repro/workspace/Cargo.toml --locked --release -p moirai-quic --example quic_load
+python3 scripts/quic_observation/handshake.py --binary /tmp/moirai-quic-state-repro/target/release/examples/quic_load --engine-provenance /tmp/moirai-quic-state-repro/provenance.json --candidate-patch moirai-quic/measurements/recovery/2026-10-14/state/handshake-candidate.patch --output /tmp/moirai-quic-state-repro/candidate-pairs.json
+```
+
+The relay uses loopback and one explicit datagram fault. These commands never
+configure the canonical provider or replace full shaped-network acceptance.
+Keep command-recorder outputs separate from result JSON paths.
 
 No default change is accepted. NewReno does not close the workload limit.
 Experimental BBR completes it but retains mixed-policy fairness, queue and
