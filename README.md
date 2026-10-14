@@ -144,9 +144,12 @@ retains 108 original cases per policy and competing-flow evidence: NewReno does
 not close the loss deadline, while BBR's mixed-policy fairness and queue tradeoff
 does not justify default adoption. The original promotion gate remains enforced.
 The [complete October 14 trace study](moirai-quic/measurements/recovery/2026-10-14/README.md)
-retains actual peer preflights and recovery events for every original case and
-competing experiment. CUBIC/NewReno remain 105/108; experimental BBR remains
-108/108 with fairness, queue and window-growth concerns. No default change is accepted.
+repeats every original case and competing experiment on Rustls 0.23.46, retaining
+actual peer preflights and recovery events. CUBIC/NewReno remain 105/108;
+experimental BBR remains 108/108 with fairness, queue and window-growth concerns.
+The independent original CUBIC gate reproduces the same three deadlines;
+Linux/Windows, workspace, supply-chain and lockfile checks pass. No default change
+is accepted.
 
 `Arc<Moirai>` implements the fallible `TaskSpawner` seam consumed by the provider.
 Quinn owns protocol recovery and congestion control; Moirai owns scheduling,

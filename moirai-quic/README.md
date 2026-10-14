@@ -15,9 +15,11 @@ full-matrix and shared-queue evidence before a default change. The
 [complete comparison](measurements/recovery/2026-10-13/README.md) retains both
 studies and their failures; no production replacement is accepted.
 The [October 14 trace study](measurements/recovery/2026-10-14/README.md)
-retains all 108 cases per policy, all 30 competing experiments and the independent
-original CUBIC gate. It separates unestablished server handshakes from established
-congestion/pacing/flow-credit pressure; recovery and protected promotion remain open.
+repeats all 108 cases per policy, all 30 competing experiments and the independent
+original CUBIC gate on Rustls 0.23.46. It separates six unestablished server
+handshakes from established congestion/pacing/flow-credit pressure. CUBIC/NewReno
+remain 105/108; BBR's 108/108 does not justify its fairness/queue tradeoff.
+Native/security checks pass; recovery and protected promotion remain open.
 The probe's `MOIRAI_QUIC_RECOVERY_TRACE=1` opt-in aggregates pinned Quinn's
 congestion, pacing, anti-amplification, flow-blocked and PTO-space events
 from endpoint creation through drain. It retains authenticated/admitted phases

@@ -266,6 +266,96 @@
       "status": "passed",
       "records": 27,
       "context": "27 complete uninstrumented local CUBIC pairs; not shaped acceptance"
+    },
+    {
+      "name": "140d60cf-fairness-0.json.gz",
+      "compressed_sha256": "7890f42db1e0ec0f600ba08014a297573d934589164c92e2deffd0dd85963e85",
+      "uncompressed_sha256": "5c5856f33cf716ae3c6d9cb2e4f38423d2d0a24885142cb5b8aa74dcdbc33f29",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 0,
+      "records": 10,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-fairness-1.json.gz",
+      "compressed_sha256": "a7c0251f9354b5d94ad8f42bb24b6c8daf84c5436e253c0dbb954c95ddba417a",
+      "uncompressed_sha256": "46e0b28f1bf7e2e9c50d6d301b44e15ae127483511c94f58386b32039599e90f",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 1,
+      "records": 10,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-fairness-2.json.gz",
+      "compressed_sha256": "86d8653cd009d84d30b6122f83dee48f7e461ab476190cd8318b5fbc656c7927",
+      "uncompressed_sha256": "b5a07b1a77cb24ef09f02531a4484f84f2b60186225c9dbf1323ffd63c78fb04",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 2,
+      "records": 10,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-matrix-0.json.gz",
+      "compressed_sha256": "e8b56a5f1a33dc3e4f25049b3bd2a5174093816b2c1c03ab91fa6995a1e47766",
+      "uncompressed_sha256": "60303a0469bb6a937a6aa781f0e6eaabfb216e8a0d82f983844dc33ee9306abe",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 0,
+      "records": 108,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-matrix-1.json.gz",
+      "compressed_sha256": "23f2ff2bd3ba6aa7a00a9cb48bf1491657ed2d1fdbfb4d7f8fb85a2bdc8baedd",
+      "uncompressed_sha256": "6ffce8ffd2363ae1f9381e50cbb79b154ae4a4823591df32a28b8648f90b4150",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 1,
+      "records": 108,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-matrix-2.json.gz",
+      "compressed_sha256": "c2fcc7dbad0749fadbbd73ac1748c2fed9986035a7327e252c62068d148cdfbd",
+      "uncompressed_sha256": "f67d29954d50aec2b1e6460e8ad68e73ecfa2893ccd25d2017582d28a1ec884b",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 2,
+      "records": 108,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-audit.json.gz",
+      "compressed_sha256": "735316e4d30f01017d27a3bd95f69242112bacd8d4c34f25be9a41aebc961afb",
+      "uncompressed_sha256": "99aa348f046c0f2ee6bbd666b3ad15d5bc45ed1c2dc02caf2dba43d92b1f3ec7",
+      "context": "independent full patched-study audit"
+    },
+    {
+      "name": "140d60cf-default-matrix.json.gz",
+      "compressed_sha256": "1250867c01f02bb5fe698c5a80c3d080bb6063d59a6207530813f16982d6c88b",
+      "uncompressed_sha256": "2c1d475b6afc15df6636ce3926bb9001ab598d73c28580f743c44f8a4d18ba66",
+      "context": "independent uninstrumented original CUBIC gate after TLS security patch"
+    },
+    {
+      "name": "140d60cf-default-audit.json.gz",
+      "compressed_sha256": "6375a444bac245235712aabbfb445dc84b402588770619e1148ab9041d5dcd95",
+      "uncompressed_sha256": "30a028d73d4389371f8fde087a55947697e8f483c8e6ac2c2f94a1d58b28d9f4",
+      "context": "independent original full-domain and computed-value audit after TLS patch"
+    },
+    {
+      "name": "140d60cf-required-checks.json.gz",
+      "compressed_sha256": "fa27b2430dda2b7a899a9d01aee134f55a7c7c08231b0f278cd4e8182cb29ada",
+      "uncompressed_sha256": "2c44b4b3519edd62ab57e3692936cf4ffa69e632e8e39c78463f13f89622762d",
+      "context": "completed required run 38594188048; only original performance job and aggregate result fail"
     }
   ]
 }

@@ -6,34 +6,42 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 ## Native QUIC transport — 2026-10-13 [minor]
 
 The completed supply-chain job at 733afc9f reports four Rustls 0.23.45
-advisories. The shared dependency and standalone QUIC boundary now require
-released Rustls 0.23.46; both canonical locks change only Rustls's external
-identity. All 23 local QUIC/trace checks, strict transport diagnostics and 223
-patch-level API checks pass. The full original-domain measurements and required
-native/security checks must repeat at this patched stack before acceptance.
+advisories. The shared dependency and standalone QUIC boundary require released
+Rustls 0.23.46; both canonical locks change only Rustls's external identity.
+At patched 140d60cf, all 23 local QUIC/trace checks, strict transport diagnostics,
+223 patch-level API checks and 1,341 workspace tests pass (nine existing ignored
+probes). Every applicable non-performance CI job passes, including Linux/Windows,
+workspace, supply-chain and lockfile integrity. The unchanged executor retention
+test emits one process-output leak diagnostic in the workspace run; its focused
+rerun passes without that diagnostic. No heap-leak inference follows.
 
-The corrected October 14 study at 733afc9f completes the full original domain
-per policy and all 30 competing experiments with actual peer traces and
-verified preflights: CUBIC/NewReno 105/108, experimental BBR 108/108. Independent
-uninstrumented CUBIC CI reproduces the same three deadlines. All measured UDP
-error deltas are zero. Three early competing failures retain unestablished
-server handshakes while clients transition from a Handshake-space PTO to
-repeated Data-space PTOs; the largest observed server timer-driver lateness is
-109,881 ns. Established failures show congestion, pacing and stream-flow-credit
-notifications; counts do not resolve their wall-time costs. BBR's mixed-policy
-sampled Jain indices 0.537422–0.582141, larger queues and sampled 133,608,526-byte
-congestion window reinforce the rejected default change. Upstream PR 2798 is
+The patched October 14 study at 140d60cf repeats the full original domain per
+policy and all 30 competing experiments with actual peer traces and verified
+preflights: CUBIC/NewReno 105/108, experimental BBR 108/108. Independent
+uninstrumented CUBIC CI reproduces the same three deadlines. Controlled-loss and
+competing UDP-error deltas are zero. One successful unshaped NewReno case records
+three client receive-buffer drops (overlapping InErrors/RcvbufErrors), which does
+not establish socket exhaustion in the loss failures. Six early competing
+failures retain unestablished server handshakes while clients transition from a
+Handshake-space PTO to repeated Data-space PTOs; largest observed server driver
+lateness is 85,146 ns. Fifteen other competing pairs reach the pair deadline.
+Established failures show congestion, pacing and stream-flow-credit notifications;
+counts do not resolve wall-time costs. BBR's mixed-policy sampled Jain indices
+0.557124–0.581728, larger queues and sampled 10,313,912-byte congestion window
+prevent default adoption. Preceding 733afc9f records a 133,608,526-byte window;
+a window is neither allocated memory nor actual flight. Upstream PR 2798 remains
 open/unmerged, and internal BBR mode/target state is unobserved. Pending CRYPTO,
 ACK, flight and flow-credit timelines remain the next evidence requirement.
-All unsuccessful and canceled inputs are retained; no acceptance cases are
-spliced. The separate fuzz-lock defect is a missing tracing dependency edge;
-offline resolution repairs only that edge and both locks resolve under --locked.
+All preceding, unsuccessful and canceled inputs are retained; no acceptance
+cases are spliced. The separate fuzz-lock defect is a missing tracing dependency
+edge; offline resolution repairs only that edge and both locks resolve under
+--locked. The original performance gate remains failed.
 
 Current-main integration retains 2b189f0a's WebView bridge/startup fixes and
 version 0.9.2 history. The pending additive QUIC/native surface and documented
 pre-1.0 UDP migration target workspace 0.10.0. ADR 0081 replaces the PR-only
-UDP decision number because main now owns ADR 0078. All pre-existing external
-package identities remain unchanged; main adds tracing-serde 0.2.0.
+UDP decision number because main now owns ADR 0078. The main merge preserves
+external package identities and adds tracing-serde 0.2.0; the subsequent security correction changes only Rustls to 0.23.46.
 
 ADR 0080 adds opt-in protocol-event, phase and timer-driver wake observations
 for the next complete matched study. Initial local ready-poll instrumentation
