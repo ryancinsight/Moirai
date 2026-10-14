@@ -5,6 +5,15 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
+ADR 0082 adds a separate read-only diagnostic engine build for per-space
+ACK/CRYPTO, actual flight, credit and timer observations. The original transport,
+locks and CUBIC gate remain unchanged. All 81 corrected local original-domain
+policy pairs validate bytes and state invariants. The preceding observer calls
+the PTO selector without timer/flight preconditions; retain that unsuccessful
+capture and reject its selected-space claims. The corrected full Linux matched
+study remains required. Instrumented measurements do not certify pristine-engine
+performance or establish a causal correction by themselves.
+
 The completed supply-chain job at 733afc9f reports four Rustls 0.23.45
 advisories. The shared dependency and standalone QUIC boundary require released
 Rustls 0.23.46; both canonical locks change only Rustls's external identity.

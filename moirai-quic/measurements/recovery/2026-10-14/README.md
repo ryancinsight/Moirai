@@ -194,6 +194,27 @@ macOS diagnostic verification, not shaped-network or promotion evidence.
 The integrated uninstrumented local CUBIC probe also verifies all 27 cases.
 The preceding [October 13 studies](../2026-10-13/README.md) remain unchanged.
 
+## State-observation increment — ADR 0082
+
+The next diagnostic build adds only immutable observer calls and private helpers
+to the exact checksum-verified quinn-proto 0.11.19 source in a separate workspace.
+The canonical registry source, workspace locks and original CUBIC job remain
+unchanged. Record ACK/CRYPTO metadata, actual per-space flight, stream/connection
+credit and timer/PTO state. Retain every handshake state/event and per-second
+first/last/extrema for established driver observations; these do not prove
+continuous blocked durations. No plaintext or secrets are recorded.
+
+`state-native-rejected-pto.json.gz` retains 81 real byte-complete local pairs
+from the first observer. Its off-timer call of the PTO selector can report an
+idle candidate and violate the selector's debug precondition. Those selected-space
+claims fail audit and do not support a recovery change. The corrected observer
+preserves the selector's flight/timer preconditions; `state-native.json.gz`
+retains all 81 local policy/shape/repetition pairs with exact bytes, cross-space
+flight sums and cross-peer Initial/Handshake CRYPTO generation/consumption.
+Both captures retain binary, patch and measured-source hashes; neither supplies
+shaped-network acceptance. All six fresh Linux diagnostic shards and the separate
+untouched original gate remain required before interpreting causes.
+
 ## Reproduction and decision
 
 `archives.json` hashes every retained compressed/decompressed input and audit.

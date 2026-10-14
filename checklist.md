@@ -1,6 +1,6 @@
 # Moirai transport checklist
 
-Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Closure.
+Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Execution.
 
 - [x] [minor] Specify native QUIC ownership, trust, ALPN, resource and cancellation contracts in ADR 0075.
 - [x] [minor] Implement shared cancellable socket readiness and one scheduler/timer/UDP runtime boundary.
@@ -38,3 +38,7 @@ Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Replay both complete trace studies and independent original matrices against their archived computed audits; verify every compressed/decompressed archive hash and retain six patched early handshakes separately from 15 pair deadlines. No recovery correction is accepted.
 
 Next increment [patch]: obtain per-space handshake ACK/CRYPTO state and established-session flight/flow-credit/pacing timelines for a justified recovery candidate. The security-patched comparison and trace study are complete; [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and dependent Metis promotion remain blocked by the measured recovery limit and required review/checks.
+
+- [x] [patch] Specify immutable engine-state observation in ADR 0082; verify pristine registry bytes, an addition-only private patch, and source/checksum-only diagnostic-lock changes. The canonical transport, locks and promotion job remain unchanged.
+- [x] [patch] Validate all 81 original local policy/shape/repetition pairs with actual peer state. Reject and retain the earlier off-timer PTO-selector observation; enforce armed-timer and cross-space/peer CRYPTO invariants.
+- [ ] [patch] Complete all six matched Linux state-observation shards and independently audit every real peer, original workload, fairness/queue outcome and provenance; repeat the untouched original gate before selecting a recovery correction.

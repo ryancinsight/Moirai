@@ -92,6 +92,23 @@ def protocol_trace(text, success):
 
 def trace_audit(shards):
     result = audit(shards)
+    observed = any("engine_observation" in s for s in shards)
+    if observed:
+        import hashlib
+        from quic_observation.audit import state_trace, state_pair
+        from quic_observation.prepare import verify_provenance
+        root = Path(__file__).resolve().parents[1]
+        patch = hashlib.sha256((root/"scripts/quic_observation/engine.patch").read_bytes()).hexdigest()
+        require(all(s.get("engine_observation") == shards[0].get("engine_observation")
+                    for s in shards), "mixed diagnostic engine provenance")
+        provenance = shards[0]["engine_observation"]
+        verify_provenance(provenance, root)
+        require(provenance["patch_sha256"] == patch and provenance["version"] == "0.11.19",
+                "diagnostic patch identity differs")
+        require(all(s["lock_sha256"] == provenance["canonical_lock_sha256"] for s in shards),
+                "diagnostic canonical lock differs")
+        result["engine_observation"] = provenance
+        result["engine_states"] = []
     require(all(s.get("recovery_trace") is True for s in shards), "tracing mode is not recorded")
     for shard in shards:
         preflight = shard.get("trace_preflight", {})
@@ -101,6 +118,8 @@ def trace_audit(shards):
             verify(preflight["reports"][role], responder, 1, 24)
             require(preflight["reports"][role]["congestion_policy"] == "cubic", "preflight policy differs")
             protocol_trace(diagnostics(preflight, role), True)
+            if observed:
+                state_trace(diagnostics(preflight, role))
     traces = []
     for shard in shards:
         for record in shard["runs"]:
@@ -111,6 +130,12 @@ def trace_audit(shards):
                                "status": "failed" if "error" in flow else "passed",
                                **{role: protocol_trace(diagnostics(flow, role), "error" not in flow)
                                   for role in ("client", "server")}})
+                if observed:
+                    result["engine_states"].append({
+                        **{k: traces[-1][k] for k in ("suite", "profile", "repetition", "streams",
+                                                     "bytes", "policy", "status")},
+                        **state_pair(diagnostics(flow, "client"), diagnostics(flow, "server"),
+                                     "error" not in flow)})
     result["protocol_traces"] = traces
     return result
 

@@ -14,6 +14,7 @@ use tracing::{Event, Subscriber};
 use tracing_subscriber::filter::{LevelFilter, filter_fn};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::prelude::*;
+mod engine;
 
 #[derive(Clone)]
 pub(crate) struct Recovery {
@@ -61,6 +62,7 @@ struct State {
     counts: Counts,
     phases: Vec<Phase>,
     timeouts: Vec<ProbeTimeout>,
+    engine: engine::Capture,
 }
 
 #[derive(Serialize)]
@@ -73,6 +75,7 @@ struct Snapshot {
     counts: Counts,
     phases: Vec<Phase>,
     timeouts: Vec<ProbeTimeout>,
+    engine: Option<engine::Capture>,
 }
 
 impl Recovery {
@@ -110,6 +113,7 @@ impl Recovery {
                 counts: Counts::default(),
                 phases: Vec::new(),
                 timeouts: Vec::new(),
+                engine: engine::Capture::default(),
             })),
         }
     }
@@ -131,6 +135,7 @@ impl Recovery {
             counts: state.counts,
             phases: state.phases.clone(),
             timeouts: state.timeouts.clone(),
+            engine: state.engine.snapshot(observation),
         }
     }
 
@@ -160,7 +165,8 @@ fn selected(target: &str) -> bool {
         "quinn_proto::connection"
             | "quinn_proto::connection::streams::state"
             | "moirai_async::timer::driver"
-    ) || target.starts_with("quic_load::load")
+    ) || target == engine::TARGET
+        || target.starts_with("quic_load::load")
 }
 
 #[derive(Default)]
@@ -209,6 +215,14 @@ impl<S: Subscriber> Layer<S> for Recovery {
     fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
         let target = event.metadata().target();
         if !self.enabled || !selected(target) {
+            return;
+        }
+        if target == engine::TARGET {
+            self.state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .engine
+                .record(event, self.started.elapsed().as_nanos());
             return;
         }
         let mut fields = Fields::default();

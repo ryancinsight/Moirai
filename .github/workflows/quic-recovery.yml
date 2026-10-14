@@ -8,6 +8,7 @@ on:
       - 'moirai-quic/examples/**'
       - 'scripts/quic*.py'
       - 'scripts/tests/test_quic*.py'
+      - 'scripts/quic_observation/**'
       - '.github/workflows/quic-recovery.yml'
 
 permissions:
@@ -26,6 +27,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -35,6 +37,8 @@ jobs:
         with:
           toolchain: 1.97.0
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc
+      - name: Fetch the locked sources for provenance verification
+        run: cargo fetch --locked --target x86_64-unknown-linux-gnu
       - name: Verify the original domain and archived numerical evidence
         run: python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'
       - name: Build the original seeded-netem tool
@@ -45,7 +49,9 @@ jobs:
           git -C "$RUNNER_TEMP/quic-iproute2" checkout --detach FETCH_HEAD
           make -C "$RUNNER_TEMP/quic-iproute2" -j2
       - name: Build the authenticated byte-verifying probe
-        run: cargo build --locked --release -p moirai-quic --example quic_load
+        run: |
+          python3 scripts/quic_observation/prepare.py --output "$RUNNER_TEMP/quic-observation"
+          cargo --config "$RUNNER_TEMP/quic-observation/config.toml" build --locked --release --manifest-path "$RUNNER_TEMP/quic-observation/workspace/Cargo.toml" -p moirai-quic --example quic_load
       - name: Verify aggregation of actual recovery trace events
         run: cargo test --locked -p moirai-quic --example quic_load recovery::tests
       - name: Compare all stock policies with unchanged deadlines and workloads
@@ -53,6 +59,7 @@ jobs:
           SUITE: ${{ matrix.suite }}
           REPETITION: ${{ matrix.repetition }}
           MOIRAI_QUIC_RECOVERY_TRACE: '1'
+          MOIRAI_QUIC_ENGINE_OBSERVATION: ${{ runner.temp }}/quic-observation/provenance.json
         run: >-
           python3 scripts/quic_recovery.py
           --binary target/release/examples/quic_load

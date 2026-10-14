@@ -147,6 +147,12 @@ def main():
               "recovery_trace": os.environ.get("MOIRAI_QUIC_RECOVERY_TRACE") == "1",
               "runs": []}
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
+    if path := os.environ.get("MOIRAI_QUIC_ENGINE_OBSERVATION"):
+        from quic_observation.prepare import verify_provenance
+        report["engine_observation"] = json.loads(Path(path).read_text())
+        verify_provenance(report["engine_observation"], Path(__file__).resolve().parents[1])
+        if report["engine_observation"]["canonical_lock_sha256"] != report["lock_sha256"]:
+            raise ValueError("diagnostic build canonical lock differs")
 
     def save():
         arguments.output.write_text(json.dumps(report, indent=2) + "\n")
@@ -170,6 +176,9 @@ def main():
                     raise RuntimeError("authenticated trace preflight fails")
                 for role in ("client", "server"):
                     protocol_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"], True)
+                    if "engine_observation" in report:
+                        from quic_observation.audit import state_trace
+                        state_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"])
             experiment = matrix if arguments.suite == "matrix" else fairness
             for record in experiment(arguments.binary.resolve(strict=True), network, arguments.repetition):
                 report["runs"].append(record)

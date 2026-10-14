@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [patch] Add a separately built, checksum-verified read-only recovery observer
+  for per-space ACK/CRYPTO, actual flight, flow credit and timer state (ADR 0082).
+  Preserve canonical transport/locks and the original CUBIC promotion gate.
+  Validate all 81 corrected local policy pairs and retain the rejected off-timer
+  PTO-selector capture; require the full matched Linux study before interpretation.
+
 - [patch] Archive and independently audit the complete October 14 recovery trace
   study and independent original CUBIC gate. Preserve 105/108 CUBIC/NewReno,
   108/108 experimental BBR and all competing outcomes; distinguish early

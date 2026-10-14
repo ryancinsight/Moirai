@@ -356,6 +356,18 @@
       "compressed_sha256": "fa27b2430dda2b7a899a9d01aee134f55a7c7c08231b0f278cd4e8182cb29ada",
       "uncompressed_sha256": "2c44b4b3519edd62ab57e3692936cf4ffa69e632e8e39c78463f13f89622762d",
       "context": "completed required run 38594188048; only original performance job and aggregate result fail"
+    },
+    {
+      "name": "state-native-rejected-pto.json.gz",
+      "compressed_sha256": "63eab14da5b702830838d3d95adc636cf35279de91d56e5bee6e00b81eea2211",
+      "uncompressed_sha256": "08ba693e612f184762a3441c2e17633f53a1c49f30ab6533b352ce4ad539c9ce",
+      "context": "rejected diagnostic PTO selector call without timer/flight preconditions; 81 byte-complete pairs do not validate selected-space claims"
+    },
+    {
+      "name": "state-native.json.gz",
+      "compressed_sha256": "302a0b491592af9e57d6f4de42bf2d678a7c36bff714f8ae2d0353185bb14ffa",
+      "uncompressed_sha256": "77e473ee99813e2dbd33742ee478ae9566a758184f7bc43bef1faee156f81275",
+      "context": "81 corrected pre-commit real unshaped state-observation pairs; not shaped acceptance"
     }
   ]
 }

@@ -27,6 +27,10 @@ and shared timer-driver wake lateness, including non-QUIC timers. Counts do
 not measure blocking duration; PTO bytes are flight observations only at probe
 timeouts. [ADR 0080](../docs/adr/0080-recovery-trace-evidence.md) defines the
 diagnostic bounds. Instrumented observations do not replace the original gate.
+[ADR 0082](../docs/adr/0082-recovery-state-observation.md) adds an isolated,
+checksum-verified read-only engine observer for packet-space ACK/CRYPTO, actual
+flight, credit and timer state. It does not replace the canonical dependency;
+the full matched diagnostic study and independent pristine gate remain separate.
 
 `QuicEndpoint` binds before advertising readiness. Clients supply trusted roots
 and the certificate's server name; servers supply their certificate chain/key
