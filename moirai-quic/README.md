@@ -1,0 +1,86 @@
+# moirai-quic
+
+Native authenticated QUIC sessions over Moirai's task spawner, timer and PAL
+socket readiness. Quinn supplies RFC 9000 loss recovery, congestion control and
+stream multiplexing. No Tokio or secondary runtime is constructed.
+Quinn uses Tokio synchronization primitives internally; its Tokio runtime and
+socket features remain disabled. Moirai owns all task, timer and socket driving.
+
+`QuicConfig::with_congestion_policy` selects the pinned Quinn stock controller
+once at endpoint construction: CUBIC (the unchanged default), NewReno, or
+`ExperimentalBbr`. Upstream BBR remains experimental. Selection changes no
+TLS, framing, flow-control, native buffer or deadline contract.
+[ADR 0079](../docs/adr/0079-congestion-policy-measurements.md) requires matched
+full-matrix and shared-queue evidence before a default change. The
+[complete comparison](measurements/recovery/2026-10-13/README.md) retains both
+studies and their failures; no production replacement is accepted.
+The [October 14 trace study](measurements/recovery/2026-10-14/README.md)
+repeats all 108 cases per policy, all 30 competing experiments and the independent
+original CUBIC gate on Rustls 0.23.46. It separates six unestablished server
+handshakes from established congestion/pacing/flow-credit pressure. CUBIC/NewReno
+remain 105/108; BBR's 108/108 does not justify its fairness/queue tradeoff.
+Native/security checks pass; recovery and protected promotion remain open.
+The probe's `MOIRAI_QUIC_RECOVERY_TRACE=1` opt-in aggregates pinned Quinn's
+congestion, pacing, anti-amplification, flow-blocked and PTO-space events
+from endpoint creation through drain. It retains authenticated/admitted phases
+and shared timer-driver wake lateness, including non-QUIC timers. Counts do
+not measure blocking duration; PTO bytes are flight observations only at probe
+timeouts. [ADR 0080](../docs/adr/0080-recovery-trace-evidence.md) defines the
+diagnostic bounds. Instrumented observations do not replace the original gate.
+[ADR 0082](../docs/adr/0082-recovery-state-observation.md) adds an isolated,
+checksum-verified read-only engine observer for packet-space ACK/CRYPTO, actual
+flight, credit and timer state. It does not replace the canonical dependency;
+the full matched diagnostic study and independent pristine gate remain separate.
+
+`QuicEndpoint` binds before advertising readiness. Clients supply trusted roots
+and the certificate's server name; servers supply their certificate chain/key
+and optional client trust roots for required mutual TLS. Both negotiate one
+explicit ALPN, TLS 1.3 and no early data. Trust/authorization remains caller policy.
+The provider directly requires the shared Rustls security minimum 0.23.46,
+including when consumed independently; its public TLS vocabulary remains Rustls.
+
+`QuicConfig` validates positive message, stream, connection and handshake budgets
+and finite operation/idle deadlines. The per-connection receive/send window is
+`max_streams * (max_frame_bytes + 4)`. A `QuicStream` carries four-byte big-endian
+length-prefixed messages, checks size before payload allocation, distinguishes
+empty messages from clean EOF and aborts framing on timeout, error or future drop.
+Commands use reliable streams; unreliable datagrams are disabled.
+
+`QuicConfig::with_udp_buffers(UdpBufferConfig)` applies explicit independent
+positive native receive/send queue requests. Absent requests retain kernel
+defaults. `QuicEndpoint::udp_buffer_sizes()` reports effective values captured
+after configuration, including OS rounding, caps and bookkeeping. These queues
+remain independent of protocol memory windows and deadlines. Broadcast and
+multicast belong to the raw UDP contract and are excluded from QUIC configuration.
+The shared PAL implementation and migration are specified in
+[ADR 0081](../docs/adr/0081-applied-udp-socket-configuration.md).
+
+Keep the supplied Moirai executor running until endpoints close and drain.
+The facade implements the fallible `TaskSpawner` trait, so an `Arc<Moirai>` and
+an `Arc<HybridExecutor>` both drive the provider without another pool.
+Concurrent bidirectional streams remain independent, but messages in one stream
+retain ordering. A stream dropped without FIN resets its incomplete output.
+`finish` queues FIN; `finish_and_wait` awaits acknowledgement of buffered output
+and FIN before connection teardown. An acknowledgement confirms transport
+delivery; decoded application replies establish the operation's result.
+Transport selection is explicit; no command replay or implicit TCP downgrade
+occurs. Browser HTTP/3/WebTransport is a separate application contract.
+
+The Unix/Windows facade always includes QUIC, even with default features
+disabled. Import `moirai::quic` or depend on `moirai-quic` directly; no QUIC
+feature flag exists. Native builds require ring's statically linked C/assembly
+code and its build tools. The TCP TLS provider uses RustCrypto. System socket
+libraries remain platform dependencies; browser builds exclude native QUIC.
+
+[ADR 0075](../docs/adr/0075-quic-multiplexed-sessions.md) records the contract.
+
+The `quic_load` example and `scripts/quic_profiles.py` implement ADR 0075's
+controlled performance contract: mutual TLS, complete payload validation,
+acknowledged shutdown, integer RTT/rate evidence and task-owned Linux netem
+namespaces. Public fixture credentials are for these controlled probes only.
+Reports retain every sample, qdisc counters and the tested source/runner.
+`QuicConnection::metrics` exposes a coherent recovery/wire snapshot. Controlled
+probes also retain validated-message progress and namespace UDP/socket counters
+to distinguish protocol recovery from local socket loss. A failed pair remains
+a failed gate; every default matrix case still runs. `--case` selects one declared
+case for diagnosis with its complete workload and three repetitions.

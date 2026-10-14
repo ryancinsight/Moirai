@@ -1,0 +1,47 @@
+# Moirai transport checklist
+
+Active target: workspace 0.10.0; moirai-quic 0.1.0. Phase: Closure.
+
+- [x] [minor] Specify native QUIC ownership, trust, ALPN, resource and cancellation contracts in ADR 0075.
+- [x] [minor] Implement shared cancellable socket readiness and one scheduler/timer/UDP runtime boundary.
+- [x] [minor] Implement authenticated independent streams, admission, complete framing, error retention and acknowledged FIN.
+- [x] [minor] Require QUIC in every native facade build; default 187-test suite and minimal authenticated session pass, browser facade compilation excludes native QUIC, and CI checks both native modes.
+- [x] [minor] Use validated typed WebSocket closure with code/reason; keep truncation distinct and avoid outgoing close allocations. Include the new provider in shared compatibility gates.
+- [x] [patch] Verify real UDP loss/reordering, arbitrary bytes, malformed frames, exact limits, TLS rejection, stream isolation, backpressure and spawner failure.
+- [x] [patch] Prove the readiness retirement regression fails against the preceding implementation and passes with the registration-lock transition.
+- [x] [patch] Check native API compatibility against 0.8.2: 892 applicable checks pass under the stronger patch compatibility override.
+- [x] [patch] Verify the canonical provider lock without path patches; warning-denying Clippy, formatting and all 187 HTTP/PAL/facade/QUIC tests pass.
+- [x] [patch] Verify Metis against the published Git provider without path patches: 176 backend/IPC/core tests, strict diagnostics and native workspace/all-target checks pass.
+- [x] [patch] Reconcile current main without losing capture-boundary fixes; review trust, ownership, framing, replay and cleanup contracts.
+- [x] [patch] Specify and implement byte-verified, mutually authenticated process-pair measurements; all 27 local full-domain cases pass.
+- [x] [patch] Verify native QUIC on Linux and Windows at published revision 54568557; both 193-test suites, strict diagnostics and minimal authenticated facade sessions pass. The full Linux workspace passes 1,301 tests and 702 minimal-feature tests.
+- [x] [patch] Measure and archive all 108 controlled process pairs at source tree 60db5f8c: 105 exact-byte successes and three unchanged 60-second loss-case failures. Independently recalculate rates/percentiles and verify both kernel queue-byte deltas; the performance gate remains failed.
+- [x] [minor] Expose passive recovery metrics and preserve all profile outcomes, verified progress, namespace UDP/socket counters and both peer diagnostics; 17 focused real tests and strict diagnostics pass.
+- [x] [minor] Replace ignored UDP options with one PAL-owned applied buffer/broadcast/multicast contract; share native queue requests and readback with QUIC (ADR 0081). The ignored-buffer regression fails before the change and passes afterward; all 338 native transport/async tests and strict diagnostics pass.
+- [x] [patch] Rebase on main 7828f5df, retaining PR 617 capture decoding and PR 619 page ownership. Initial preservation audit matches 47 transport/evidence paths and 64 main code paths; the subsequent private Windows module-gate correction follows its actual consumer features. both canonical locks resolve without changing external dependency identities.
+- [x] [patch] Repair the socket-test embedded inventory without changing assertions; the full macOS workspace passes 1,329 tests with nine existing ignored probes, and the 397-test native integration suite and minimal facade session pass.
+- [x] [major] Classify the existing PAL-owned UDP configuration migration against current main and document it under Breaking; four native API surfaces pass, while async configuration reports the intentional type-owner change.
+- [x] [patch] Compare five native API surfaces with the previous QUIC head; all 980 applicable checks pass without a new API regression.
+- [x] [patch] Reproduce the fresh Windows native job's six unused-WebView diagnostics with the installed MSVC target; align the shared-limits module with the actual optional WebView2/browser/test consumers and retain warning-denying default/minimal gates.
+- [ ] [minor] Complete protected default-branch promotion before release.
+- [x] [minor] Specify bounded stock-controller selection and matched full-matrix/shared-queue measurements in ADR 0079; preserve CUBIC as the default.
+- [x] [patch] Complete and archive a fresh 108 original pairs per policy plus all 30 competing-flow experiments at 8e9dd137: CUBIC 105/108, NewReno 105/108, experimental BBR 108/108; independently audit all bytes, rates, latencies, actual network settings, sampled fairness and queues. No default replacement is accepted.
+- [x] [patch] Archive the complete first stock-policy comparison and all 30 shared-queue experiments; independently validate actual network settings, complete bytes, rates, percentiles, sampled fairness and queue evidence, including two failed collector cleanups.
+- [x] [patch] Correct observer/namespace cleanup ordering and preserve failure origin before endpoint drain; all 21 real QUIC tests and strict diagnostics pass. The fresh complete Linux study has no collector errors; four early competing failures retain server accept-deadline origins.
+
+- [x] [patch] Complete ADR 0080's corrected 108-pair-per-policy and 30-experiment shared-queue trace study at 733afc9f; independently audit real peer preflights, full bytes, network settings, latency/rate calculations, phase/event histories and queues. Retain failed environment-filtered and canceled inputs without filling any acceptance inventory.
+- [x] [patch] Independently verify the uninstrumented original CUBIC gate at the same source tree: 105/108 complete pairs, the same three loss deadlines and zero UDP-error deltas. Linux/Windows native and workspace CI pass; promotion remains blocked.
+- [x] [patch] Repair the independent fuzz lock's missing regular tracing edge without changing package identities; both root/fuzz locks resolve under --locked. Retain complete tracing span trees in diagnostic test failures and validate the Python evidence contracts, including archived computed-value equivalence and both hash inventories.
+- [x] [minor] Integrate current main 2b189f0a without replacing its WebView bridge/startup fixes. Advance the QUIC increment to workspace 0.10.0 after main's 0.9.2, retain moirai-quic 0.1.0, and move the PR-only applied-UDP decision to ADR 0081 to preserve main's ADR 0078.
+
+- [x] [patch] Revalidate the complete policy/shared-queue study, independent original CUBIC matrix and required security gates at 140d60cf after the Rustls 0.23.46 security floor. CUBIC/NewReno remain 105/108, BBR 108/108; all applicable non-performance jobs pass, including Linux/Windows, workspace, supply-chain and lockfile integrity. Retain 733afc9f's previous-stack evidence independently.
+- [x] [patch] Replay both complete trace studies and independent original matrices against their archived computed audits; verify every compressed/decompressed archive hash and retain six patched early handshakes separately from 15 pair deadlines. No recovery correction is accepted.
+
+Next increment [patch]: measure the focused handshake candidate over the full Linux policy/competing domain and establish a reviewed supported production path; continue the distinct established-throughput investigation using actual flight/credit/pacing timelines. The complete state study and pristine original gate remain separate; [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and dependent Metis promotion remain blocked by the measured recovery limit and required review/checks.
+
+- [x] [patch] Specify immutable engine-state observation in ADR 0082; verify pristine registry bytes, an addition-only private patch, and source/checksum-only diagnostic-lock changes. The canonical transport, locks and promotion job remain unchanged.
+- [x] [patch] Validate all 81 original local policy/shape/repetition pairs with actual peer state. Reject and retain the earlier off-timer PTO-selector observation; enforce armed-timer and cross-space/peer CRYPTO invariants.
+- [x] [patch] Complete all six matched Linux state-observation shards at 03dcc4a3 and independently audit every real peer, original workload, fairness/queue outcome and provenance. CUBIC/NewReno remain 105/108, BBR 108/108; the untouched original gate reproduces 105/108 at the same tree. Feature/security jobs pass; the original performance job fails and aggregate result is queued in the archived snapshot.
+
+- [x] [patch] Reproduce queued Handshake CRYPTO starvation using 27 real maximum-workload local datagram-loss cases per engine: baseline 17 complete, isolated candidate 27 complete; native QUIC contract tests pass 23/23 against the candidate. Retain prior nine-case trials and the failed result-file collection separately.
+- [ ] [patch] Measure the experimental handshake candidate's complete Linux policy, fairness, latency and queue domain and establish a reviewed supported production path before adoption. Keep the canonical provider and original promotion gate unchanged.

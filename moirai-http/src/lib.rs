@@ -34,4 +34,4 @@ pub use server::{
 pub use upgrade::{
     WebSocketConfig, WebSocketUpgrade, accept_websocket, accept_websocket_with_validator,
 };
-pub use websocket::WebSocketStream;
+pub use websocket::{WebSocketPeerClosed, WebSocketStream};

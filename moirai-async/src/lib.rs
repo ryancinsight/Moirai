@@ -39,8 +39,9 @@ pub use timer::{
 // Re-export networking functionality on native targets.
 #[cfg(any(unix, windows))]
 pub use net::{
-    ConnectionInfo, ConnectionPool, ConnectionStats, TcpListener, TcpServerConfig, TcpServerStats,
-    TcpStream, UdpConfig, UdpSocket, UdpSocketStats,
+    ConnectionInfo, ConnectionPool, ConnectionStats, MulticastConfig, TcpListener, TcpServerConfig,
+    TcpServerStats, TcpStream, UdpBufferConfig, UdpBufferSizes, UdpConfig, UdpSocket,
+    UdpSocketStats,
 };
 
 // Re-export file I/O functionality

@@ -1,0 +1,373 @@
+{
+  "archives": [
+    {
+      "name": "loopback-trace.json.gz",
+      "compressed_sha256": "2e30f15743a698e0b09c2f6e1f677f73422ac1a6bfd129e6ba9c4090307bda1d",
+      "uncompressed_sha256": "e91146e3d17ce6d249a0aa4304900a5c5a869f5a9c61b0d86c3147e2603d0397",
+      "context": "local pre-commit diagnostic verification; not controlled acceptance"
+    },
+    {
+      "name": "d946459c-fairness-0.json.gz",
+      "compressed_sha256": "61c6b939824c0cfc51be548fe7d0b831bb3795a1df9f4a177f2539b8cb885ca7",
+      "uncompressed_sha256": "5f0452300794f435c3d5ca2e02444a91f0f1811fe2b3f0d5626e3ef10afb765d",
+      "revision": "d946459c30f405c5c6ee904a633019b25d8167b8",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 0,
+      "records": 10,
+      "diagnostic_acceptance": false,
+      "context": "sudo filters trace opt-in"
+    },
+    {
+      "name": "d946459c-fairness-1.json.gz",
+      "compressed_sha256": "2148a8114a8c7c2a1756a169ae2aff30b697b8c0895b1b10ed59a4e7668bab71",
+      "uncompressed_sha256": "147741a5756f948dbb866173b2ba20bb845a61fccf06c52e89a30c9e4424bd84",
+      "revision": "d946459c30f405c5c6ee904a633019b25d8167b8",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 1,
+      "records": 10,
+      "diagnostic_acceptance": false,
+      "context": "sudo filters trace opt-in"
+    },
+    {
+      "name": "d946459c-fairness-2.json.gz",
+      "compressed_sha256": "b9520db8c97368ef8a7ceb43c08162fcf41f46b5c804ba8220fdedef3e779c8d",
+      "uncompressed_sha256": "634c5abcab88ce4f8d529b3363549cc7110b3a97c5ee90fd44dc1c90a5c671ee",
+      "revision": "d946459c30f405c5c6ee904a633019b25d8167b8",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 2,
+      "records": 10,
+      "diagnostic_acceptance": false,
+      "context": "sudo filters trace opt-in"
+    },
+    {
+      "name": "d946459c-matrix-0.json.gz",
+      "compressed_sha256": "830b0461b133b39af1b1465a3877171a6e4bd8d0728ea6a501be28c609f33145",
+      "uncompressed_sha256": "8a0897d530c6aca23a7175113e5364ab6adae6506abfe6d62578a7fdcaf64345",
+      "revision": "d946459c30f405c5c6ee904a633019b25d8167b8",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 0,
+      "records": 108,
+      "diagnostic_acceptance": false,
+      "context": "sudo filters trace opt-in"
+    },
+    {
+      "name": "d946459c-matrix-1.json.gz",
+      "compressed_sha256": "b5d395dbc09ef7639f9f0ac17443c5d18c7e7cce6800eb02fde3f2e51ee27c3a",
+      "uncompressed_sha256": "b9c7a86f473c9c37f08215cd18f193ed1e6345f59085078dcfae73fcd42eb8f5",
+      "revision": "d946459c30f405c5c6ee904a633019b25d8167b8",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 1,
+      "records": 108,
+      "diagnostic_acceptance": false,
+      "context": "sudo filters trace opt-in"
+    },
+    {
+      "name": "d946459c-matrix-2.json.gz",
+      "compressed_sha256": "14c341174713c76210764e62b0082992a87fbb7cf5b95500a997c3eccac90be8",
+      "uncompressed_sha256": "4bf7acca0e22d57e7664a606428002ce0cfcf3c78fbc18e08dfc60991d3effa4",
+      "revision": "d946459c30f405c5c6ee904a633019b25d8167b8",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 2,
+      "records": 108,
+      "diagnostic_acceptance": false,
+      "context": "sudo filters trace opt-in"
+    },
+    {
+      "name": "62876270-cancelled-fairness-0.json.gz",
+      "compressed_sha256": "bcdc5dd76245a1b9bff2eac1c1e21887921ff925c00ecc1f2f29820f57f37307",
+      "uncompressed_sha256": "2f6b56e8e80daf96c3cb476533d3235e53375f14914afc6678435dc0fcd9ca83",
+      "revision": "62876270d611c06ce55a3f9b05c52996bee5d9c5",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 0,
+      "records": 10,
+      "diagnostic_acceptance": false,
+      "context": "redundant invalid diagnostic study canceled; incomplete matrices are not acceptance"
+    },
+    {
+      "name": "62876270-cancelled-fairness-1.json.gz",
+      "compressed_sha256": "c0512bef790ecd2ee2edfdc95ff12b148c45893f5ca587d0254ee6b1f887059f",
+      "uncompressed_sha256": "838bef4ab8687776c730d35921ff084c93d2b39d40f622fa723a48b8d4869e37",
+      "revision": "62876270d611c06ce55a3f9b05c52996bee5d9c5",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 1,
+      "records": 10,
+      "diagnostic_acceptance": false,
+      "context": "redundant invalid diagnostic study canceled; incomplete matrices are not acceptance"
+    },
+    {
+      "name": "62876270-cancelled-fairness-2.json.gz",
+      "compressed_sha256": "33636fbd26105beada8c116464ef964ec0e111f543fb740bd2cd0339af41d142",
+      "uncompressed_sha256": "a9fb17df375a15299592d88d450790d09eb5b478f291772f23dcf830acac8158",
+      "revision": "62876270d611c06ce55a3f9b05c52996bee5d9c5",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 2,
+      "records": 10,
+      "diagnostic_acceptance": false,
+      "context": "redundant invalid diagnostic study canceled; incomplete matrices are not acceptance"
+    },
+    {
+      "name": "62876270-cancelled-matrix-0.json.gz",
+      "compressed_sha256": "8a0f047f4e1524631c561888ec040dccc7f514e4a549c9bd719c234922381c02",
+      "uncompressed_sha256": "db290179f18c8828e561b1128a5b4559ba52ffbe9c7c053f373fc0ced0ecfa0f",
+      "revision": "62876270d611c06ce55a3f9b05c52996bee5d9c5",
+      "status": "running",
+      "suite": "matrix",
+      "repetition": 0,
+      "records": 72,
+      "diagnostic_acceptance": false,
+      "context": "redundant invalid diagnostic study canceled; incomplete matrices are not acceptance"
+    },
+    {
+      "name": "62876270-cancelled-matrix-1.json.gz",
+      "compressed_sha256": "25a5b1689ddd5a8ac42059a8338ea1c039a99c88b0e7abb60f98e23044645229",
+      "uncompressed_sha256": "f955cfc60364dea17247d40e11704d399becb1f67a37c2686f175b926292d02b",
+      "revision": "62876270d611c06ce55a3f9b05c52996bee5d9c5",
+      "status": "running",
+      "suite": "matrix",
+      "repetition": 1,
+      "records": 75,
+      "diagnostic_acceptance": false,
+      "context": "redundant invalid diagnostic study canceled; incomplete matrices are not acceptance"
+    },
+    {
+      "name": "62876270-cancelled-matrix-2.json.gz",
+      "compressed_sha256": "d3fd9731bf1268efaa2964a6bb7dfaee5d43cfa61272820c9185623eecb8736a",
+      "uncompressed_sha256": "985c9e70362a54ec4d6a209eb9ebe85cd5f77ae2676832ba7602791a21cf0b1d",
+      "revision": "62876270d611c06ce55a3f9b05c52996bee5d9c5",
+      "status": "running",
+      "suite": "matrix",
+      "repetition": 2,
+      "records": 76,
+      "diagnostic_acceptance": false,
+      "context": "redundant invalid diagnostic study canceled; incomplete matrices are not acceptance"
+    },
+    {
+      "name": "d946459c-policy-audit.json.gz",
+      "compressed_sha256": "17f059a8362fbf1535f2ec984de4b2bd7c3c2f6bd4476ed27438083d5bae8532",
+      "uncompressed_sha256": "57ff23ad59496e9156ee9008bbda08f4a02792ec63e4acb33f48d97f41f0a27a",
+      "context": "independent stock-workload audit only; protocol tracing absent"
+    },
+    {
+      "name": "733afc9f-fairness-0.json.gz",
+      "compressed_sha256": "24f5a038d00d5d67c7166f2bd87100c23d43527a589c9273c6b158b134517238",
+      "uncompressed_sha256": "9cfa01580f565909be45ec10e22cacbad9a42ec2fdc94a461ccf99293a0d51a4",
+      "revision": "733afc9fcce3b70b4ceef512914e83f6e6142841",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 0,
+      "records": 10,
+      "context": "full corrected trace study with independently verified child preflight"
+    },
+    {
+      "name": "733afc9f-fairness-1.json.gz",
+      "compressed_sha256": "3797ed56f5f0622d8f99e52135775f2557c8a4e9f0a9cd573e782307db8392e9",
+      "uncompressed_sha256": "8bac31a974570fc6d668174839525b53f31bd134509772a0fe6ef079ffd3cb99",
+      "revision": "733afc9fcce3b70b4ceef512914e83f6e6142841",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 1,
+      "records": 10,
+      "context": "full corrected trace study with independently verified child preflight"
+    },
+    {
+      "name": "733afc9f-fairness-2.json.gz",
+      "compressed_sha256": "ce7c66f992af2f700c491ab052957c040731bcfdcc000e10418ecf51b56ed7d4",
+      "uncompressed_sha256": "9768ba5c99ef46f226d9180f92dfb9323ed49990829a20e0bbe7cef11bcd227a",
+      "revision": "733afc9fcce3b70b4ceef512914e83f6e6142841",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 2,
+      "records": 10,
+      "context": "full corrected trace study with independently verified child preflight"
+    },
+    {
+      "name": "733afc9f-matrix-0.json.gz",
+      "compressed_sha256": "1d50b68c786ff02e2e440fc55ff32c2a6cf5e7070609e8f75582e28b3b075c92",
+      "uncompressed_sha256": "28878e28b871922e6b26b29bd7aa5af4b04dfa84cef838716340d19b90e8cb6e",
+      "revision": "733afc9fcce3b70b4ceef512914e83f6e6142841",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 0,
+      "records": 108,
+      "context": "full corrected trace study with independently verified child preflight"
+    },
+    {
+      "name": "733afc9f-matrix-1.json.gz",
+      "compressed_sha256": "5fdd1099a2705ca19ac8dbb489909757a72fded173cbd30feafaecf5b60999d4",
+      "uncompressed_sha256": "3c50d7052f68d75272a161c20fb5be9af0efaaf8afb59ca14d06b1dab4a7cbd6",
+      "revision": "733afc9fcce3b70b4ceef512914e83f6e6142841",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 1,
+      "records": 108,
+      "context": "full corrected trace study with independently verified child preflight"
+    },
+    {
+      "name": "733afc9f-matrix-2.json.gz",
+      "compressed_sha256": "37341672d8647c8ec66d7b03961b337434d03e8250c1fca65862844e554a0e2e",
+      "uncompressed_sha256": "82665460a2537245bb30cb27793e0c0632ff4a1ddce51c119b4560f556d333b9",
+      "revision": "733afc9fcce3b70b4ceef512914e83f6e6142841",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 2,
+      "records": 108,
+      "context": "full corrected trace study with independently verified child preflight"
+    },
+    {
+      "name": "733afc9f-audit.json.gz",
+      "compressed_sha256": "0396e72dd366d1cc2e412ffe7ee8dd77b3842860d7c01ddd721b789ea8305926",
+      "uncompressed_sha256": "03e34eff5a81d51d04128f56431d31f6126cb574fadd43191cc53b3362f6f001",
+      "context": "independent full domain, numerical, network, queue, phase and event audit"
+    },
+    {
+      "name": "733afc9f-default-matrix.json.gz",
+      "compressed_sha256": "20c9695abf52cfd66a0bd016dd918f63cc02f2deb7cd0ad6654fad2e806b2302",
+      "uncompressed_sha256": "fe96e5cc137dbc0af8ec2426f4593f62936688c8491e152a277ce184b440798b",
+      "context": "independent original uninstrumented CUBIC gate"
+    },
+    {
+      "name": "733afc9f-default-audit.json.gz",
+      "compressed_sha256": "f79638ec847ef0bc6e3c6f57b8896a9860db3bc2c6498105710b9443258380c2",
+      "uncompressed_sha256": "6ac549d62582be87e40ed0e52ff8fdd323fe840c81e98dc66a2c0bd5ec24368a",
+      "context": "independent original-domain and computed-value audit"
+    },
+    {
+      "name": "d946459c-cancelled-default.json.gz",
+      "compressed_sha256": "97a8fb279efd147e89b4109c1ed72771ba0f8e1a82a8d4de60b5472d16c9f177",
+      "uncompressed_sha256": "61df45d8df0441dbeef3de9c31a61ded7609c618f1766c84d89e8b1c0766b7e8",
+      "revision": "b590f157a8ba33d154b1c7104aa303e48a10b857",
+      "status": "running",
+      "records": 53,
+      "context": "superseded workflow canceled; incomplete original gate is not acceptance"
+    },
+    {
+      "name": "62876270-cancelled-default.json.gz",
+      "compressed_sha256": "66a007fb7f3d1ed2a78ff6d65295f47fada483e7d7a63b22c7064678cd137e99",
+      "uncompressed_sha256": "d7d08e8231dd10983bfc067fc84bdf3e26fbc52870bc4b9d4dd28a2972dc25da",
+      "revision": "8dfbcc735256deed91dde4d8c5da06cdd7432b88",
+      "status": "running",
+      "records": 63,
+      "context": "superseded workflow canceled; incomplete original gate is not acceptance"
+    },
+    {
+      "name": "62876270-loopback.json.gz",
+      "compressed_sha256": "5a6fd63f5cfe96eb706973d153b699939331e38a0d75100f7e99f5661cc201aa",
+      "uncompressed_sha256": "f76f8d0f0b4c21e079e320e3fff921053c54408f262dc2b1305fd30cdda79f6f",
+      "revision": "62876270d611c06ce55a3f9b05c52996bee5d9c5",
+      "status": "passed",
+      "records": 27,
+      "context": "27 complete uninstrumented local CUBIC pairs; not shaped acceptance"
+    },
+    {
+      "name": "140d60cf-fairness-0.json.gz",
+      "compressed_sha256": "7890f42db1e0ec0f600ba08014a297573d934589164c92e2deffd0dd85963e85",
+      "uncompressed_sha256": "5c5856f33cf716ae3c6d9cb2e4f38423d2d0a24885142cb5b8aa74dcdbc33f29",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 0,
+      "records": 10,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-fairness-1.json.gz",
+      "compressed_sha256": "a7c0251f9354b5d94ad8f42bb24b6c8daf84c5436e253c0dbb954c95ddba417a",
+      "uncompressed_sha256": "46e0b28f1bf7e2e9c50d6d301b44e15ae127483511c94f58386b32039599e90f",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 1,
+      "records": 10,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-fairness-2.json.gz",
+      "compressed_sha256": "86d8653cd009d84d30b6122f83dee48f7e461ab476190cd8318b5fbc656c7927",
+      "uncompressed_sha256": "b5a07b1a77cb24ef09f02531a4484f84f2b60186225c9dbf1323ffd63c78fb04",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "fairness",
+      "repetition": 2,
+      "records": 10,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-matrix-0.json.gz",
+      "compressed_sha256": "e8b56a5f1a33dc3e4f25049b3bd2a5174093816b2c1c03ab91fa6995a1e47766",
+      "uncompressed_sha256": "60303a0469bb6a937a6aa781f0e6eaabfb216e8a0d82f983844dc33ee9306abe",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 0,
+      "records": 108,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-matrix-1.json.gz",
+      "compressed_sha256": "23f2ff2bd3ba6aa7a00a9cb48bf1491657ed2d1fdbfb4d7f8fb85a2bdc8baedd",
+      "uncompressed_sha256": "6ffce8ffd2363ae1f9381e50cbb79b154ae4a4823591df32a28b8648f90b4150",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 1,
+      "records": 108,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-matrix-2.json.gz",
+      "compressed_sha256": "c2fcc7dbad0749fadbbd73ac1748c2fed9986035a7327e252c62068d148cdfbd",
+      "uncompressed_sha256": "f67d29954d50aec2b1e6460e8ad68e73ecfa2893ccd25d2017582d28a1ec884b",
+      "revision": "140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf",
+      "status": "failed",
+      "suite": "matrix",
+      "repetition": 2,
+      "records": 108,
+      "context": "complete Rustls 0.23.46 study; actual child preflights and traces"
+    },
+    {
+      "name": "140d60cf-audit.json.gz",
+      "compressed_sha256": "735316e4d30f01017d27a3bd95f69242112bacd8d4c34f25be9a41aebc961afb",
+      "uncompressed_sha256": "99aa348f046c0f2ee6bbd666b3ad15d5bc45ed1c2dc02caf2dba43d92b1f3ec7",
+      "context": "independent full patched-study audit"
+    },
+    {
+      "name": "140d60cf-default-matrix.json.gz",
+      "compressed_sha256": "1250867c01f02bb5fe698c5a80c3d080bb6063d59a6207530813f16982d6c88b",
+      "uncompressed_sha256": "2c1d475b6afc15df6636ce3926bb9001ab598d73c28580f743c44f8a4d18ba66",
+      "context": "independent uninstrumented original CUBIC gate after TLS security patch"
+    },
+    {
+      "name": "140d60cf-default-audit.json.gz",
+      "compressed_sha256": "6375a444bac245235712aabbfb445dc84b402588770619e1148ab9041d5dcd95",
+      "uncompressed_sha256": "30a028d73d4389371f8fde087a55947697e8f483c8e6ac2c2f94a1d58b28d9f4",
+      "context": "independent original full-domain and computed-value audit after TLS patch"
+    },
+    {
+      "name": "140d60cf-required-checks.json.gz",
+      "compressed_sha256": "fa27b2430dda2b7a899a9d01aee134f55a7c7c08231b0f278cd4e8182cb29ada",
+      "uncompressed_sha256": "2c44b4b3519edd62ab57e3692936cf4ffa69e632e8e39c78463f13f89622762d",
+      "context": "completed required run 38594188048; only original performance job and aggregate result fail"
+    },
+    {
+      "name": "state-native-rejected-pto.json.gz",
+      "compressed_sha256": "63eab14da5b702830838d3d95adc636cf35279de91d56e5bee6e00b81eea2211",
+      "uncompressed_sha256": "08ba693e612f184762a3441c2e17633f53a1c49f30ab6533b352ce4ad539c9ce",
+      "context": "rejected diagnostic PTO selector call without timer/flight preconditions; 81 byte-complete pairs do not validate selected-space claims"
+    },
+    {
+      "name": "state-native.json.gz",
+      "compressed_sha256": "302a0b491592af9e57d6f4de42bf2d678a7c36bff714f8ae2d0353185bb14ffa",
+      "uncompressed_sha256": "77e473ee99813e2dbd33742ee478ae9566a758184f7bc43bef1faee156f81275",
+      "context": "81 corrected pre-commit real unshaped state-observation pairs; not shaped acceptance"
+    }
+  ]
+}

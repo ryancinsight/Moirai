@@ -39,7 +39,8 @@ pub mod timer;
 
 mod frame;
 
-#[cfg(any(windows, target_arch = "wasm32", test))]
+// Compile shared limits exactly where the WebView2/browser consumers or their tests exist.
+#[cfg(any(all(windows, feature = "webview2"), target_arch = "wasm32", test))]
 mod webview_limits;
 
 #[cfg(any(test, all(windows, feature = "webview2")))]

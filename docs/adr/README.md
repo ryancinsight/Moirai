@@ -80,6 +80,11 @@
 | [0072](0072-browser-bodyless-responses.md) | Interpret browser bodyless responses before byte admission | Accepted |
 | [0073](0073-apple-native-window-commands.md) | Rust-owned AppKit application and window commands | Accepted |
 | [0074](0074-apple-external-links.md) | Host-authorized Apple external links | Accepted |
+| [0075](0075-quic-multiplexed-sessions.md) | QUIC multiplexed native sessions | Accepted |
 | [0076](0076-webview2-capture-byte-boundary.md) | Exact WebView2 capture byte admission | Accepted |
 | [0077](0077-rust-page-provider-ownership.md) | Rust page provider ownership | Accepted |
 | [0078](0078-private-webview-startup-observation.md) | Private native startup observation | Accepted |
+| [0079](0079-congestion-policy-measurements.md) | Congestion policy measurement boundary | Accepted |
+| [0080](0080-recovery-trace-evidence.md) | Recovery trace evidence | Accepted |
+| [0081](0081-applied-udp-socket-configuration.md) | Applied UDP socket configuration | Accepted |
+| [0082](0082-recovery-state-observation.md) | Recovery state observation | Accepted |

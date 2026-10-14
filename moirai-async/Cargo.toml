@@ -21,12 +21,14 @@ moirai-utils = { workspace = true }
 moirai-pal = { workspace = true }
 moirai-async-macros = { workspace = true }
 futures = "0.3"
+tracing = { workspace = true }
 tokio_dep = { package = "tokio", version = "1.0", features = ["io-util"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }
 criterion = { workspace = true }
 mnemosyne = { workspace = true }
 proptest = { workspace = true }

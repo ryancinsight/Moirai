@@ -5,7 +5,7 @@
 use std::io;
 use std::net::{Shutdown, SocketAddr};
 use std::net::{TcpListener as StdTcpListener, TcpStream as StdTcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::task::Poll;
 use std::{future::poll_fn, task::Context};
 
@@ -19,6 +19,11 @@ use crate::reactor::socket_owner::SocketLease;
 use crate::reactor::waiter_cancellation::WaiterCancellation;
 
 mod connect;
+mod datagram;
+#[path = "net/udp/config.rs"]
+mod udp_config;
+pub use datagram::{UdpIoPoller, UdpReady};
+pub use udp_config::{MulticastConfig, UdpBufferConfig, UdpBufferSizes, UdpConfig};
 
 /// Descriptor a readiness waiter registers under.
 ///
@@ -305,6 +310,7 @@ impl AsyncTcpListener {
 
 /// Non-blocking UDP socket driven by the fd-readiness reactor.
 pub struct AsyncUdpSocket {
+    readiness: [OnceLock<Arc<datagram::ReadyGroup>>; 2],
     inner: Arc<std::net::UdpSocket>,
 }
 
@@ -314,11 +320,68 @@ impl AsyncUdpSocket {
     /// # Errors
     /// Propagates bind and non-blocking-mode errors.
     pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
-        let inner = std::net::UdpSocket::bind(addr)?;
+        Self::bind_with_config(addr, &UdpConfig::default()).await
+    }
+
+    /// Bind with native buffer, broadcast and multicast options applied.
+    ///
+    /// # Errors
+    /// Propagates configuration, socket-option, bind and nonblocking errors.
+    pub async fn bind_with_config(addr: SocketAddr, config: &UdpConfig) -> io::Result<Self> {
+        Self::from_std(config.bind(addr)?)
+    }
+
+    /// Read effective receive/send queue sizes from the native socket.
+    ///
+    /// # Errors
+    /// Propagates native socket-option read errors.
+    pub fn buffer_sizes(&self) -> io::Result<UdpBufferSizes> {
+        UdpBufferSizes::read(self.as_std())
+    }
+
+    /// Adopt a UDP socket and enable nonblocking I/O.
+    ///
+    /// # Errors
+    /// Returns an operating-system configuration error.
+    pub fn from_std(inner: std::net::UdpSocket) -> io::Result<Self> {
         inner.set_nonblocking(true)?;
+        let inner = Arc::new(inner);
         Ok(Self {
-            inner: Arc::new(inner),
+            // Legacy UDP operations allocate no readiness fan-out state. Only
+            // clients of the shared poller API initialize these owned groups.
+            readiness: [OnceLock::new(), OnceLock::new()],
+            inner,
         })
+    }
+
+    /// Borrow the native socket for batched datagram I/O and ancillary metadata.
+    pub fn as_std(&self) -> &std::net::UdpSocket {
+        &self.inner
+    }
+
+    /// Create an independently cancellable writable waiter.
+    ///
+    /// Every waiter on this socket receives the same readiness event. Dropping
+    /// one waiter preserves its siblings; dropping the last retires the
+    /// registration before closing the descriptor.
+    pub fn writable(&self) -> UdpReady {
+        datagram::ReadyGroup::subscribe(
+            self.readiness[1].get_or_init(|| {
+                datagram::ReadyGroup::new(Arc::clone(&self.inner), Interest::WRITABLE)
+            }),
+        )
+    }
+
+    /// Create a poller for caller-supplied nonblocking receive operations.
+    ///
+    /// This admits batched reads without losing source address, ECN or local
+    /// destination metadata. The closure must return `WouldBlock` when drained.
+    pub fn recv_poller(&self) -> UdpIoPoller {
+        UdpIoPoller::new(datagram::ReadyGroup::subscribe(
+            self.readiness[0].get_or_init(|| {
+                datagram::ReadyGroup::new(Arc::clone(&self.inner), Interest::READABLE)
+            }),
+        ))
     }
 
     /// Send one datagram to `target`, awaiting readiness.

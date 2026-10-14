@@ -26,6 +26,8 @@ http = { workspace = true }
 httparse = { workspace = true }
 
 [dev-dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
 moirai = { package = "moirai-runtime", path = "../moirai", default-features = false, features = ["async"] }
 
 [lints]

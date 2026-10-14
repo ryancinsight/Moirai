@@ -13,11 +13,12 @@ pub mod stream;
 pub mod types;
 
 pub use listener::TcpListener;
+pub use moirai_pal::net::{MulticastConfig, UdpBufferConfig, UdpBufferSizes, UdpConfig};
 pub use socket::UdpSocket;
 pub use stream::TcpStream;
 pub use types::{
     ConnectionInfo, ConnectionPool, ConnectionStats, ServerStats, TcpServerConfig, TcpServerStats,
-    UdpConfig, UdpSocketStats, UdpStats,
+    UdpSocketStats, UdpStats,
 };
 
 #[cfg(test)]
