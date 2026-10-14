@@ -11,19 +11,30 @@ use std::time::{Duration, Instant};
 fn main() -> ProbeResult<()> {
     tracing_subscriber::fmt().with_writer(io::stderr).init();
     let arguments: Vec<_> = std::env::args().skip(1).collect();
-    if arguments.len() != 5 || !matches!(arguments[0].as_str(), "server" | "client") {
+    if !(5..=6).contains(&arguments.len()) || !matches!(arguments[0].as_str(), "server" | "client")
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "quic_load server|client ADDR STREAMS MESSAGES FRAME_BYTES",
+            "quic_load server|client ADDR STREAMS MESSAGES FRAME_BYTES [cubic|newreno|bbr-experimental]",
         )
         .into());
     }
     let peer: SocketAddr = arguments[1].parse()?;
-    let plan = Plan::new(
+    let mut plan = Plan::new(
         arguments[2].parse()?,
         arguments[3].parse()?,
         arguments[4].parse()?,
     )?;
+    plan.policy = match arguments.get(5).map(String::as_str).unwrap_or("cubic") {
+        "cubic" => moirai_quic::CongestionPolicy::Cubic,
+        "newreno" => moirai_quic::CongestionPolicy::NewReno,
+        "bbr-experimental" => moirai_quic::CongestionPolicy::ExperimentalBbr,
+        _ => {
+            return Err(
+                io::Error::new(io::ErrorKind::InvalidInput, "unknown congestion policy").into(),
+            );
+        }
+    };
     if arguments[0] == "server" {
         probe::<true>(peer, plan)
     } else {

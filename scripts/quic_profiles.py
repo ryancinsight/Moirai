@@ -133,9 +133,9 @@ def verify(report, responder, streams, size):
         assert report[f"p{percent}_ns"] == samples[(percent * len(samples) + 99) // 100 - 1]
 
 
-def pair(binary, network, streams, size):
+def pair(binary, network, streams, size, *, policy="cubic", address=None, barrier=None):
     deadline = time.monotonic() + 60
-    command = [str(binary), "server", network.address, str(streams), str(MESSAGES), str(size)]
+    command = [str(binary), "server", address or network.address, str(streams), str(MESSAGES), str(size), policy]
     server = subprocess.Popen([*network.prefix(1), *command], text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     ready = queue.Queue()
@@ -144,19 +144,28 @@ def pair(binary, network, streams, size):
     try:
         line = ready.get(timeout=min(5, deadline - time.monotonic()))
         address = json.loads(line)["ready"]
-        client = execute([*network.prefix(0), str(binary), "client", address,
-                          str(streams), str(MESSAGES), str(size)], timeout=deadline - time.monotonic())
+        if barrier is not None:
+            barrier.wait(timeout=min(5, deadline - time.monotonic()))
+        client = subprocess.run([*network.prefix(0), str(binary), "client", address,
+                                 str(streams), str(MESSAGES), str(size), policy], text=True,
+                                capture_output=True, timeout=deadline - time.monotonic())
+        client.check_returncode()
         stdout, stderr = server.communicate(timeout=deadline - time.monotonic())
         if server.returncode != 0:
             raise RuntimeError(f"QUIC server fails: {stderr}")
-        reports = {"client": json.loads(client), "server": json.loads(stdout)}
+        reports = {"client": json.loads(client.stdout), "server": json.loads(stdout)}
         verify(reports["client"], False, streams, size)
         verify(reports["server"], True, streams, size)
+        assert all(report["congestion_policy"] == policy for report in reports.values())
+        reports["diagnostics"] = {"client_stderr": client.stderr, "server_stderr": stderr}
         return reports
     finally:
         failure = sys.exception()
-        network.stop(0)
-        network.stop(1)
+        # A shared-queue experiment owns several pairs in these namespaces.
+        # The controller drains/kills its namespace only after all pairs finish.
+        if barrier is None:
+            network.stop(0)
+            network.stop(1)
         if server.poll() is None:
             server.terminate()
             try:
@@ -180,6 +189,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--network", choices=["loopback", "netem"], default="loopback")
     parser.add_argument("--tc", default="tc", help="Exact seeded-netem tool selected by the caller")
+    parser.add_argument("--policy", choices=["cubic", "newreno", "bbr-experimental"], default="cubic")
     parser.add_argument("--case", default="", help="Diagnostic PROFILE:STREAMS:FRAME_BYTES; default verifies the full matrix")
     arguments = parser.parse_args()
     cases = [(profile, streams, size) for profile in PROFILES if arguments.network == "netem" or profile == PROFILES[0]
@@ -194,7 +204,7 @@ def main():
               "revision": execute(["git", "rev-parse", "HEAD"]).strip(),
               "dirty": bool(execute(["git", "status", "--porcelain"])),
               "rustc": execute(["rustc", "-Vv"]), "seed": SEED, "selected_case": arguments.case,
-              "expected_pairs": len(cases) * REPETITIONS, "runs": []}
+              "expected_pairs": len(cases) * REPETITIONS, "congestion_policy": arguments.policy, "runs": []}
     if network.shaped:
         report["iproute2"] = execute([network.tc, "-V"])
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
@@ -209,7 +219,7 @@ def main():
                     record = {"profile": dataclasses.asdict(profile), "repetition": repetition,
                               "streams": streams, "bytes": size, "before": network.counters()}
                     try:
-                        record["reports"] = pair(arguments.binary.resolve(strict=True), network, streams, size)
+                        record["reports"] = pair(arguments.binary.resolve(strict=True), network, streams, size, policy=arguments.policy)
                     except Exception as error:
                         record["error"] = f"{type(error).__name__}: {error}"
                         record["server_stdout"] = getattr(error, "server_stdout", None)

@@ -53,7 +53,8 @@ pub(crate) fn endpoint<const RESPONDER: bool>(
         65_536,
         Duration::from_secs(5),
         Duration::from_secs(60),
-    )?;
+    )?
+    .with_congestion_policy(plan.policy);
     if RESPONDER {
         Ok(QuicEndpoint::server(
             executor,

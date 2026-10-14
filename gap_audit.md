@@ -5,6 +5,12 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 
+ADR 0079 defines matched stock CUBIC, NewReno and experimental-BBR evaluation.
+Policy selection preserves the original CUBIC default and all security/resource
+contracts. The independent original 108-pair promotion job remains unchanged.
+Comparison and shared-queue results are pending; no recovery correction or
+fairness/latency/queue-growth acceptance is claimed from the configuration seam.
+
 Fresh Linux native validation passes at 03d640b8. The fresh Windows QUIC job
 fails six unused-WebView diagnostics because the shared-limits module compiles
 without its optional WebView2 consumer. Installed MSVC cross-compilation

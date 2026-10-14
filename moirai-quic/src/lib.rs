@@ -13,6 +13,7 @@
 
 mod admission;
 mod config;
+mod congestion;
 mod endpoint;
 mod error;
 mod metrics;
@@ -20,6 +21,7 @@ mod runtime;
 mod stream;
 
 pub use config::{Identity, QuicConfig};
+pub use congestion::CongestionPolicy;
 pub use endpoint::{QuicConnection, QuicEndpoint};
 pub use error::QuicError;
 pub use metrics::ConnectionMetrics;

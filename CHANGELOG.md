@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [minor] Bounded stock congestion-policy selection retains CUBIC as default;
+  NewReno and explicitly experimental BBR permit matched measurements through
+  the same authenticated transport. ADR 0079 preserves the original full-matrix
+  promotion gate and adds shared-queue evidence collection without changing
+  deadlines, flow-control windows, socket buffers or security contracts.
+
 - [minor] PAL-owned applied UDP buffer/broadcast/multicast configuration and
   effective kernel queue readback, shared by async UDP and QUIC. QUIC queue
   requests leave TLS, stream windows and finite deadlines intact (ADR 0078).

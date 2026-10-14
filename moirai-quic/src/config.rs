@@ -1,4 +1,4 @@
-use super::{QuicError, rustls};
+use super::{CongestionPolicy, QuicError, rustls};
 use moirai_pal::net::UdpBufferConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use std::sync::Arc;
@@ -33,6 +33,7 @@ pub struct QuicConfig {
     pub(super) operation_timeout: Duration,
     pub(super) idle_timeout: Duration,
     pub(super) udp_buffers: UdpBufferConfig,
+    pub(super) congestion_policy: CongestionPolicy,
 }
 
 impl QuicConfig {
@@ -87,6 +88,7 @@ impl QuicConfig {
             operation_timeout,
             idle_timeout,
             udp_buffers: UdpBufferConfig::default(),
+            congestion_policy: CongestionPolicy::default(),
         };
         config.transport()?;
         Ok(config)
@@ -110,6 +112,20 @@ impl QuicConfig {
     /// Native receive/send requests applied when binding this endpoint.
     pub const fn udp_buffers(&self) -> UdpBufferConfig {
         self.udp_buffers
+    }
+
+    /// Select a stock congestion policy without altering transport contracts.
+    ///
+    /// CUBIC remains the default. Alternatives need matched workload, latency,
+    /// fairness and queue-growth evidence; BBR remains upstream-experimental.
+    pub const fn with_congestion_policy(mut self, policy: CongestionPolicy) -> Self {
+        self.congestion_policy = policy;
+        self
+    }
+
+    /// Congestion policy selected at endpoint construction.
+    pub const fn congestion_policy(&self) -> CongestionPolicy {
+        self.congestion_policy
     }
 
     /// Maximum bytes in one application message, excluding its prefix.
@@ -138,6 +154,7 @@ impl QuicConfig {
             .checked_mul(u64::from(self.max_streams))
             .ok_or(QuicError::InvalidConfig("connection window overflows"))?;
         let mut transport = quinn::TransportConfig::default();
+        self.congestion_policy.configure(&mut transport);
         transport.max_concurrent_bidi_streams(self.max_streams.into());
         transport.max_concurrent_uni_streams(0_u8.into());
         transport.stream_receive_window(

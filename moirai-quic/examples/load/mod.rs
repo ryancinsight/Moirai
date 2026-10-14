@@ -21,6 +21,7 @@ pub(super) struct Plan {
     pub(super) messages: u32,
     pub(super) bytes: u32,
     pub(super) payload_bytes: u64,
+    pub(super) policy: moirai_quic::CongestionPolicy,
 }
 
 impl Plan {
@@ -37,6 +38,7 @@ impl Plan {
             messages,
             bytes,
             payload_bytes,
+            policy: moirai_quic::CongestionPolicy::default(),
         })
     }
 }
@@ -61,7 +63,7 @@ pub(super) async fn run<const RESPONDER: bool>(
     material::authorize(&connection)?;
     let connection_setup_ns = nanos(started)?;
     let exchanged = Instant::now();
-    let progress = observation::Progress::default();
+    let progress = observation::Progress::new(exchanged);
     let mut sessions = Vec::new();
     sessions.try_reserve_exact(usize::try_from(plan.streams)?)?;
     for _ in 0..plan.streams {
@@ -121,8 +123,9 @@ async fn session<const RESPONDER: bool>(
         if RESPONDER {
             stream.send_message(&received).await?;
         }
-        samples.push(nanos(started)?);
-        progress.completed();
+        let elapsed = nanos(started)?;
+        samples.push(elapsed);
+        progress.completed(elapsed);
     }
     if !RESPONDER {
         stream.finish()?;

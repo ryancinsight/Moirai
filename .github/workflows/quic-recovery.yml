@@ -1,0 +1,66 @@
+name: QUIC recovery comparison
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'moirai-quic/src/**'
+      - 'moirai-quic/examples/**'
+      - 'scripts/quic*.py'
+      - 'scripts/tests/test_quic*.py'
+      - '.github/workflows/quic-recovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Recovery ${{ matrix.suite }} repetition ${{ matrix.repetition }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [matrix, fairness]
+        repetition: [0, 1, 2]
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc
+      - name: Verify the original domain and archived numerical evidence
+        run: python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'
+      - name: Build the original seeded-netem tool
+        run: |
+          git init "$RUNNER_TEMP/quic-iproute2"
+          git -C "$RUNNER_TEMP/quic-iproute2" remote add origin https://git.kernel.org/pub/scm/network/iproute2/iproute2.git
+          git -C "$RUNNER_TEMP/quic-iproute2" fetch --depth=1 origin d2a8ffe85ac64f91ee2aa7679a5046f321b54127
+          git -C "$RUNNER_TEMP/quic-iproute2" checkout --detach FETCH_HEAD
+          make -C "$RUNNER_TEMP/quic-iproute2" -j2
+      - name: Build the authenticated byte-verifying probe
+        run: cargo build --locked --release -p moirai-quic --example quic_load
+      - name: Compare all stock policies with unchanged deadlines and workloads
+        env:
+          SUITE: ${{ matrix.suite }}
+          REPETITION: ${{ matrix.repetition }}
+        run: >-
+          python3 scripts/quic_recovery.py
+          --binary target/release/examples/quic_load
+          --tc "$RUNNER_TEMP/quic-iproute2/tc/tc"
+          --suite "$SUITE" --repetition "$REPETITION"
+          --output "output/quic-recovery/$SUITE-$REPETITION.json"
+      - name: Preserve complete results, failures and queue samples
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: quic-recovery-${{ matrix.suite }}-${{ matrix.repetition }}-${{ github.run_id }}
+          path: output/quic-recovery/
+          if-no-files-found: error
+          retention-days: 7

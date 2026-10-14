@@ -24,5 +24,7 @@ Active target: workspace 0.9.0; moirai-quic 0.1.0. Phase: Closure.
 - [x] [patch] Compare five native API surfaces with the previous QUIC head; all 980 applicable checks pass without a new API regression.
 - [x] [patch] Reproduce the fresh Windows native job's six unused-WebView diagnostics with the installed MSVC target; align the shared-limits module with the actual optional WebView2/browser/test consumers and retain warning-denying default/minimal gates.
 - [ ] [minor] Complete protected default-branch promotion before release.
+- [x] [minor] Specify bounded stock-controller selection and matched full-matrix/shared-queue measurements in ADR 0079; preserve CUBIC as the default.
+- [ ] [patch] Complete and archive 108 original pairs per policy, competing-flow fairness, latency and queue-growth evidence; retain every failure and the original promotion gate.
 
 Next increment: evaluate the recorded recovery-policy limit with matched full-domain and competing-flow measurements, then complete protected review/promotion for [provider PR 618](https://github.com/ryancinsight/Moirai/pull/618) and its dependent Metis change.

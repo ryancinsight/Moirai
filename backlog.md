@@ -22,12 +22,12 @@ belong in [gap_audit.md](gap_audit.md).
 
 <a id="MOI-QUIC-RECOVERY-001"></a>
 ## MOI-QUIC-RECOVERY-001 — Evaluate congestion policy under measured loss [minor]
-- status: todo
+- status: in progress
 - priority: architecture
 - outcome: The chosen production recovery policy supports the admitted message/stream domain with measured throughput, latency and competing-flow behavior.
 - acceptance: retain the same complete payloads, message counts, deadlines and real byte validation; compare supported congestion policies on matched profiles and document fairness, queue growth and failure bounds before changing defaults. Preserve one canonical transport API and a bounded policy abstraction if variation is required.
 - evidence: The 16-stream, 128-message, 65,560-byte 1% loss case exceeds 60 seconds in all three repetitions. Verified progress continues and all namespace UDP error deltas are zero; CUBIC recovery windows contract. No socket-buffer or spawner bypass closes this limit.
-- next step: evaluate recovery-policy candidates against this [revision-bound baseline](moirai-quic/measurements/controlled/2026-10-13/README.md); [upstream BBR](https://docs.rs/quinn/0.11.12/quinn/congestion/struct.Bbr.html) remains explicitly experimental and requires its own acceptance evidence.
+- next step: execute ADR 0079's stock CUBIC/NewReno/experimental-BBR comparison: 108 original pairs per policy plus shared-queue competing-flow measurements. Retain the [revision-bound baseline](moirai-quic/measurements/controlled/2026-10-13/README.md), all failed experiments and the independent original promotion gate. Upstream BBR remains experimental; no default replacement is authorized by throughput alone.
 
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts

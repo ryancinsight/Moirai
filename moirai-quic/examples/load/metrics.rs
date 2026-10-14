@@ -7,6 +7,7 @@ use serde::Serialize;
 pub(crate) struct Report {
     schema: u8,
     responder: bool,
+    congestion_policy: &'static str,
     streams: u32,
     messages_per_stream: u32,
     frame_bytes: u32,
@@ -37,6 +38,11 @@ pub(crate) fn report<const RESPONDER: bool>(
     Ok(Report {
         schema: 1,
         responder: RESPONDER,
+        congestion_policy: match plan.policy {
+            moirai_quic::CongestionPolicy::Cubic => "cubic",
+            moirai_quic::CongestionPolicy::NewReno => "newreno",
+            moirai_quic::CongestionPolicy::ExperimentalBbr => "bbr-experimental",
+        },
         streams: plan.streams,
         messages_per_stream: plan.messages,
         frame_bytes: plan.bytes,
