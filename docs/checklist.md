@@ -4,7 +4,9 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: 0.9.2 (workspace); moirai-webview 0.2.0
+**Target Version**: 0.10.0 (workspace); moirai-quic 0.1.0; moirai-webview 0.2.0
+
+- [x] [minor] Integrate current main's 0.9.2 WebView fixes; classify pending native QUIC additions and the documented pre-1.0 UDP migration under workspace 0.10.0.
 
 - [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.
 - [x] [patch] Checked native method admission, registration compensation and exact callback lifetime.
