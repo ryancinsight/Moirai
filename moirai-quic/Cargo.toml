@@ -14,6 +14,8 @@ moirai-core.workspace = true
 moirai-async.workspace = true
 moirai-pal.workspace = true
 quinn.workspace = true
+# Enforce the security floor even when this provider is consumed independently.
+rustls.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

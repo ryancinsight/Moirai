@@ -40,7 +40,7 @@ provider = [
 
 [dependencies]
 # rustls provider interface — no built-in crypto feature; we supply our own
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
+rustls = { workspace = true, features = ["tls12", "logging"], optional = true }
 
 # Key exchange
 x25519-dalek    = { version = "2", default-features = false, features = ["static_secrets", "zeroize"], optional = true }

@@ -68,3 +68,43 @@ incomplete diagnostic evidence. Exercise actual authenticated process pairs
 locally. Then retain fresh full Linux matrix and shared-queue evidence, with
 the exact source, binary, lock, platform and opt-in mode recorded. Compare
 with retained uninstrumented studies and keep unsuccessful experiments.
+
+## Complete evidence and remaining decision
+
+The [October 14 archive](../../moirai-quic/measurements/recovery/2026-10-14/README.md)
+retains source 733afc9f's complete 108 cases per policy, all 30 shared-queue
+experiments and independently audited child preflights/traces. CUBIC/NewReno
+remain 105/108; experimental BBR remains 108/108. The independent uninstrumented
+original gate has the same source tree and reproduces the three deadlines.
+Failed environment-filtered and canceled inputs remain excluded from diagnostic
+acceptance; no case inventory is assembled across studies.
+
+Three early server failures never reach established state while clients record
+one Handshake-space PTO followed by repeated Data-space PTOs. Established
+throughput failures instead retain authenticated exchange, congestion/pacing
+events and stream-flow-credit notifications. These are distinct failure classes.
+Driver dispatch lateness does not measure later protocol execution, and event
+counts do not identify the dominant blocked duration.
+
+BBR reaches a sampled 133,608,526-byte congestion window in the original loss
+workload; this is an allowed flight limit, not actual flight or allocated memory.
+Pinned BBR compares dimensionless cwnd_gain with a byte-valued target window in
+its startup growth guard. While that branch repeats, w(n)=w(0)+sum(acked bytes).
+[Upstream PR 2798](https://github.com/quinn-rs/quinn/pull/2798) addresses startup
+growth and application-limited bandwidth samples but remains open/unmerged.
+Internal mode/target/filter state is unobserved, so the study does not prove
+that guard explains all observed growth or unfairness. No upstream patch or
+default replacement is adopted. Obtain per-space ACK/CRYPTO, flight, flow-credit
+and pacing timelines before selecting and measuring a focused correction.
+
+## Security-patch revalidation boundary
+
+Completed required CI at 733afc9f rejects Rustls 0.23.45 for four published
+advisories. Adopt the released 0.23.46 security patch through one shared minimum;
+the standalone QUIC provider depends on and exposes that same Rustls crate.
+Caller trust, TLS/ALPN, early-data policy, resource bounds and deadlines remain
+unchanged. Preserve the measured preceding stack and repeat every original
+policy case, competing-flow experiment and independent CUBIC gate after the
+crypto dependency changes. No advisory suppression or cross-source case splicing
+can establish acceptance. Public API compatibility is verified with the patch
+override; transport security tests exercise actual peers.

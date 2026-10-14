@@ -283,8 +283,15 @@ mod tests {
     #[test]
     fn actual_tracing_events_preserve_counts_spaces_and_timer_values() {
         let recovery = Recovery::new(true);
-        let subscriber = tracing_subscriber::registry().with(recovery.clone());
-        tracing::subscriber::with_default(subscriber, || {
+        let subscriber = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_test_writer()
+                    .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL),
+            )
+            .with(recovery.clone());
+        let _tracing = tracing::subscriber::set_default(subscriber);
+        {
             let _arrange = tracing::info_span!("arrange").entered();
             tracing::info!(phase = "authenticated", "load probe phase");
             let _act = tracing::info_span!("act").entered();
@@ -294,6 +301,7 @@ mod tests {
             tracing::trace!(target: "quinn_proto::connection", "blocked by anti-amplification");
             tracing::trace!(target: "quinn_proto::connection", in_flight = 12_000_u64, count = 2_u32, space = ?"Handshake", "PTO fired");
             tracing::trace!(target: "quinn_proto::connection", in_flight = 2_400_u64, count = 0_u32, space = ?"Data", "PTO fired");
+            // 2^4+1 and 2^5-1 distinguish sum from maximum at binary boundaries.
             tracing::trace!(target: "moirai_async::timer::driver", lateness_ns = 17_u128, "timer driver wakes registration");
             tracing::trace!(target: "moirai_async::timer::driver", lateness_ns = 31_u128, "timer driver wakes registration");
             tracing::trace!(target: "quinn_proto::connection::streams::state", "DATA_BLOCKED");
@@ -301,7 +309,8 @@ mod tests {
             tracing::trace!(target: "quinn_proto::connection", "established");
             // A message from a different component must not count as Quinn.
             tracing::trace!("blocked by pacing");
-        });
+        }
+        let _assert = tracing::info_span!("assert").entered();
         let snapshot = recovery.snapshot("test");
         assert_eq!(snapshot.phase, "authenticated");
         assert_eq!(snapshot.counts.congestion_blocked, 1);
@@ -323,12 +332,20 @@ mod tests {
     #[test]
     fn disabled_capture_and_nonselected_events_do_not_change_counts() {
         let recovery = Recovery::new(false);
-        let subscriber = tracing_subscriber::registry().with(recovery.clone());
-        tracing::subscriber::with_default(subscriber, || {
+        let subscriber = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_test_writer()
+                    .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL),
+            )
+            .with(recovery.clone());
+        let _tracing = tracing::subscriber::set_default(subscriber);
+        {
             let _act = tracing::info_span!("act").entered();
             tracing::trace!(target: "quinn_proto::connection", "blocked by pacing");
             tracing::trace!(target: "moirai_async::timer::driver", lateness_ns = 31_u128, "timer driver wakes registration");
-        });
+        }
+        let _assert = tracing::info_span!("assert").entered();
         assert_eq!(recovery.snapshot("test").counts, Counts::default());
         assert_eq!(recovery.snapshot("test").phase, "handshake");
     }

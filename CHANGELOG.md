@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [patch] Archive and independently audit the complete October 14 recovery trace
+  study and independent original CUBIC gate. Preserve 105/108 CUBIC/NewReno,
+  108/108 experimental BBR and all competing outcomes; distinguish early
+  server-handshake failures from established congestion/pacing/flow-credit
+  pressure. Retain unsuccessful/canceled inputs and keep promotion blocked.
 - [patch] Add opt-in load-probe aggregation of pinned Quinn recovery/PTO events,
   handshake/admission/exchange phases and actual shared timer-driver wake
   lateness (ADR 0080). Drain server diagnostics concurrently with client work;
@@ -91,6 +96,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Require Rustls 0.23.46 in the shared TLS dependency and standalone
+  QUIC provider after RUSTSEC-2026-0346/0347/0348/0349. Preserve caller trust,
+  TLS/ALPN, early-data policy and public vocabulary; refresh both locks and
+  repeat native/security/full-matrix validation without advisory suppressions.
+- [patch] Resolve the independent fuzz lock with the timer driver's regular
+  tracing dependency edge; preserve every package identity and strict locked
+  resolution. Diagnostic tests retain full span trees on failure.
 - [patch] Compile shared WebView limits only for opted-in Windows WebView2,
   browser consumers or portable tests. Default/minimal Windows transport
   builds retain strict diagnostics without unused optional-provider state.

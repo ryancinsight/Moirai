@@ -57,22 +57,25 @@ def fraction(value):
     return {"numerator": value.numerator, "denominator": value.denominator}
 
 
+def check_queues(snapshot, profile):
+    require(len(snapshot) == 2, "both queue directions are required")
+    for peer in snapshot:
+        require(len(peer["qdisc"]) == 1 and peer["qdisc"][0]["kind"] == "netem", "different qdisc")
+        options = peer["qdisc"][0]["options"]
+        require(options["seed"] == SEED and options["limit"] == 1000, "changed queue seed/limit")
+        require(Fraction(str(options.get("delay", {}).get("delay", 0))) ==
+                Fraction(profile["delay_ms"], 1000), "actual queue delay mismatch")
+        require(Fraction(str(options.get("loss-random", {}).get("loss", 0))) ==
+                Fraction(profile["loss"].rstrip("%")) / 100, "actual loss mismatch")
+        require(options.get("rate", {}).get("rate") ==
+                (100_000_000 // 8 if profile["rate"] == "100mbit" else None), "actual rate mismatch")
+
+
 def queue_evidence(record):
     samples = record["queue_samples"]
     require(bool(samples), "queue sampling is absent")
-    profile = record["profile"]
     for snapshot in [record["before"], record["after"], *[s["counters"] for s in samples]]:
-        require(len(snapshot) == 2, "both queue directions are required")
-        for peer in snapshot:
-            require(len(peer["qdisc"]) == 1 and peer["qdisc"][0]["kind"] == "netem", "different qdisc")
-            options = peer["qdisc"][0]["options"]
-            require(options["seed"] == SEED and options["limit"] == 1000, "changed queue seed/limit")
-            require(Fraction(str(options.get("delay", {}).get("delay", 0))) ==
-                    Fraction(profile["delay_ms"], 1000), "actual queue delay mismatch")
-            require(Fraction(str(options.get("loss-random", {}).get("loss", 0))) ==
-                    Fraction(profile["loss"].rstrip("%")) / 100, "actual loss mismatch")
-            require(options.get("rate", {}).get("rate") ==
-                    (100_000_000 // 8 if profile["rate"] == "100mbit" else None), "actual rate mismatch")
+        check_queues(snapshot, record["profile"])
     result = []
     for role in range(2):
         points = [(sample["observed_unix_ns"], sample["counters"][role]["qdisc"][0]["backlog"])
@@ -210,14 +213,67 @@ def audit(shards):
             "counts": counts, "matrix": matrix, "competing": competing}
 
 
+
+def audit_default(shard):
+    """Audit the original single-policy gate without inventing queue samples."""
+    require(shard["schema"] == 1 and not shard["dirty"], "unknown/dirty original gate")
+    require(shard["network"] == "netem" and shard["seed"] == SEED, "changed original network")
+    require(shard["selected_case"] == "" and shard["expected_pairs"] == 108, "reduced original domain")
+    require(shard["congestion_policy"] == "cubic", "changed original default")
+    profiles = {p.name: dataclasses.asdict(p) for p in PROFILES}
+    expected = set(itertools.product(profiles, STREAMS, FRAME_BYTES, range(REPETITIONS)))
+    runs = shard["runs"]
+    require(len(runs) == len(expected) and
+            {(r["profile"]["name"], r["streams"], r["bytes"], r["repetition"]) for r in runs} == expected,
+            "missing/duplicate original cases")
+    matrix = []
+    for record in runs:
+        require(record["profile"] == profiles[record["profile"]["name"]], "changed original profile")
+        for snapshot in (record["before"], record["after"]):
+            check_queues(snapshot, record["profile"])
+        failed = "error" in record
+        require(not failed or "reports" not in record, "failed original case has partial success")
+        row = {k: record[k] for k in ("profile", "streams", "bytes", "repetition")}
+        row["status"] = "failed" if failed else "passed"
+        payload = record["streams"] * MESSAGES * record["bytes"]
+        row["udp_error_deltas"] = []
+        for index, (role, responder) in enumerate((("client", False), ("server", True))):
+            if not failed:
+                report = record["reports"][role]
+                verify(report, responder, record["streams"], record["bytes"])
+                require(report["congestion_policy"] == "cubic", "original measured policy differs")
+            text = ((record.get("error_stderr") if role == "client" else record.get("server_stderr"))
+                    if failed else record["reports"]["diagnostics"][f"{role}_stderr"])
+            require("protocol recovery observation" not in (text or ""), "original gate enables tracing")
+            before, after = record["before"][index], record["after"][index]
+            deltas = {k: after["udp"][k] - before["udp"][k] for k in UDP_ERRORS}
+            require(all(v >= 0 for v in deltas.values()), "original UDP counters decrease")
+            row["udp_error_deltas"].append(deltas)
+            require(failed or after["qdisc"][0]["bytes"] - before["qdisc"][0]["bytes"] >= payload,
+                    "original kernel bytes do not cover complete payloads")
+        matrix.append(row)
+    successes = [r for r in matrix if r["status"] == "passed"]
+    require(shard["status"] == ("passed" if len(successes) == len(runs) else "failed"),
+            "original gate status differs")
+    return {"revision": shard["revision"], "runner": shard["runner"],
+            "counts": {"cubic": {"pairs": len(runs), "passed": len(successes),
+                                  "failed": len(runs) - len(successes),
+                                  "complete_payload_bytes_per_direction":
+                                  sum(r["streams"] * MESSAGES * r["bytes"] for r in successes)}},
+            "matrix": matrix}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("shards", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--original-gate", action="store_true")
     args = parser.parse_args()
     shards = [json.loads(gzip.decompress(p.read_bytes()) if p.suffix == ".gz" else p.read_bytes())
               for p in args.shards]
-    result = audit(shards)
+    if args.original_gate:
+        require(len(shards) == 1, "one original gate archive is required")
+    result = audit_default(shards[0]) if args.original_gate else audit(shards)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result["counts"], indent=2))
 

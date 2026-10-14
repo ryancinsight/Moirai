@@ -9,7 +9,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from quic_profiles import Network, verify
-from quic_trace_audit import protocol_trace
+from quic_recovery_audit import audit_default
+from quic_trace_audit import protocol_trace, trace_audit
 
 
 class ProtocolTraceContract(unittest.TestCase):
@@ -46,6 +47,61 @@ class ProtocolTraceContract(unittest.TestCase):
                 wakes += result['last']['counts']['timer_driver_wakes']
         self.assertEqual(established, 162)
         self.assertGreater(wakes, 0)
+
+    def test_complete_linux_study_retains_all_cases_preflights_and_failure_spaces(self):
+        directory = (Path(__file__).resolve().parents[2] /
+                     'moirai-quic/measurements/recovery/2026-10-14')
+        paths = [*directory.glob('733afc9f-matrix-*.json.gz'),
+                 *directory.glob('733afc9f-fairness-*.json.gz')]
+        shards = [json.loads(gzip.decompress(p.read_bytes())) for p in paths]
+        result = trace_audit(shards)
+        self.assertEqual(result['counts'], {
+            'cubic': {'pairs': 108, 'passed': 105, 'failed': 3,
+                      'complete_payload_bytes_per_direction': 1_844_797_440},
+            'newreno': {'pairs': 108, 'passed': 105, 'failed': 3,
+                        'complete_payload_bytes_per_direction': 1_844_797_440},
+            'bbr-experimental': {'pairs': 108, 'passed': 108, 'failed': 0,
+                                 'complete_payload_bytes_per_direction': 2_247_598_080}})
+        self.assertEqual(len(result['protocol_traces']), 384)
+        early = [t for t in result['protocol_traces'] if t['suite'] == 'fairness'
+                 and t['server']['before_drain']
+                 and t['server']['before_drain']['observation'] == 'failure'
+                 and t['server']['before_drain']['phase'] == 'handshake']
+        self.assertEqual(len(early), 3)
+        self.assertEqual(sorted(t['client']['before_drain']['counts']['pto_data'] for t in early),
+                         [5, 5, 6])
+        self.assertEqual([t['client']['before_drain']['counts']['pto_handshake'] for t in early],
+                         [1, 1, 1])
+        self.assertEqual(max(t['server']['before_drain']['counts']['max_timer_lateness_ns']
+                             for t in early), 109_881)
+        altered = copy.deepcopy(shards)
+        altered[0].pop('trace_preflight')
+        with self.assertRaisesRegex(ValueError, 'trace preflight is absent/failed'):
+            trace_audit(altered)
+
+    def test_original_gate_remains_full_uninstrumented_and_independent(self):
+        directory = (Path(__file__).resolve().parents[2] /
+                     'moirai-quic/measurements/recovery/2026-10-14')
+        shard = json.loads(gzip.decompress((directory/'733afc9f-default-matrix.json.gz').read_bytes()))
+        result = audit_default(shard)
+        self.assertEqual(result['counts']['cubic'], {
+            'pairs': 108, 'passed': 105, 'failed': 3,
+            'complete_payload_bytes_per_direction': 1_844_797_440})
+        failed = [r for r in result['matrix'] if r['status'] == 'failed']
+        self.assertEqual({(r['profile']['name'], r['streams'], r['bytes'], r['repetition'])
+                          for r in failed},
+                         {('delay-10ms-loss-1pct', 16, 65_560, n) for n in range(3)})
+        altered = copy.deepcopy(shard)
+        altered['runs'].pop()
+        with self.assertRaisesRegex(ValueError, 'missing/duplicate original cases'):
+            audit_default(altered)
+        # Retain the complete failed diagnostic experiment, while rejecting
+        # its opt-in intent without actual child-process capture/preflight.
+        paths = [*directory.glob('d946459c-matrix-*.json.gz'),
+                 *directory.glob('d946459c-fairness-*.json.gz')]
+        filtered = [json.loads(gzip.decompress(p.read_bytes())) for p in paths]
+        with self.assertRaisesRegex(ValueError, 'trace preflight is absent/failed'):
+            trace_audit(filtered)
 
     def test_missing_outcomes_corrupt_counts_and_event_inventories_fail(self):
         original = self.evidence['runs'][0]['reports']['diagnostics']['client_stderr']

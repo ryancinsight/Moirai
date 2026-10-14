@@ -14,6 +14,10 @@ TLS, framing, flow-control, native buffer or deadline contract.
 full-matrix and shared-queue evidence before a default change. The
 [complete comparison](measurements/recovery/2026-10-13/README.md) retains both
 studies and their failures; no production replacement is accepted.
+The [October 14 trace study](measurements/recovery/2026-10-14/README.md)
+retains all 108 cases per policy, all 30 competing experiments and the independent
+original CUBIC gate. It separates unestablished server handshakes from established
+congestion/pacing/flow-credit pressure; recovery and protected promotion remain open.
 The probe's `MOIRAI_QUIC_RECOVERY_TRACE=1` opt-in aggregates pinned Quinn's
 congestion, pacing, anti-amplification, flow-blocked and PTO-space events
 from endpoint creation through drain. It retains authenticated/admitted phases
@@ -26,6 +30,8 @@ diagnostic bounds. Instrumented observations do not replace the original gate.
 and the certificate's server name; servers supply their certificate chain/key
 and optional client trust roots for required mutual TLS. Both negotiate one
 explicit ALPN, TLS 1.3 and no early data. Trust/authorization remains caller policy.
+The provider directly requires the shared Rustls security minimum 0.23.46,
+including when consumed independently; its public TLS vocabulary remains Rustls.
 
 `QuicConfig` validates positive message, stream, connection and handshake budgets
 and finite operation/idle deadlines. The per-connection receive/send window is
