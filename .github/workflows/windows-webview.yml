@@ -67,6 +67,27 @@ jobs:
               throw "Installed-runtime scenario failed: $previewTest (exit $LASTEXITCODE)"
             }
           }
+      - name: Observe selected native DOM and owned shutdown on the installed runtime
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+
+          environment = os.environ.copy()
+          environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+              "start_uri": "https://metis.invalid/index.html",
+              "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
+          }, separators=(",", ":"))
+          # The CLI process has a separate bound; nextest retains the existing
+          # strict 60-second per-test profile and one owner-thread fixture.
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
+              "test(=windows::webview::tests::startup::installed_runtime_observes_selected_dom_and_owned_shutdown)",
+          ], env=environment, check=True, timeout=120)
       # Query the same default SDK runtime selection used by the native host.
       # This is evidence after execution, never an installation or skip gate.
       - name: Record the native SDK selected runtime version

@@ -5,6 +5,21 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - Unreleased
+
+### Fixed
+
+- [patch] An explicitly selected private verification diagnostic observes native
+  WebView2 resource MIME/status, lifecycle/process errors, CDP exceptions/logs
+  and bounded selected DOM status without evaluating JavaScript. Registration
+  and enable completions share the original navigation deadline; callback
+  teardown and incomplete requests remain observable. This adds no supported
+  public API and leaves ordinary application observation disabled.
+
+Thirteen portable quota/state tests and strict native/Windows SDK compilation
+pass. Actual Windows runtime verification remains pending; this instrumentation
+does not identify or repair the consumer's startup cause.
+
 ## [0.9.0] - Unreleased
 
 ### Added

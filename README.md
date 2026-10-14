@@ -17,6 +17,13 @@ belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
 ## Browser I/O
 
+Workspace 0.9.1 adds private fixture-only WebView2 startup observations with
+bounded resource, exception and selected DOM evidence. Both explicit private
+selection and a dedicated diagnostic tracing filter are required. Ordinary
+applications do not capture DOM content. The
+[source contract](moirai-pal/src/windows/webview/host/diagnostics/design.md)
+defines activation, callback ownership, trace quotas and pending verification.
+
 Workspace 0.9.0 adds the Rust-owned page-side WebView2 bridge, real browser
 permission requests, explicit callback teardown and native Number formatting.
 Message admission shares the native 64 KiB limits; permission guards remain

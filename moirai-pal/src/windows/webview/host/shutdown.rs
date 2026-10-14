@@ -35,22 +35,29 @@ impl WebViewHost {
             };
         }
         let mut first_error = None;
+        if let Some(mut startup) = self.startup.take()
+            && let Err(error) = startup.close()
+        {
+            first_error = Some(error);
+        }
         let observer = if self.config.user_data_folder().is_some() {
             match self.webview.as_ref().zip(self.environment.as_ref()) {
                 Some((webview, environment)) => {
                     match observer::BrowserExit::register(webview, environment) {
                         Ok(observer) => Some(observer),
                         Err(error) => {
-                            first_error = Some(error);
+                            first_error.get_or_insert(error);
                             None
                         }
                     }
                 }
                 None => {
-                    first_error = Some(io::Error::new(
-                        io::ErrorKind::NotConnected,
-                        "WebView2 owned profile has no live browser to observe",
-                    ));
+                    first_error.get_or_insert_with(|| {
+                        io::Error::new(
+                            io::ErrorKind::NotConnected,
+                            "WebView2 owned profile has no live browser to observe",
+                        )
+                    });
                     None
                 }
             }
