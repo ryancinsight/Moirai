@@ -18,6 +18,11 @@ its async timer. That diagnostic path is rejected; actual shared-driver wake
 lateness includes QUIC, operation and observation timers and excludes subsequent
 protocol scheduling. It cannot establish pacing duration or complete flight
 history. Concurrent server-output draining prevents diagnostic pipe pressure.
+The first Linux trace study at d946459c exposes sudo environment filtering:
+controller opt-in metadata is true but both child traces are absent. Independent
+auditing rejects that diagnostic evidence. Explicit namespace-local forwarding
+of the single public switch and a real two-peer trace preflight close collection;
+the full matrix/shared-queue study must run again before causal conclusions.
 
 ADR 0079 defines matched stock CUBIC, NewReno and experimental-BBR evaluation.
 Policy selection preserves the original CUBIC default and all security/resource

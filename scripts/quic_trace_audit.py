@@ -80,9 +80,12 @@ def protocol_trace(text, success):
         require(len(terminal) == 1 and terminal[0]["observation"] == "success", "success lacks trace outcome")
         require(terminal[0]["phase"] == "complete" and terminal[0]["counts"]["established"] == 1,
                 "success lacks authenticated completion")
+        require([p["phase"] for p in terminal[0]["phases"]] == list(PHASES[:-1]),
+                "success lacks complete phase inventory")
         require(samples[-1]["observation"] == "drained", "success lacks endpoint drain")
     else:
-        require(not terminal or terminal[0]["observation"] == "failure", "failure contains trace success")
+        require(not terminal or terminal[0]["observation"] == "failure" or
+                samples[-1]["observation"] == "drain_failure", "failure contains trace success")
     return {"observations": len(samples), "primary_outcome_observed": bool(terminal),
             "before_drain": terminal[0] if terminal else None, "last": samples[-1]}
 
@@ -90,6 +93,14 @@ def protocol_trace(text, success):
 def trace_audit(shards):
     result = audit(shards)
     require(all(s.get("recovery_trace") is True for s in shards), "tracing mode is not recorded")
+    for shard in shards:
+        preflight = shard.get("trace_preflight", {})
+        require("reports" in preflight and "error" not in preflight, "trace preflight is absent/failed")
+        from quic_profiles import verify
+        for role, responder in (("client", False), ("server", True)):
+            verify(preflight["reports"][role], responder, 1, 24)
+            require(preflight["reports"][role]["congestion_policy"] == "cubic", "preflight policy differs")
+            protocol_trace(diagnostics(preflight, role), True)
     traces = []
     for shard in shards:
         for record in shard["runs"]:

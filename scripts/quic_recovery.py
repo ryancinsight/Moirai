@@ -156,6 +156,20 @@ def main():
         with contextlib.ExitStack() as cleanup:
             cleanup.callback(network.close)
             network.setup()
+            if report["recovery_trace"]:
+                # An extra real original-domain pair proves both child probes
+                # capture events before the complete acceptance inventory starts.
+                # Every later case resets its original qdisc/seed independently.
+                from quic_trace_audit import protocol_trace
+                network.shape(PROFILES[0])
+                preflight = record_pair(arguments.binary.resolve(strict=True), network,
+                                        STREAMS[0], FRAME_BYTES[0], POLICIES[0])
+                report["trace_preflight"] = preflight
+                save()
+                if "error" in preflight:
+                    raise RuntimeError("authenticated trace preflight fails")
+                for role in ("client", "server"):
+                    protocol_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"], True)
             experiment = matrix if arguments.suite == "matrix" else fairness
             for record in experiment(arguments.binary.resolve(strict=True), network, arguments.repetition):
                 report["runs"].append(record)

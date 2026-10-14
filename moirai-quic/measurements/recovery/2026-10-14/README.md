@@ -26,12 +26,24 @@ do not supply a continuous flight history.
 
 The recovery workflow enables `MOIRAI_QUIC_RECOVERY_TRACE=1` for the complete
 matched study: 108 original pairs per policy and all 30 shared-queue experiments.
+The switch is passed explicitly inside each owned namespace after sudo. Each
+shard first validates both real peers' traces in an additional original-domain
+1-stream/24-byte/128-message mutual-TLS preflight. That check never contributes
+to acceptance counts; each later case resets the original queue and seed.
 The collector drains server output during client execution so trace volume
 cannot apply pipe backpressure to transport. Network profiles, queue limits,
 aggregation, seed, mutual TLS, byte validation and 5/60-second operation/pair
 deadlines remain unchanged. `scripts/quic_trace_audit.py` first applies the
 existing full-inventory/network/byte/rate/latency/queue audit, then verifies
 trace counters, event inventories, phase histories and primary outcomes.
+
+The first Linux diagnostic run, [38583505199](https://github.com/ryancinsight/Moirai/actions/runs/38583505199),
+uses integrated source d946459c. Its controller records the opt-in intent but
+sudo removes the environment variable before either probe starts. Independent
+trace auditing rejects the absence of child observations. This is an unsuccessful
+diagnostic experiment; its actual byte-validating stock-policy runs do not
+provide handshake/flight/pacing evidence. The explicit switch and authenticated
+preflight correct collection only, with no transport-policy or deadline change.
 
 `archives.json` records hashes of retained compressed and decompressed inputs.
 The [preceding studies](../2026-10-13/README.md) retain the uninstrumented stock

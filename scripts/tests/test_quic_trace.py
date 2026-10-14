@@ -8,7 +8,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from quic_profiles import verify
+from quic_profiles import Network, verify
 from quic_trace_audit import protocol_trace
 
 
@@ -18,6 +18,17 @@ class ProtocolTraceContract(unittest.TestCase):
         path = (Path(__file__).resolve().parents[2] /
                 'moirai-quic/measurements/recovery/2026-10-14/loopback-trace.json.gz')
         cls.evidence = json.loads(gzip.decompress(path.read_bytes()))
+
+    def test_namespace_probe_forwards_only_the_explicit_diagnostic_switch(self):
+        network = Network(True)
+        for role in (0, 1):
+            self.assertEqual(network.probe_prefix(role, False),
+                             ['sudo', 'ip', 'netns', 'exec', network.names[role]])
+            self.assertEqual(network.probe_prefix(role, True),
+                             ['sudo', 'ip', 'netns', 'exec', network.names[role],
+                              'env', 'MOIRAI_QUIC_RECOVERY_TRACE=1'])
+        for trace in (False, True):
+            self.assertEqual(Network(False).probe_prefix(0, trace), [])
 
     def test_real_native_traces_match_authenticated_complete_reports(self):
         runs = self.evidence['runs']
@@ -69,6 +80,10 @@ class ProtocolTraceContract(unittest.TestCase):
                 protocol_trace(altered, True)
         with self.assertRaisesRegex(ValueError, 'failure contains trace success'):
             protocol_trace(original, False)
+        # A pre-drain exchange can complete before a real drain failure. Its
+        # diagnostic exchange outcome never turns that pair into a success.
+        altered = original.replace('"observation":"drained"', '"observation":"drain_failure"')
+        self.assertEqual(protocol_trace(altered, False)['last']['observation'], 'drain_failure')
 
 
 if __name__ == '__main__':

@@ -29,6 +29,11 @@ not isolate pacing timers. Quinn checks monotonic time before polling its
 async timer, so counting ready polls does not measure its timer wakes. No unobserved flight
 value or continuous queue bound is inferred. Instrumented measurements
 remain diagnostic observations and do not substitute for the original gate.
+The timer timestamp is taken immediately before the existing waker dispatch;
+trace processing and subsequent protocol scheduling can add delay. PTO
+`backoff` stores Quinn's count before increment (the binary-backoff exponent),
+not a duration or multiplier. `success` before drain describes exchange
+completion; a later drain failure still makes the process pair fail.
 
 ## Architecture and alternatives
 
@@ -42,6 +47,12 @@ over the original archived inputs.
 Drain the server's stdout and stderr concurrently with client execution;
 increased diagnostic volume must not fill a pipe and block the transport.
 Retain the original pair deadline and bounded task-owned output-reader join.
+Pass the single public diagnostic switch explicitly after `sudo ip netns exec`;
+sudo does not preserve the controller's environment by default. Every traced
+shard first executes an extra real original-domain 1-stream/24-byte/128-message
+mutual-TLS preflight and audits both child traces. Preflight is separate from
+the complete acceptance inventory; each subsequent case resets the original
+qdisc and seed. Missing child traces reject the study before the full run.
 
 Enabling qlog would require additional feature/configuration surface and
 synchronous per-packet output. Converting a pending server connection to

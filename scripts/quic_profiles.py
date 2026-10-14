@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import dataclasses
 import json
+import os
 from pathlib import Path
 import platform
 import queue
@@ -57,6 +58,12 @@ class Network:
 
     def prefix(self, role):
         return ["sudo", "ip", "netns", "exec", self.names[role]] if self.shaped else []
+
+    def probe_prefix(self, role, trace):
+        # sudo filters the controller's environment. Forward only this public
+        # diagnostic switch inside the owned namespace, without sudo -E.
+        environment = ["env", "MOIRAI_QUIC_RECOVERY_TRACE=1"] if self.shaped and trace else []
+        return [*self.prefix(role), *environment]
 
     def setup(self):
         if not self.shaped:
@@ -144,9 +151,12 @@ def verify(report, responder, streams, size):
 
 def pair(binary, network, streams, size, *, policy="cubic", address=None, barrier=None,
          cleanup_namespace=True):
+    trace = os.environ.get("MOIRAI_QUIC_RECOVERY_TRACE")
+    if trace not in (None, "1"):
+        raise ValueError("MOIRAI_QUIC_RECOVERY_TRACE must be absent or 1")
     deadline = time.monotonic() + 60
     command = [str(binary), "server", address or network.address, str(streams), str(MESSAGES), str(size), policy]
-    server = subprocess.Popen([*network.prefix(1), *command], text=True,
+    server = subprocess.Popen([*network.probe_prefix(1, trace == "1"), *command], text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     ready = queue.Queue()
     collected = {}
@@ -167,7 +177,7 @@ def pair(binary, network, streams, size, *, policy="cubic", address=None, barrie
         address = json.loads(line)["ready"]
         if barrier is not None:
             barrier.wait(timeout=min(5, deadline - time.monotonic()))
-        client = subprocess.run([*network.prefix(0), str(binary), "client", address,
+        client = subprocess.run([*network.probe_prefix(0, trace == "1"), str(binary), "client", address,
                                  str(streams), str(MESSAGES), str(size), policy], text=True,
                                 capture_output=True, timeout=deadline - time.monotonic())
         client.check_returncode()
