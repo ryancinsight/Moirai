@@ -16,6 +16,28 @@ DIRECTORY = ROOT/'moirai-quic/measurements/recovery/2026-10-14/state'
 
 
 class HandshakeRecoveryEvidence(unittest.TestCase):
+    def test_normalized_diff_preserves_exact_measured_engine_source(self):
+        import subprocess
+        import tempfile
+        from quic_observation.prepare import registry_source, patch_source
+        measured = json.loads(gzip.decompress((DIRECTORY/'handshake-measured-patch.json.gz').read_bytes()))
+        native = json.loads(gzip.decompress((DIRECTORY/'candidate-native-contracts.json.gz').read_bytes()))
+        self.assertEqual(hashlib.sha256(measured['patch_text'].encode()).hexdigest(), measured['patch_sha256'])
+        self.assertEqual(hashlib.sha256((DIRECTORY/'handshake-candidate.patch').read_bytes()).hexdigest(),
+                         measured['normalized_patch_sha256'])
+        source, _ = registry_source(ROOT)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            original = directory/'measured.patch'
+            original.write_text(measured['patch_text'])
+            for label, patch in (('measured', original), ('normalized', DIRECTORY/'handshake-candidate.patch')):
+                engine = directory/label
+                patch_source(source, engine, ROOT)
+                path = engine/'src/connection/mod.rs'
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), native['baseline_mod_sha256'])
+                subprocess.run(['git', 'apply', str(patch)], cwd=engine, check=True)
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), native['candidate_mod_sha256'])
+
     def test_complete_linux_observer_and_independent_pristine_gate_replay_exactly(self):
         from quic_trace_audit import trace_audit
         from quic_recovery_audit import audit_default
@@ -69,8 +91,8 @@ class HandshakeRecoveryEvidence(unittest.TestCase):
                 self.assertEqual(evidence['experiment_sha256'], hashlib.sha256(
                     (ROOT/'scripts/quic_observation/handshake.py').read_bytes()).hexdigest())
                 if label == 'candidate':
-                    self.assertEqual(evidence['candidate_patch_sha256'], hashlib.sha256(
-                        (DIRECTORY/'handshake-candidate.patch').read_bytes()).hexdigest())
+                    measured = json.loads(gzip.decompress((DIRECTORY/'handshake-measured-patch.json.gz').read_bytes()))
+                    self.assertEqual(evidence['candidate_patch_sha256'], measured['patch_sha256'])
                 else:
                     self.assertIsNone(evidence['candidate_patch_sha256'])
                 runs = evidence['runs']
@@ -121,8 +143,8 @@ class HandshakeRecoveryEvidence(unittest.TestCase):
         value = json.loads(gzip.decompress((DIRECTORY/'candidate-native-contracts.json.gz').read_bytes()))
         self.assertEqual(value['changed_engine_files'], ['src/connection/mod.rs'])
         self.assertNotEqual(value['candidate_mod_sha256'], value['baseline_mod_sha256'])
-        self.assertEqual(value['candidate_patch_sha256'], hashlib.sha256(
-            (DIRECTORY/'handshake-candidate.patch').read_bytes()).hexdigest())
+        measured = json.loads(gzip.decompress((DIRECTORY/'handshake-measured-patch.json.gz').read_bytes()))
+        self.assertEqual(value['candidate_patch_sha256'], measured['patch_sha256'])
         self.assertEqual(value['canonical_lock_sha256'], hashlib.sha256((ROOT/'Cargo.lock').read_bytes()).hexdigest())
         self.assertEqual(value['result']['returncode'], 0)
         self.assertIn('23 tests run: 23 passed, 0 skipped', value['log'])

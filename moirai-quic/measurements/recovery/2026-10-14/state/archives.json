@@ -95,6 +95,12 @@
       "compressed_sha256": "2106995d8aa50b2f8fea4ee193b20eff39010a571e42fc520a1d18a19adc2936",
       "uncompressed_sha256": "f9b02cd208a9eb3053eb371c9c7ba132ad5a6831a009f27056ce4f48748b1478",
       "context": "23 native candidate tests and exact one-file source difference; retain rejected metadata invocation"
+    },
+    {
+      "name": "handshake-measured-patch.json.gz",
+      "compressed_sha256": "e74f3cf01214d1c0a37d3e7feb4f82bfc9f16c809e5cf885a6343fa6a7d6fe02",
+      "uncompressed_sha256": "5ca7516ae5caa83a5efa93784900ce97253ff77c498a4a12d6a7c37c878ea783",
+      "context": "exact measured patch bytes and normalized delivery identity; verified source equivalence"
     }
   ]
 }

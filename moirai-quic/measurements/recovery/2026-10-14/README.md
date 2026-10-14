@@ -276,7 +276,10 @@ for PTO and distinguishes confirmation from local TLS completion. It passes all
 23 native QUIC contract tests in an isolated build. It remains experimental:
 the canonical dependency is unchanged, its complete Linux fairness/latency/queue
 matrix is unmeasured, and established-session throughput is a separate limit.
-See ADR 0082 for the causal argument and standards references. The additional
+See ADR 0082 for the causal argument and standards references. The exact measured
+patch bytes remain in `state/handshake-measured-patch.json.gz`; the displayed
+unified diff uses normalized context, and both produce byte-identical engine
+source under independent application checks. The additional
 [state archive ledger](state/archives.json) retains both repeated experiments,
 preceding nine-case experiments and the failed result-file recorder. No failed
 or candidate case supplies baseline acceptance.
