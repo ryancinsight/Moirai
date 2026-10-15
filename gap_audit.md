@@ -16,7 +16,12 @@ eight installed-runtime fixtures, including the new Ctrl+A/Escape receipt and
 cleanup case. The broader ready-for-review gate rejects Rustls 0.23.45. Both
 canonical locks now select 0.23.46, with every other record unchanged; the exact
 isolated 1,089-file source copy passes advisories, bans, licenses and sources.
-Current-head CI and the independently source-bound Metis replay remain pending.
+The corrected provider source `499ed39e` passes its full Rust Workspace gate.
+Metis run 38745314161 passes all 502 scripts in 34.004s and completes the first
+Unicode calculation, then retains controller LostFocus and no further key
+callbacks before the second patient replacement. The new installed regression
+requires native SetFocus(parent) to restore controller receipt synchronously;
+its baseline and corrected Windows results remain pending.
 
 ## Native bridge verification boundary — 2026-10-14 [patch]
 

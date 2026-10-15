@@ -38,6 +38,24 @@ unchanged Handled, bounded output and callback/profile cleanup.
 
 [SDK callback contract](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controller?view=webview2-1.0.4022.49#add_acceleratorkeypressed).
 
+### Native parent focus regression
+
+Metis source `05a2e7c` completes its first Unicode calculation, then retains a
+top-level FocusGained/FocusLost pair and controller LostFocus before its second
+patient replacement. UIA reports focus and an owned renderer HWND, but no
+further eligible keys reach the controller. This is distinct from script
+overhead: all 502 Windows scripts pass in 34.004 seconds.
+
+For a host containing one controller, an actual parent WM_SETFOCUS must enter
+that controller before returning. PROGRAMMATIC focus preserves the previously
+focused page element. The regression starts with actual controller focus,
+calls native SetFocus(parent), requires an actual descendant recipient, and
+sends the same six physical Ctrl+A/Escape records without a subsequent
+test-side MoveFocus. Existing Handled, scan/release and cleanup assertions
+apply to both entry paths. Its installed Windows failure on unchanged host
+code is required before a focus correction; Metis's unchanged full journey
+remains the causal acceptance gate.
+
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion
 precedes `Log.enable`, whose successful completion precedes Navigate. Every

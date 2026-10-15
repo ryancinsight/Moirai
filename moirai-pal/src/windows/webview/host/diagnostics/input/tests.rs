@@ -13,14 +13,24 @@ use windows::Win32::UI::{
     Input::KeyboardAndMouse::{
         GetFocus, GetKeyboardLayout, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
         KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MAPVK_VK_TO_VSC_EX,
-        MapVirtualKeyExW, SendInput,
+        MapVirtualKeyExW, SendInput, SetFocus,
     },
-    WindowsAndMessaging::{GetWindowThreadProcessId, SetForegroundWindow},
+    WindowsAndMessaging::{GetWindowThreadProcessId, IsChild, SetForegroundWindow},
 };
 
 #[test]
 #[ignore = "requires an installed WebView2 runtime, visible desktop and explicit native observations"]
 fn installed_runtime_observes_controller_input_without_handling() {
+    observe_controller_input(false);
+}
+
+#[test]
+#[ignore = "requires an installed WebView2 runtime, visible desktop and explicit native observations"]
+fn installed_runtime_restores_controller_input_after_native_parent_focus() {
+    observe_controller_input(true);
+}
+
+fn observe_controller_input(native_parent_focus: bool) {
     let (trace, _subscriber) = tracing();
     let _test = tracing::info_span!("controller_native_input").entered();
     let (package, mut host) = tracing::info_span!("arrange").in_scope(|| {
@@ -64,6 +74,22 @@ fn installed_runtime_observes_controller_input_without_handling() {
                 .expect("owner pump");
         }
     });
+    if native_parent_focus {
+        tracing::info_span!("act").in_scope(|| {
+            // A native focus request to this controller's parent must enter
+            // the controller synchronously. No test-side MoveFocus follows
+            // this transition; subsequent input uses the actual recipient.
+            unsafe {
+                SetFocus(Some(host.window.hwnd)).expect("actual parent focus request");
+                let recipient = GetFocus();
+                assert!(
+                    IsChild(host.window.hwnd, recipient).as_bool(),
+                    "native parent focus must restore its controller: parent={:?}, recipient={recipient:?}",
+                    host.window.hwnd
+                );
+            }
+        });
+    }
     let keys = [0x11_u32, 0x41, 0x41, 0x11, 0x1b, 0x1b];
     let releases = [false, false, true, true, false, true];
     let records = tracing::info_span!("arrange").in_scope(|| {

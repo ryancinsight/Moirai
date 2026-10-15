@@ -23,7 +23,9 @@ The exact diagnostic source `924dd8ac` passes the actual Windows gate in
 31 policy/frame cases, seven existing installed-runtime fixtures and the new
 real Ctrl+A/Escape fixture (7.306s), preserving Handled and owned cleanup.
 The later full-workspace run rejects the preceding Rustls 0.23.45 locks; the
-targeted lock correction requires its own current-head validation.
+targeted correction `499ed39e` passes its full Rust Workspace gate. A real
+native-parent focus regression now specifies the missing entry contract;
+no functional focus correction is yet applied or established.
 
 ## [0.9.2] - Unreleased
 
