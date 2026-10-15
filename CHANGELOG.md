@@ -16,8 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explicitly admit fixture-directory removal; unresolved ownership retains
   the real directories and fails acceptance. Both native modes remain pending.
 
-- [patch] Both canonical locks select Rustls 0.23.46 to satisfy the current
-  advisory gate; every other dependency record remains unchanged.
 - [patch] Native parent focus synchronously enters its hosted WebView2
   controller with PROGRAMMATIC restoration of the previous page element.
   A private weak binding avoids borrowed state across native reentrancy and
@@ -50,6 +48,22 @@ passes all 31 policy/frame cases and nine installed-runtime fixtures. All 16
 active checks pass on `bd88d2c5`; Miri and release SemVer are skipped, and the
 informational API check is not release compatibility proof. A fresh external
 consumer resolves the exact Git candidate with WebView2 and no local overrides.
+
+### Changed
+
+- [patch] Accept Mnemosyne-memory 0.10 through the canonical Git source.
+  Allocator calls remain private and their Rust implementation is unchanged;
+  the public GPU budget remains on mnemosyne-memory-core 0.3. All workspace
+  versions and internal requirements advance together. No scheduling, bridge,
+  feature or test implementation changes. The API gate compares all 16 library
+  surfaces against each exact locked base/head graph and participates in the
+  verification verdict. Proc-macro-only targets remain compiled by the full gate.
+- [patch] Require patched rustls 0.23.46 and refresh the workspace/fuzz locks
+  for [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html),
+  [0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html),
+  [0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) and
+  [0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html). No advisory
+  exception is added. Other registry records retain the base graph.
 
 ## [0.9.2] - Unreleased
 

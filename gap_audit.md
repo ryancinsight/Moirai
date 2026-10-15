@@ -50,6 +50,20 @@ ordinary and selected modes now retain bounded actual operation/input/value
 receipts; their new native execution remains pending. The isolated MTA result
 is not the full managed STA actor's acceptance evidence.
 
+## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
+
+Moirai main `2b189f0a` requires allocator facade 0.9 while the reviewed Eunomia
+0.10 cohort advances that facade to 0.10. The allocator is private to core,
+scheduler and executor implementations; the public GPU budget comes from
+unchanged mnemosyne-memory-core 0.3. The proposed 0.9.3 graph changes provider requirements and verification.
+All Rust implementation/test bytes match the base. Hosted policy also finds
+rustls 0.23.45 advisories 0346–0349; require patched 0.23.46 in both source
+locks, preserving other registry records and adding no exception.
+Mnemosyne PR #237 is merged at default `b7e0e1e3` and allocator 0.10 is
+published. The lock uses that integrated source; native/API/package and
+fresh-consumer gates establish their own acceptance boundaries. Re-open if API
+comparison finds an observable change, a provider acquires two identities, or source/package gates fail.
+
 ## Native bridge verification boundary — 2026-10-14 [patch]
 
 The private startup observer is verified by its protected provider run. In

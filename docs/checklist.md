@@ -16,6 +16,9 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [ ] [patch] Real MTA UIA focus completion, all sixteen exact Unicode/numeric replacements and preservation of every other field; the initial immediate-property probe fails before input and is not the Metis dose defect.
 - [ ] [patch] The unchanged 16/64 native isolation passes ordinary and selected modes with actual phase/input/value receipts; native collection and host-close proof admit directory removal, and every failure remains fatal.
 
+- [patch] The private allocator edge accepts Mnemosyne-memory 0.10; public
+  mnemosyne-memory-core 0.3 budget types and all Rust implementations remain unchanged.
+
 - [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.
 - [x] [patch] Checked native method admission, registration compensation and exact callback lifetime.
 - [x] [patch] Compiled Rust/WASM installed-WebView2 roundtrip, payload bounds, close/remount and profile cleanup ([actual Windows run](https://github.com/ryancinsight/Moirai/actions/runs/38539086879/job/115769121797)).
