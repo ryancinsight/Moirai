@@ -143,3 +143,6 @@ impl Startup {
         state.selection.components.admits_sample(state.samples)
     }
 }
+
+#[cfg(test)]
+mod tests;
