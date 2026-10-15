@@ -13,8 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Allocator calls remain private and their Rust implementation is unchanged;
   the public GPU budget remains on mnemosyne-memory-core 0.3. All workspace
   versions and internal requirements advance together. No scheduling, bridge,
-  feature, test or security behavior changes. The API gate compares each exact
-  locked base/head provider graph.
+  feature or test implementation changes. The API gate compares all 16 library
+  surfaces against each exact locked base/head graph and participates in the
+  verification verdict. Proc-macro-only targets remain compiled by the full gate.
+- [patch] Require patched rustls 0.23.46 and refresh the workspace/fuzz locks
+  for [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html),
+  [0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html),
+  [0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) and
+  [0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html). No advisory
+  exception is added. Other registry records retain the base graph.
 
 ## [0.9.2] - Unreleased
 

@@ -13,7 +13,7 @@ belong in [gap_audit.md](gap_audit.md).
 - owner: Apollo provider-integration increment, exported base `2b189f0a`.
 - outcome: Moirai 0.9.3 accepts Mnemosyne-memory 0.10 without public API or Rust implementation changes.
 - acceptance: one canonical provider identity; locked all-feature Clippy, native values, API comparison, package verification and applicable CI.
-- scope: workspace/internal versions, private allocator requirement, lock and these records; existing safety, QUIC and WebView work remains independently owned.
+- scope: workspace/internal versions, private allocator requirement, source/fuzz locks, patched rustls floor, exact-source API verdict and these records; existing safety, QUIC and WebView work remains independently owned.
 - dependency: Mnemosyne PR #237 is merged and allocator 0.10 is published; its native guard, ARM, Miri, Loom and sanitizer gates pass. The lock selects integrated default `b7e0e1e3`.
 - next step: complete exact-source API/package checks, submit an independent PR and verify the clean downstream consumer.
 
