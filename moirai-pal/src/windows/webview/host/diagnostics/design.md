@@ -141,7 +141,7 @@ and the exact terminal receipts remain reproducible. The independently proved
 outer-parent correction and original acceptance gates remain.
 
 The private selection now accepts a closed optional `components` enum:
-`full` (default), `controller`, `native`, `events`, or `startup`. Existing JSON therefore retains
+`full` (default), `controller`, `native`, `events`, `domain`, `snapshot`, or `startup`. Existing JSON therefore retains
 all observers. Controller-only installs the actual four controller callbacks,
 without lifecycle/resource/CDP receivers, domain enable or DOM tick. Its empty
 real token owner retains common slot invalidation and terminal metadata.
@@ -153,9 +153,9 @@ checked counts of attempted activation/DOM SDK calls. No state borrow crosses
 those calls, and the existing quotas still bound all retained records.
 
 The same real native client now executes ordinary, controller-only,
-native-only, events-only, startup-only and full selected modes, each with all 16 edits, 64 exact value
+native-only, events-only, domain-only, snapshot-only, startup-only and full selected modes, each with all 16 edits, 64 exact value
 checks and unchanged 30/60/120-second client/nextest/wrapper bounds. Both
-original modes remain fatal and all four run before aggregate failure.
+original modes remain fatal and all eight run before aggregate failure.
 Successful isolated modes additionally verify actual receiver identities,
 zero CDP calls for controller/native-only, exactly two activation calls and no
 DOM sampling for events-only, real selected nodes and completed chains
@@ -176,6 +176,27 @@ callbacks. Events-only adds the three actual CDP receivers and original
 Runtime/Log activation, with no DOM tick. These additional controls distinguish
 the recurring sampling algorithm from passive subscription and activation;
 the original four modes and every bound remain unchanged.
+
+Document-binding experiment 8c49630c / run 38774232219 is also negative:
+startup/full each get the document once, then perform 14,157/13,948
+native descriptions and still retain demo after admitted first-reference
+input. All six actual owning environments report 154.0.4258.62; passive
+controls complete 16/64. Removing repeated binding resets is insufficient.
+That candidate and its extra frontend-binding lifetime are withdrawn. Actual
+per-environment/per-method evidence remains; descriptions now stay zero under
+the original sampler. No correction is adopted from the failed candidate.
+
+Domain-only adds real DOM.enable to Runtime/Log activation (three activation
+calls) but issues no sample. Snapshot-only completes one original
+getDocument/querySelector/getOuterHTML chain, checks actual selector values,
+then admits no more starts; its slot must be settled at close. These are
+additional causal controls, never acceptance substitutes. Original ordinary,
+controller/native/events, startup and full behavior remains unchanged. Every
+physical input/value and 30/60/120-second bound remains. The next evidence
+distinguishes initial domain attachment or one snapshot from continuous work,
+before a scheduling correction. Activation counters include DOM.enable;
+DOM-attempt counters count sampling calls separately.
+
 
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion

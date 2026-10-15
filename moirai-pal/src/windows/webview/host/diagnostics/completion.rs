@@ -137,13 +137,7 @@ fn issue(
         let mut owner = owner.try_borrow_mut().map_err(|_| {
             super::super::error::callback_error("WebView2 command counter state is borrowed")
         })?;
-        let count = match &destination {
-            Destination::Enable(_) => &mut owner.activation_calls_attempted,
-            Destination::Dom { .. } => &mut owner.dom_calls_attempted,
-        };
-        *count = count.checked_add(1).ok_or_else(|| {
-            super::super::error::callback_error("WebView2 command count exhausted")
-        })?;
+        owner.command_attempt(method, matches!(destination, Destination::Dom { .. }))?;
     }
     // No diagnostic state borrow crosses this actual SDK call.
     let callback: ICoreWebView2CallDevToolsProtocolMethodCompletedHandler = Completion {

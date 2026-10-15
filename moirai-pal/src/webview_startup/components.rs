@@ -10,6 +10,8 @@ pub(crate) enum Components {
     Controller,
     Native,
     Events,
+    Domain,
+    Snapshot,
     Startup,
 }
 
@@ -21,16 +23,32 @@ impl Components {
     pub(crate) const fn native(self) -> bool {
         matches!(
             self,
-            Self::Full | Self::Startup | Self::Native | Self::Events
+            Self::Full
+                | Self::Startup
+                | Self::Native
+                | Self::Events
+                | Self::Domain
+                | Self::Snapshot
         )
     }
 
     pub(crate) const fn cdp(self) -> bool {
-        matches!(self, Self::Full | Self::Startup | Self::Events)
+        matches!(
+            self,
+            Self::Full | Self::Startup | Self::Events | Self::Domain | Self::Snapshot
+        )
     }
 
-    pub(crate) const fn sampling(self) -> bool {
-        matches!(self, Self::Full | Self::Startup)
+    pub(crate) const fn enables_dom(self) -> bool {
+        matches!(self, Self::Domain)
+    }
+
+    pub(crate) const fn admits_sample(self, completed: u64) -> bool {
+        match self {
+            Self::Full | Self::Startup => true,
+            Self::Snapshot => completed == 0,
+            Self::Controller | Self::Native | Self::Events | Self::Domain => false,
+        }
     }
 
     pub(crate) const fn as_str(self) -> &'static str {
@@ -39,6 +57,8 @@ impl Components {
             Self::Controller => "controller",
             Self::Native => "native",
             Self::Events => "events",
+            Self::Domain => "domain",
+            Self::Snapshot => "snapshot",
             Self::Startup => "startup",
         }
     }

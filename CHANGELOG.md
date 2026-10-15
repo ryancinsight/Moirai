@@ -9,8 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Add real DOM-domain-only and single-complete-snapshot input controls.
+  Original full/ordinary and prior controls remain fatal, with the exact
+  sixteen replacements, sixty-four preservation checks and every deadline.
+  Actual environment and attempted-method counters distinguish execution from
+  availability. The document-binding reuse candidate 8c49630c fails first
+  reference replacement under startup/full sampling and is withdrawn; it is
+  not a form correction. Eighteen portable selection/ownership contracts and
+  strict Windows diagnostics pass; eight-mode native execution remains pending.
+
 - [patch] The native UIA isolation now runs ordinary, controller-only,
-  native-only, events-only, startup-only and full selected observation
+  native-only, events-only, domain-only, snapshot-only, startup-only and full selected observation
   modes, retaining bounded operation-start/return, admitted physical input and
   exact value evidence. It preserves all sixteen replacements and sixty-four
   field-preservation checks. Native collection and successful host shutdown

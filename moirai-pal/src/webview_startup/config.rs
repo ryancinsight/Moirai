@@ -102,8 +102,17 @@ mod tests {
     fn selection_admits_exact_named_observer_components() {
         let _trace = trace();
         let _test = tracing::info_span!("startup_component_selection").entered();
-        for (components, expected, controller, native, cdp, sampling) in [
-            ("full", Components::Full, true, true, true, true),
+        for (components, expected, controller, native, cdp, dom, first, later) in [
+            (
+                "full",
+                Components::Full,
+                true,
+                true,
+                true,
+                false,
+                true,
+                true,
+            ),
             (
                 "controller",
                 Components::Controller,
@@ -111,10 +120,59 @@ mod tests {
                 false,
                 false,
                 false,
+                false,
+                false,
             ),
-            ("native", Components::Native, false, true, false, false),
-            ("events", Components::Events, false, true, true, false),
-            ("startup", Components::Startup, false, true, true, true),
+            (
+                "native",
+                Components::Native,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+            (
+                "events",
+                Components::Events,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false,
+            ),
+            (
+                "domain",
+                Components::Domain,
+                false,
+                true,
+                true,
+                true,
+                false,
+                false,
+            ),
+            (
+                "snapshot",
+                Components::Snapshot,
+                false,
+                true,
+                true,
+                false,
+                true,
+                false,
+            ),
+            (
+                "startup",
+                Components::Startup,
+                false,
+                true,
+                true,
+                false,
+                true,
+                true,
+            ),
         ] {
             let text = tracing::info_span!("arrange", components).in_scope(|| {
                 json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
@@ -130,7 +188,10 @@ mod tests {
                 assert_eq!(actual.components.controller(), controller);
                 assert_eq!(actual.components.native(), native);
                 assert_eq!(actual.components.cdp(), cdp);
-                assert_eq!(actual.components.sampling(), sampling);
+                assert_eq!(actual.components.enables_dom(), dom);
+                assert_eq!(actual.components.admits_sample(0), first);
+                assert_eq!(actual.components.admits_sample(1), later);
+                assert_eq!(actual.components.admits_sample(u64::MAX), later);
             });
         }
     }
@@ -152,6 +213,25 @@ mod tests {
                 assert_eq!(selected.selectors, ["#状態-🦀"]);
                 assert_eq!(selected.components.as_str(), components);
                 assert!(!selected.components.controller());
+            });
+        }
+    }
+
+    #[test]
+    fn selection_admits_domain_and_single_snapshot_controls() {
+        let _trace = trace();
+        let _test = tracing::info_span!("startup_sampling_controls").entered();
+        for components in ["domain", "snapshot"] {
+            let text = tracing::info_span!("arrange", components).in_scope(|| {
+                json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
+                    .to_string()
+            });
+            let selected = tracing::info_span!("act").in_scope(|| {
+                Selection::decode(&text, "x").expect("real activation/sampling control")
+            });
+            tracing::info_span!("assert").in_scope(|| {
+                assert_eq!(selected.components.as_str(), components);
+                assert_eq!(selected.selectors, ["#状態-🦀"]);
             });
         }
     }

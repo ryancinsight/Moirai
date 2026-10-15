@@ -71,7 +71,11 @@ impl Startup {
         if !self.cdp_enabled() {
             return Ok(());
         }
-        for method in ["Runtime.enable", "Log.enable"] {
+        let components = self.state.borrow().selection.components;
+        for method in ["Runtime.enable", "Log.enable"]
+            .into_iter()
+            .chain(components.enables_dom().then_some("DOM.enable"))
+        {
             let (sender, receiver) = mpsc::sync_channel(1);
             if let Err(error) = completion::enable(
                 &self.tokens.webview,
@@ -118,6 +122,7 @@ impl Startup {
     }
 
     fn sampling_enabled(&self) -> bool {
-        self.state.borrow().selection.components.sampling()
+        let state = self.state.borrow();
+        state.selection.components.admits_sample(state.samples)
     }
 }

@@ -127,7 +127,7 @@ jobs:
           import subprocess
 
           failures = []
-          for mode in ("ordinary", "controller", "native", "events", "startup", "selected"):
+          for mode in ("ordinary", "controller", "native", "events", "domain", "snapshot", "startup", "selected"):
               environment = os.environ.copy()
               environment["MOIRAI_NATIVE_UIA_OBSERVATION_MODE"] = mode
               if mode != "ordinary":

@@ -5,6 +5,20 @@ use serde_json::Value;
 
 impl ObservationMode {
     pub(super) fn verify_installed(self, host: &WebViewHost, observations: &[Value]) {
+        let mut raw = windows::core::PWSTR::null();
+        // This is the environment that created this controller, rather than
+        // a later query of whichever runtime is currently available.
+        unsafe {
+            host.environment
+                .as_ref()
+                .expect("actual environment")
+                .BrowserVersionString(&mut raw)
+        }
+        .expect("actual environment browser version");
+        let version = unsafe { super::super::super::text::read_task_mem_message(raw) }
+            .expect("bounded native browser version");
+        assert!(!version.is_empty());
+        tracing::info!(event="uia_fixture_runtime", mode=self.as_str(), browser_version=%version, "actual controller environment");
         assert_eq!(host.startup.is_some(), self != Self::Ordinary);
         let registered: Vec<_> = observations
             .iter()
@@ -20,6 +34,8 @@ impl ObservationMode {
             Self::Controller => ("controller", 0, 0, 4),
             Self::Native => ("native", 6, 0, 0),
             Self::Events => ("events", 6, 3, 0),
+            Self::Domain => ("domain", 6, 3, 0),
+            Self::Snapshot => ("snapshot", 6, 3, 0),
             Self::Startup => ("startup", 6, 3, 0),
             Self::Ordinary => unreachable!("ordinary returned before selected-owner checks"),
         };
@@ -51,18 +67,34 @@ impl ObservationMode {
                 .parse::<u64>()
                 .expect("native call count")
         };
-        let activation = if matches!(self, Self::Controller | Self::Native) {
-            0
-        } else {
-            2
+        let activation = match self {
+            Self::Controller | Self::Native => 0,
+            Self::Domain => 3,
+            Self::Events | Self::Snapshot | Self::Startup | Self::Selected => 2,
+            Self::Ordinary => unreachable!("ordinary has no owner"),
         };
         assert_eq!(count("activation_calls_attempted"), activation);
-        if matches!(self, Self::Controller | Self::Native | Self::Events) {
+        if matches!(
+            self,
+            Self::Controller | Self::Native | Self::Events | Self::Domain
+        ) {
             assert_eq!(count("samples"), 0);
             assert_eq!(count("dom_calls_attempted"), 0);
+            assert_eq!(count("document_calls_attempted"), 0);
+            assert_eq!(count("description_calls_attempted"), 0);
             assert!(!observations.iter().any(|v| v["kind"] == "dom_status"));
         } else {
             assert!(count("samples") > 0, "a complete real DOM chain");
+            assert!(
+                count("document_calls_attempted") > 0,
+                "real initial document binding"
+            );
+            assert_eq!(count("description_calls_attempted"), 0);
+            assert!(count("document_calls_attempted") >= count("samples"));
+            if self == Self::Snapshot {
+                assert_eq!(count("samples"), 1, "one actual complete chain");
+                assert_eq!(closed["pending"], false, "snapshot settled before close");
+            }
             assert!(
                 count("dom_calls_attempted") >= 6,
                 "all three actual selectors"

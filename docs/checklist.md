@@ -18,6 +18,8 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [ ] [patch] The four-mode real-component comparison retains computed native receiver/command identities and all original input/value/deadline gates. Private-parent experiment 27cd682d fails selected delivery and is withdrawn.
 - [ ] [patch] Six-mode real-component comparison distinguishes native events, CDP activation and DOM sampling. Four-mode source 4e7b1968 passes ordinary/controller-only but fails startup/full; all original gates remain required.
 
+- [ ] [patch] Eight-mode native comparison separates DOM activation, one complete snapshot and continuous sampling. Binding reuse 8c49630c fails and is withdrawn; original full Metis journeys and all bounds remain required.
+
 - [patch] The private allocator edge accepts Mnemosyne-memory 0.10; public
   mnemosyne-memory-core 0.3 budget types and all Rust implementations remain unchanged.
 

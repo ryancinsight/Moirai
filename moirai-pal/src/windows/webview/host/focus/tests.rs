@@ -30,6 +30,8 @@ enum ObservationMode {
     Controller,
     Native,
     Events,
+    Domain,
+    Snapshot,
     Startup,
     Selected,
 }
@@ -44,6 +46,8 @@ impl ObservationMode {
             "controller" => Self::Controller,
             "native" => Self::Native,
             "events" => Self::Events,
+            "domain" => Self::Domain,
+            "snapshot" => Self::Snapshot,
             "startup" => Self::Startup,
             "selected" => Self::Selected,
             mode => panic!("unknown fixture observation mode: {mode}"),
@@ -56,6 +60,8 @@ impl ObservationMode {
             Self::Controller => "controller",
             Self::Native => "native",
             Self::Events => "events",
+            Self::Domain => "domain",
+            Self::Snapshot => "snapshot",
             Self::Startup => "startup",
             Self::Selected => "selected",
         }
@@ -65,7 +71,13 @@ impl ObservationMode {
         let selection = std::env::var_os(crate::webview_startup::SELECTION_ENV);
         match self {
             Self::Ordinary => assert!(selection.is_none(), "ordinary fixture has no selection"),
-            Self::Selected | Self::Controller | Self::Native | Self::Events | Self::Startup => {
+            Self::Selected
+            | Self::Controller
+            | Self::Native
+            | Self::Events
+            | Self::Domain
+            | Self::Snapshot
+            | Self::Startup => {
                 let actual: serde_json::Value = serde_json::from_str(
                     selection
                         .expect("selected fixture configuration")

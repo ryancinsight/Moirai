@@ -54,13 +54,19 @@ installed cases, including focus ownership, resize and native lifetime, plus
 ordinary 16/64; selected mode fails after 6 edits/24 checks at concentration 4
 while UIA retains 2. The candidate is withdrawn. Its quota-bound tail does not
 identify the final active getter. The next real-component comparison keeps
-all six ordinary/controller/native/events/startup/full selected modes fatal with computed
+all eight ordinary/controller/native/events/domain/snapshot/startup/full selected modes fatal with computed
 token/command identities and unchanged input/value/deadline gates. It does
 not substitute for the full managed STA actor's acceptance evidence.
 Four-mode source 4e7b1968 / run 38769791520 completes ordinary and controller-only
 16/64 but startup-only/full retain weight 60/demo after admitted 64/Unicode input.
 Their 112,555/120,681 actual DOM attempts establish recurring work, not the
-particular failed method; native/event controls remain pending.
+particular failed method. Six-mode b610 completes all passive controls but
+startup/full still fail. Document-binding experiment 8c49630c gets the document
+once per mode and still fails after thousands of descriptions, ruling out
+repeated binding reset as a necessary condition. The candidate is withdrawn.
+All six actual owning environments report154.0.4258.62. Eight-mode controls
+now distinguish domain activation, one complete original snapshot and
+continuous work, with every original input/assertion/deadline unchanged.
 
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 
