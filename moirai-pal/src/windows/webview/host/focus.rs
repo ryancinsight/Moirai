@@ -14,6 +14,9 @@ use crate::windows::window::{NativeWindow, focus::NativeFocusTarget};
 
 use super::error::callback_context;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct ControllerFocus(ICoreWebView2Controller);
 
 impl ControllerFocus {

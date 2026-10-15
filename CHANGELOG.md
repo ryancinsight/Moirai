@@ -19,7 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fails because the recipient remains the parent HWND. Corrected Windows
   source `bd88d2c5` passes that regression in 7.028s, including real key receipt,
   Handled/scan/release, shutdown and closed-controller error assertions.
-  Full Metis form acceptance remains pending.
+  Full Metis form acceptance remains open: run 38750658426 still fails the
+  second dose replacement. A native MTA UIA fixture now isolates actual field
+  focus, physical input and exact UTF-16 ValuePattern data, preserving every
+  other field after each replacement. No additional production focus policy
+  follows from that incomplete consumer result.
 - [patch] The explicitly selected private Windows diagnostic observes actual
   controller focus and eligible accelerator keys. Native callbacks preserve
   Handled and input, retain fixed bounded records and defer formatting/tracing

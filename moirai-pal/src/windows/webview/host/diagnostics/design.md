@@ -71,7 +71,24 @@ this route. Metis's unchanged full journey remains the causal acceptance gate;
 passes the real parent-entry regression in 7.028s with the original key,
 Handled, native error and cleanup assertions. Source bd88d2c5 passes all nine
 installed fixtures and 31 policy/frame cases. Full consumer Windows results
-remain pending.
+remain separate: Metis b7ad7405 run 38750658426 still times out replacing the
+second dose (0.25 retained after 0.5 requested), with a Lost/Got/Lost sequence
+and no later key receipt. A real native MTA UI Automation fixture now exercises
+all sixteen text/numeric replacements from that journey using actual SetFocus,
+physical Ctrl+A and exact UTF-16 packets. It observes unique controls and exact
+ValuePattern units within one unchanged 30-second runtime deadline. It supplies
+no page script, SetValue, input retry or synthetic controller events. Its result
+must establish the focus mechanism before another production correction.
+
+This fixture is an isolation, not pipeline equivalence: it uses the native
+CUIAutomation MTA client in an owned child test process and separate four-key
+select-all/Unicode batches. The actual Metis PowerShell actor records STA and
+additionally interleaves selection/native ownership reads and WM_NULL. The
+child process admits no input outside the owned foreground/native tree, keeps
+all four actual field values, and verifies that each replacement preserves
+every other field. Parent admission stops at 30 seconds, then owns child
+termination/collection before controller/profile cleanup; nextest retains its
+existing strict 60-second limit. Primary and cleanup errors remain separate.
 
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion

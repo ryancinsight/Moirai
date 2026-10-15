@@ -27,7 +27,9 @@ MoveFocus(PROGRAMMATIC), with weak callback ownership and typed native errors.
 The unchanged-host Windows regression leaves focus at the parent and fails;
 [corrected provider Windows execution](https://github.com/ryancinsight/Moirai/actions/runs/38749728275)
 passes the real parent-entry regression and all nine installed fixtures.
-Full Metis form results remain pending.
+Full Metis form acceptance remains open: run 38750658426 still retains the
+second dose after a Lost/Got/Lost controller transition. A real MTA UIA fixture
+isolates field delivery; it does not replace the complete Metis actor/journey.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

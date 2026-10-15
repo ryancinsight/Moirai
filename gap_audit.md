@@ -17,7 +17,7 @@ cleanup case. The broader ready-for-review gate rejects Rustls 0.23.45. Both
 canonical locks now select 0.23.46, with every other record unchanged; the exact
 isolated 1,089-file source copy passes advisories, bans, licenses and sources.
 The corrected provider source `499ed39e` passes its full Rust Workspace gate.
-Metis run 38745314161 passes all 502 scripts in 34.004s and completes the first
+Metis run 38745314161 passes 501 scripts with an Apple-only skip in 34.004s and completes the first
 Unicode calculation, then retains controller LostFocus and no further key
 callbacks before the second patient replacement. The new installed regression
 requires native SetFocus(parent) to restore controller receipt synchronously;
@@ -32,7 +32,12 @@ resolves the exact Git candidate with no local overrides. Independent receipts
 bind the actual merge tree, eight artifact members, five payload originals and
 ten producer inputs; the producer's source_dirty=true remains explicit and
 does not establish a clean whole checkout. Full Metis run 38750658426 remains
-pending; the host regression alone does not establish complete form correctness.
+fails functionally after 501 script passes and one Apple-only skip in 44.777s:
+the second dose remains 0.25 after requested 0.5. The controller emits
+Lost/Got/Lost (last two 5.5us apart) while the actual focus remains on an owned
+renderer, then no further eligible key callbacks. This refutes full form closure
+from synchronous parent entry alone. A real MTA UIA/physical-input/ValuePattern
+fixture now isolates that remaining path; it changes no production behavior.
 
 ## Native bridge verification boundary — 2026-10-14 [patch]
 
