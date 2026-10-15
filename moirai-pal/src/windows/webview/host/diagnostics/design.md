@@ -119,6 +119,51 @@ both results are required. Actual collection and host-close evidence admit
 directory removal, including unwind paths, and unavailable proof retains the
 owned directories as a failed cleanup outcome.
 
+Source `23561b59` supplies that controlled baseline in Windows run
+[38763941253](https://github.com/ryancinsight/Moirai/actions/runs/38763941253).
+Ordinary mode completes all sixteen replacements and sixty-four preservation
+checks in 5.683s. Selected mode reaches its 30-second bound after completing
+the first reference and requesting weight 64. It observes actual focus and
+admits both four-record input batches, but the last changed ValuePattern
+remains 60. Its per-operation diagnostic quota ends after value query 99;
+subsequent calls and values are unavailable. This establishes observer-sensitive
+native delivery, without proving a blocked getter or renderer consumption.
+
+### Exclusively owned native controller parent
+
+The next controlled candidate creates one private child HWND for each
+windowed controller. Only that owner lends its HWND to controller creation;
+the subtree therefore excludes application siblings by construction. This
+matches the [windowed hosting topology in Wry](https://github.com/tauri-apps/wry/blob/6642074224a2db9eb197f69d21b300b02b5dcd49/src/webview2/mod.rs#L205-L212). It is a candidate
+for the native ownership defect, not a claim that the selected-mode or full
+Metis failures are already corrected.
+
+Outer application WM_SETFOCUS retains its existing PROGRAMMATIC SDK route.
+An actual private-parent WM_SETFOCUS instead transfers native focus to its
+immediate controller child. This synchronous inner route performs no outgoing
+COM, diagnostic formatting, queued work or retry. A one-call guard prevents
+nested forwarding. UIA may choose the renderer child directly; that operation
+does not cause another focus transfer. Native siblings and foreign foreground
+windows remain outside admission. General LostFocus repair is rejected because
+it can steal legitimate focus or rearm its own Got/Lost notifications; runtime
+class names, process IDs and cached runtime HWNDs do not establish ownership.
+
+The window owns one Rc state count from WM_NCCREATE until WM_NCDESTROY; each
+callback owns an additional temporary count through native reentrancy. The
+actual destruction callback invalidates liveness before clearing userdata.
+Resize uses the same validated dimensions for native parent and controller
+bounds. Shutdown first revokes outer and inner forwarding, closes the
+controller, destroys the private parent, then awaits browser exit before
+profile cleanup. The first error remains primary and secondary destruction
+failure is emitted. No old numeric HWND is admitted after destruction.
+
+Installed-runtime acceptance additionally requires inner and outer parent
+entry with the unchanged six physical key receipts, unchanged Handled,
+native sibling/foreign focus preservation, real resize bounds, actual
+parent-cascade invalidation and rejected post-destruction use. The same
+ordinary/selected 16/64 fixture and both unchanged Metis form journeys remain
+required; source compilation alone closes none of these runtime gates.
+
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion
 precedes `Log.enable`, whose successful completion precedes Navigate. Every

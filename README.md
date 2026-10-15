@@ -30,6 +30,11 @@ passes the real parent-entry regression and all nine installed fixtures.
 Full Metis form acceptance remains open: run 38750658426 still retains the
 second dose after a Lost/Got/Lost controller transition. A real MTA UIA fixture
 isolates field delivery; it does not replace the complete Metis actor/journey.
+The controlled baseline [run 38763941253](https://github.com/ryancinsight/Moirai/actions/runs/38763941253)
+passes all sixteen replacements and sixty-four preservation checks in ordinary
+mode, but selected mode retains weight 60 after admitted input requests 64.
+The next candidate gives each controller an exclusively owned native parent;
+its native focus, lifetime and complete consumer acceptance remain pending.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

@@ -149,6 +149,10 @@ impl WebViewHost {
 
     pub(super) fn collect_events(&mut self) -> io::Result<Vec<WebViewHostEvent>> {
         let window_events = self.window.poll_events()?;
+        if let Some(container) = &self.container {
+            container.take_error()?;
+            container.ensure_live()?;
+        }
         if let Some(startup) = &self.startup {
             startup.tick();
         }

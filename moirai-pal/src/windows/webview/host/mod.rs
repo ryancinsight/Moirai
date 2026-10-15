@@ -2,6 +2,7 @@
 
 mod callbacks;
 mod com;
+mod container;
 mod diagnostics;
 mod error;
 mod focus;

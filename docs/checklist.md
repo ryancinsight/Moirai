@@ -15,6 +15,7 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [ ] [patch] Source-bound Metis native form and complete Windows script acceptance.
 - [ ] [patch] Real MTA UIA focus completion, all sixteen exact Unicode/numeric replacements and preservation of every other field; the initial immediate-property probe fails before input and is not the Metis dose defect.
 - [ ] [patch] The unchanged 16/64 native isolation passes ordinary and selected modes with actual phase/input/value receipts; native collection and host-close proof admit directory removal, and every failure remains fatal.
+- [ ] [patch] An exclusively owned private controller parent passes actual inner/outer native focus, sibling/foreign focus, resize and destruction acceptance. Source compilation passes; runtime results remain pending.
 
 - [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.
 - [x] [patch] Checked native method admission, registration compensation and exact callback lifetime.
