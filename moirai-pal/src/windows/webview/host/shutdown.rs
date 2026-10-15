@@ -96,9 +96,6 @@ impl WebViewHost {
         if let Some(mut container) = self.container.take()
             && let Err(error) = container.close()
         {
-            if first_error.is_some() {
-                tracing::error!(%error, "secondary controller container close failure");
-            }
             first_error.get_or_insert(error);
         }
         if let Some(observer) = observer

@@ -14,9 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retries or a LostFocus repair policy. Resize and destruction follow the same
   owner; sibling and foreign focus remain outside admission. Strict Windows
   compilation passes; installed-runtime and full Metis acceptance are pending.
-  Native lifetime/input fixtures defer directory cleanup before host creation
-  until explicit successful shutdown. Host teardown reports a later container
-  close error even when an earlier failure remains primary.
 
 - [patch] The native UIA isolation now runs ordinary and selected observation
   modes, retaining bounded operation-start/return, admitted physical input and
