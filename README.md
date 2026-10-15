@@ -68,8 +68,17 @@ quota with7 omissions. These different invocations do not establish a cause.
 The private correction checks the original wait deadline and ready public
 events at outgoing SDK admission, retaining an unissued stage for a later
 caller turn. Baseline source44184f40/run38795557575 reproduces outgoing DOM
-work before a ready resize returns. Corrected native execution and both full
-Metis journeys remain gates.
+work before a ready resize returns. Source2fcef45d/run38798617700 passes the
+corrected native regression in6.837s, all50 policy cases, and the native runtime
+query. Ordinary mode still fails the last dose, startup fails the first weight,
+and the separate probe retains the first patient in both UIA and timely live DOM
+after requesting the second. Its complete controller history ends in LostFocus;
+failed input targets a different owned HWND from prior key callbacks, on the
+same browser process/thread/layout. A fixture correction now enters the known
+native parent once after UIA selection and requires preservation of that same
+field before input. The original16/64 oracle also covers12 non-first entries;
+candidate Windows execution and both full Metis journeys remain gates under
+the [entry contract](moirai-pal/src/windows/webview/host/focus/tests/client/design.md).
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

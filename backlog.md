@@ -6,26 +6,15 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
-<a id="MOI-WEBVIEW-NATIVE-SDK-METADATA-2026-10-15"></a>
-## MOI-WEBVIEW-NATIVE-SDK-METADATA-2026-10-15 — Query the checked native SDK [patch]
-- status: todo
-- priority: verification
-- outcome: Native runtime availability evidence uses the SDK selected by the completed Windows build, without resolving unrelated platform sources.
-- scope: Runtime-query loader selection and its parser tests; the native API, failures, output fields and60-second bounds remain.
-- acceptance: Join one successful native compiler artifact and build-script result by opaque package ID, require an unambiguous native link-search path and exact SDK manifest identity/version, then execute the original native availability API. Reject absent, duplicate, mismatched and failed build records.
-- verification: The unchanged aa532 replay38791481506 passes native acceptance before all-platform metadata downloads exceed60s. Three parser cases pass. Real MSVC check records select SDK0.39.1; its emitted loader and original source DLL are byte-identical (160880 bytes, SHA25686545b66cdb0603bc26b626fb9ad610cb6e71f28d468f5ea66df23b03dda96d5). Corrected Windows execution remains required.
-- next step: Execute the exact integrated Windows workflow; distinguish this availability check from per-controller environment versions and form acceptance.
-
-<a id="MOI-WEBVIEW-SDK-ADMISSION-2026-10-15"></a>
-## MOI-WEBVIEW-SDK-ADMISSION-2026-10-15 — Preserve wait and event priority [patch]
+<a id="MOI-WEBVIEW-UIA-PARENT-ENTRY-2026-10-15"></a>
+## MOI-WEBVIEW-UIA-PARENT-ENTRY-2026-10-15 — Enter the selected field through its native parent [patch]
 - status: todo
 - priority: correctness
-- outcome: Every selected wait SDK admission checks the original live deadline and already-produced public events; an unissued stage resumes under its original request identity.
-- scope: Private Windows wait/collection/diagnostic command ownership, real native resize/deadline/continuation regressions and co-located contract. Ordinary hosts, exact input domains, callback observations and existing limits remain unchanged.
-- acceptance: Real ready events return before fresh or pending SDK work; expired admission does not increment actual call counters; the same deferred command later executes once, while stale/closed/quota cancellation releases only unissued ownership. Strict diagnostics and original native/full Metis gates remain required.
-- verification: Baseline source44184f40/run38795557575 fails the installed ready-event regression in7.097s: the actual resize returns after counters advance from1 document/6 DOM calls to2/7. Its original45 policy and8 installed cases pass. Diagnostic state/boundary tests precede their implementation. Production MSVC cross-compilation and strict all-target Clippy pass; neither executes native tests. Candidate native GREEN remains required.
-- next step: Review and compile the complete correction, then execute its installed regression and every original gate on the integrated revision. Do not attribute the form failure to these independently established scheduling defects.
-- basis: Clean provider aa532b88; original Windows run38788877397 fails startup11 concentration0 while UIA retains4. The separate successful diagnostic never triggers a snapshot.
+- outcome: One real native-parent focus entry after UIA selection preserves that same field before physical input.
+- scope: Actual child-MTA fixture, legitimate queue attachment/cleanup, computed completion counters and [co-located contract](moirai-pal/src/windows/webview/host/focus/tests/client/design.md). Production focus ownership remains unchanged.
+- acceptance: All8 modes retain16 replacements/64 preservation checks plus16 verified entries/12 non-first entries. Native focus delegates to an owned non-root descendant and the same UIA element remains focused; no focus/input retry, class guess, ALT tap, sleep or budget change.
+- verification: Baseline2fcef45d/run38798617700 fails ordinary scope16/dose and startup scope2/weight. The separate scope5 probe admits4+18 input records into an owned native HWND but UIA and timely DOM both retain the old patient; unexhausted controller callbacks end at LostFocus68 with no later key receipt. SDK admission and native SDK availability pass separately on that revision.
+- next step: Freeze/review and compile the fixture correction, then run the original native matrix and full Metis journeys on exact integrated revisions. Preserve baseline evidence and distinguish actual input admission from controller receipt and renderer consumption.
 
 <a id="MOI-WEBVIEW-INPUT-OBSERVATION-2026-10-15"></a>
 ## MOI-WEBVIEW-INPUT-OBSERVATION-2026-10-15 — Attribute Metis native text delivery [patch]
@@ -35,7 +24,7 @@ belong in [gap_audit.md](gap_audit.md).
 - scope: Default-off private Windows startup owner; deferred callback records and exact token cleanup. Synchronous private native-parent focus delegation follows the reproduced host contract; supported APIs, Handled, input and deadlines stay unchanged.
 - acceptance: Portable capacity/order/loss laws, strict Windows SDK diagnostics, installed real Ctrl+A/Escape observations and the unchanged Metis full-form/script gates.
 - verification: Fifteen portable observation tests and strict Windows SDK diagnostics pass. Baseline Windows run 38748681812 fails native parent entry in 1.957s (recipient remains parent). Corrected source bd88d2c5 passes all 16 active checks; Windows run 38749728275 passes 31 policy/frame cases and nine installed fixtures, including parent entry in 7.028s, original input in 7.378s and actual typed closed-controller failure. Miri/release SemVer remain skipped; informational API checks are not release compatibility proof. Both Rustls records select 0.23.46 with all other records exact. Fresh external consumer metadata resolves the exact Git candidate and WebView2 without local overrides.
-- next step: Complete the SDK admission correction as its own bounded-wait contract, then execute the original eight native modes and both complete Metis forms. Provider aa532b88/run38788877397 passes45 policy cases and seven16/64 modes but startup fails concentration0 after10/40 (UIA4). Its separate16/64 controller diagnostic never triggers a snapshot;254 retained callbacks exhaust their independent quota with7 omissions. No failed-scope controller/live-value correlation follows. The one controlled unchanged-aa532 replay38791481506 passes the original matrix, separate untriggered probe and actual Rust bridge; its final availability step exceeds60s resolving unrelated platform metadata. Both Metis locks resolve aa532 with the necessary compatible cohort. Metis source5e5c4e2/run38792889172 passes502 scripts in37.299s and all four form submissions, but later Alt+Shift+S retains Dark and the worker exceeds60s. Full ordinary/selected forms remain open.
+- next step: Validate one explicit native-parent entry after UIA selection against the current failed-scope/controller boundary. Source2fcef45d passes the SDK-admission regression and native SDK query, while ordinary/startup/probe input fail; continuous diagnostic traffic is not necessary. Metis ad328f61 adopts the provider with only15/11 lock-source substitutions. Earlier5e5c4e2/run38792889172 passes502 scripts in37.299s and all four form submissions, then Alt+Shift+S retains Dark beyond60s; its observer quota prevents late-shortcut attribution. Both complete ordinary/selected forms remain open.
 - basis: Moirai protected default `2b189f0a`; Metis PR 504 final-head run 38685234146 reaches Ready, accepts earlier fields and retains dose 0.2 after requested 0.25. Its 502 scripts pass in 40.796s.
 
 <a id="MOI-MNEMOSYNE-010-CONSUMER"></a>

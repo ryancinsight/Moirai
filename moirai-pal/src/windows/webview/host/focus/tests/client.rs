@@ -21,6 +21,8 @@ use windows::{
     core::Interface,
 };
 
+mod focus;
+
 pub(super) const FIELDS: [&str; 4] = ["reference", "weight", "concentration", "dose"];
 pub(super) const CASES: [(&str, &str, &str, &str); 4] = [
     ("患者-🦀-one", "64", "2", "0.25"),
@@ -37,16 +39,23 @@ pub(super) struct Completion {
     mode: String,
     replacements: usize,
     preserved_checks: usize,
+    parent_entries: usize,
+    nonfirst_parent_entries: usize,
     final_values: BTreeMap<String, Vec<u16>>,
 }
 
 impl Completion {
     pub(super) fn verify(&self, handle: usize, mode: ObservationMode) {
-        assert_eq!(self.schema, 2);
+        assert_eq!(self.schema, 3);
         assert_eq!(self.window, handle.to_string());
         assert_eq!(self.mode, mode.as_str());
         assert_eq!(self.replacements, CASES.len() * FIELDS.len());
         assert_eq!(self.preserved_checks, self.replacements * FIELDS.len());
+        assert_eq!(self.parent_entries, self.replacements);
+        assert_eq!(
+            self.nonfirst_parent_entries,
+            CASES.len() * (FIELDS.len() - 1)
+        );
         assert_eq!(self.final_values.len(), FIELDS.len());
         let last = CASES.last().expect("declared nonempty input domain");
         for (id, value) in FIELDS.into_iter().zip([last.0, last.1, last.2, last.3]) {
@@ -99,17 +108,30 @@ pub(super) fn replace_fields(
     drop(observations);
     let mut replacements = 0_usize;
     let mut preserved_checks = 0_usize;
+    let mut parent_entries = 0_usize;
+    let mut nonfirst_parent_entries = 0_usize;
     for (reference, weight, concentration, dose) in CASES {
-        for (id, expected) in [
+        for (field_index, (id, expected)) in [
             ("reference", reference),
             ("weight", weight),
             ("concentration", concentration),
             ("dose", dose),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let _case = tracing::info_span!("uia_replacement", id, expected).entered();
             let mut observations = Observations::new(mode, replacements + 1);
             let element = unique(&automation, &root, id, deadline, &mut observations);
-            focus(&element, deadline, &mut observations);
+            focus::enter(&element, handle, deadline, &mut observations);
+            parent_entries = parent_entries
+                .checked_add(1)
+                .expect("declared entry domain");
+            if field_index != 0 {
+                nonfirst_parent_entries = nonfirst_parent_entries
+                    .checked_add(1)
+                    .expect("declared non-first field entry domain");
+            }
             let pattern = value_pattern(&element, &mut observations);
             super::input::select_all(handle, &mut observations);
             let expected_units: Vec<_> = expected.encode_utf16().collect();
@@ -139,11 +161,13 @@ pub(super) fn replace_fields(
         }
     }
     Completion {
-        schema: 2,
+        schema: 3,
         window: handle.to_string(),
         mode: mode.as_str().to_owned(),
         replacements,
         preserved_checks,
+        parent_entries,
+        nonfirst_parent_entries,
         final_values: values
             .into_iter()
             .map(|(id, value)| (id.to_owned(), value))
@@ -211,41 +235,6 @@ fn current_value(element: &IUIAutomationElement, observations: &mut Observations
         .to_vec();
     observations.record(json!({"kind":"value_snapshot", "units":value}));
     value
-}
-
-fn focus(element: &IUIAutomationElement, deadline: Instant, observations: &mut Observations) {
-    observations
-        .operation("SetFocus", || unsafe { element.SetFocus() })
-        .expect("actual UIA SetFocus");
-    // SetFocus is issued once; only its actual completion property is sampled.
-    let started = Instant::now();
-    let mut queries = 0_usize;
-    let mut previous = None;
-    loop {
-        queries = queries
-            .checked_add(1)
-            .expect("bounded UIA focus observations");
-        let actual = observations
-            .operation("CurrentHasKeyboardFocus", || unsafe {
-                element.CurrentHasKeyboardFocus()
-            })
-            .expect("actual UIA focus")
-            .as_bool();
-        if previous != Some(actual) {
-            observations.record(json!({"kind":"focus_snapshot", "query":queries,"focused":actual}));
-            previous = Some(actual);
-        }
-        if actual {
-            observations.record(json!({"kind":"focus_completed", "queries":queries,
-                "elapsed_ns":started.elapsed().as_nanos().to_string(),"apartment":"MTA"}));
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "actual UIA focus did not reach the field"
-        );
-        std::thread::yield_now();
-    }
 }
 
 fn await_value(

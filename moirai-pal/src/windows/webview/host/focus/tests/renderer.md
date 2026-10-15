@@ -14,7 +14,7 @@ the declared input domain. A blocked getter cannot fabricate a trigger.
 
 The parent peeks at the existing stdout pipe, reads no more than the available
 bytes and frames complete UTF-8 lines within the same aggregate 64KiB output
-bound. Drained bytes remain part of the original schema2 completion admission.
+bound. Drained bytes remain part of the schema3 completion admission.
 Malformed/duplicate progress rejects. Progress first observed after collection
 cannot start a command; it is explicitly unobserved during the active journey.
 

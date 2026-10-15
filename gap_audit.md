@@ -5,7 +5,22 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native text-consumption attribution — 2026-10-15 [patch]
 
-Current source aa532b88/run38788877397 still fails original startup-only
+Source2fcef45d/run38798617700 closes the separately reproduced SDK-admission
+regression (6.837s) and native SDK availability query (0.39.1/154.0.4258.62),
+but fails ordinary scope16/dose, startup scope2/weight and separate probe
+scope5/reference. Continuous diagnostic traffic is not a necessary cause.
+The probe's UIA and timely live DOM both retain patient-one after requesting
+patient-two. All failed input records are admitted at owned HWND0x13059c;
+prior successful callbacks use0x1009ae, on the same browserPID10916/TID2796/HKL.
+Complete independent callbacks1–68 end in LostFocus before the snapshot, with
+no later accelerator and no quota/omissions. This establishes a controller
+receipt boundary, not renderer key-consumption or exact HWND-class identity.
+The active backlog owns one native-parent entry after UIA selection, same-field
+focus preservation and unchanged16/64 acceptance; candidate Windows is pending.
+Metis ad328f61 adopts2fcef45d with only15/11 lock source substitutions and keeps
+all515 Rust/173 acceptance files and original deadlines unchanged.
+
+Earlier source aa532b88/run38788877397 fails original startup-only
 concentration0 after10/40 (UIA4), while seven other modes complete16/64. Its
 separate controller diagnostic completes16/64 without triggering any snapshot;
 254 callbacks exhaust the independent quota with7 omissions. No joint failed
@@ -18,7 +33,7 @@ acceptance remains required.
 Baseline source44184f40/run38795557575 proves the ready-event scheduling
 defect: a real resize returns after document/DOM counters advance1/6 to2/7.
 The regression fails in7.097s; original45 policy and8 installed cases pass.
-Candidate native GREEN remains required. The controlled aa532 replay38791481506
+Its corrected regression now passes on2fcef45d. The controlled aa532 replay38791481506
 passes the original matrix and actual Rust bridge, but its final availability
 metadata query exceeds60s downloading unrelated platform dependencies. Metis
 source5e5c4e2/run38792889172 completes four exact Unicode submissions and passes
@@ -32,8 +47,8 @@ check of the already-built Windows host feature graph, retaining60s and the
 original native API/error handling. It does not infer Cargo cache hashes or
 claim a platform filter restricts all metadata downloads. Three parser cases
 pass; a real MSVC check selects a loader byte-identical to SDK0.39.1 source.
-Windows execution remains required, separately from form acceptance and each
-controller's actual environment version.
+Source2fcef45d executes the actual availability API successfully, separately
+from form acceptance and each controller's actual environment version.
 
 Metis PR 504 retains unchanged UIA values after physical input at different
 fields across actual Windows runs. Owned focus and successful SendInput do not

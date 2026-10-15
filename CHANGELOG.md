@@ -9,12 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] The actual MTA UIA fixture enters the known native parent once after
+  its original UIA field selection. Legitimate input-queue attachment and
+  unconditional cleanup precede a same-field focus check; no focus/input retry
+  or deadline change is added. The existing 16 replacements/64 preservation
+  checks now also verify 16 real entries, including 12 non-first fields.
+  Candidate Windows execution remains required.
+
 - [patch] Resolve the Windows runtime-query loader from the already-checked
   native SDK compiler/build-script records. Offline checking retains the
   60-second bound and original native availability query while avoiding an
   all-platform metadata fetch. Three parser rejection/identity tests pass;
   actual MSVC artifacts select a byte-identical SDK loader. Windows execution
-  of the corrected availability step remains required.
+  passes on source2fcef45d/run38798617700 with SDK0.39.1 and available
+  runtime154.0.4258.62; availability remains distinct from a controller version.
 
 - [patch] Check the original selected wait deadline and ready public events
   after command/callback preparation, before outgoing diagnostic SDK work.
@@ -23,8 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attempt. Real native resize, expired admission and continuation regressions
   cover this separate scheduling contract. Baseline source44184f40/run38795557575
   fails the ready-event assertion: DOM counters advance before returning the
-  real resize. Candidate native execution remains pending;
-  no input-delivery cause or full Metis form correction is established.
+  real resize. Source2fcef45d/run38798617700 passes the actual corrected
+  regression in6.837s and50 policy cases. Ordinary/startup field delivery and
+  the separate live-value probe still fail; this does not close form acceptance.
 
 - [patch] Add an opt-in native fixture probe for one live DOMSnapshot after a
   returned persistent UIA mismatch. Exact sparse inputValue, node/frame
