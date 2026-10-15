@@ -37,7 +37,7 @@ fn request() -> (
         state: Rc::downgrade(&state),
         destination: Destination::Dom {
             id,
-            stage: Stage::Document { existing: None },
+            stage: Stage::Document,
         },
     }
     .into();

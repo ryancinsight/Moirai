@@ -9,16 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- [patch] Selected native DOM observation binds the document once per actual
-  generation, then freshly describes its identity and current URI before each
-  complete selector/HTML chain. URI mismatch, stale identity and malformed
-  replies remain errors; native invalidation/navigation/close revoke the root.
-  Every chain retains 1+n+p native calls and no field values are cached.
-  Actual per-method counters, root revocation and the owned controller's
-  runtime version strengthen the native evidence. The previous six-mode run
-  passes ordinary/controller/native/events 16/64 and fails only recurring
-  startup/full sampling. This correction's Windows runtime result is pending.
-
 - [patch] The native UIA isolation now runs ordinary, controller-only,
   native-only, events-only, startup-only and full selected observation
   modes, retaining bounded operation-start/return, admitted physical input and

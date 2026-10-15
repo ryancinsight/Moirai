@@ -3,8 +3,6 @@
 use super::*;
 use crate::webview_startup::{RecordAdmission, Selection};
 
-mod binding;
-
 fn trace() -> tracing::subscriber::DefaultGuard {
     tracing::subscriber::set_default(
         tracing_subscriber::fmt()
@@ -44,7 +42,7 @@ fn document_reply_requires_exact_selected_uri_before_querying_any_node() {
             (state, id, json!({"root":root}))
         });
         let command = tracing::info_span!("act")
-            .in_scope(|| advance(&mut state, id, Stage::Document { existing: None }, &reply));
+            .in_scope(|| advance(&mut state, id, Stage::Document, &reply));
         tracing::info_span!("assert").in_scope(|| {
             if uri == Some(state.selection.start_uri.as_str()) {
                 let command = command

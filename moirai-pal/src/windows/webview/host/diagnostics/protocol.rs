@@ -5,7 +5,7 @@ use windows::core::{HRESULT, PCWSTR};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Stage {
-    Document { existing: Option<i64> },
+    Document,
     Query { index: usize, root: i64 },
     Html { index: usize, root: i64 },
 }

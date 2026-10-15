@@ -5,20 +5,6 @@ use serde_json::Value;
 
 impl ObservationMode {
     pub(super) fn verify_installed(self, host: &WebViewHost, observations: &[Value]) {
-        let mut raw = windows::core::PWSTR::null();
-        // This is the environment that created this controller, rather than
-        // a later query of whichever runtime is currently available.
-        unsafe {
-            host.environment
-                .as_ref()
-                .expect("actual environment")
-                .BrowserVersionString(&mut raw)
-        }
-        .expect("actual environment browser version");
-        let version = unsafe { super::super::super::text::read_task_mem_message(raw) }
-            .expect("bounded native browser version");
-        assert!(!version.is_empty());
-        tracing::info!(event="uia_fixture_runtime", mode=self.as_str(), browser_version=%version, "actual controller environment");
         assert_eq!(host.startup.is_some(), self != Self::Ordinary);
         let registered: Vec<_> = observations
             .iter()
@@ -58,10 +44,6 @@ impl ObservationMode {
         assert_eq!(closed["kind"], "closed");
         assert_eq!(closed["closed"], true);
         assert_eq!(closed["cleanup_failed"], false);
-        assert_eq!(
-            closed["document_bound"], false,
-            "close revokes the root identity"
-        );
         let count = |field: &str| {
             closed[field]
                 .as_str()
@@ -78,23 +60,9 @@ impl ObservationMode {
         if matches!(self, Self::Controller | Self::Native | Self::Events) {
             assert_eq!(count("samples"), 0);
             assert_eq!(count("dom_calls_attempted"), 0);
-            assert_eq!(count("document_calls_attempted"), 0);
-            assert_eq!(count("description_calls_attempted"), 0);
             assert!(!observations.iter().any(|v| v["kind"] == "dom_status"));
         } else {
             assert!(count("samples") > 0, "a complete real DOM chain");
-            assert!(
-                count("document_calls_attempted") > 0,
-                "real initial document binding"
-            );
-            assert!(
-                count("document_calls_attempted") <= count("generation"),
-                "at most one document binding attempt per admitted generation"
-            );
-            assert!(
-                count("description_calls_attempted") > 0,
-                "real subsequent URI and identity reads"
-            );
             assert!(
                 count("dom_calls_attempted") >= 6,
                 "all three actual selectors"

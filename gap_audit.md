@@ -60,14 +60,7 @@ not substitute for the full managed STA actor's acceptance evidence.
 Four-mode source 4e7b1968 / run 38769791520 completes ordinary and controller-only
 16/64 but startup-only/full retain weight 60/demo after admitted 64/Unicode input.
 Their 112,555/120,681 actual DOM attempts establish recurring work, not the
-particular failed method. Six-mode b6105157 completes all passive controls
-while startup/full recurring sampling still fail. The new candidate preserves
-URI/identity checks and every current selector/HTML read while replacing
-repeated binding resets with descriptions of a generation-owned root. Native
-per-method/close evidence and the original full consumer journeys remain open.
-The runner availability record changes from 154 to 153 across the two runs;
-neither historical record proves a per-controller runtime. Future fixture
-receipts read the actual owned environment before input.
+particular failed method; native/event controls remain pending.
 
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 

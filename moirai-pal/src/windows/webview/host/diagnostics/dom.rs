@@ -3,7 +3,7 @@
 use super::{
     completion,
     protocol::{Failure, Stage},
-    state::{Document, DocumentRoot, Shared, State},
+    state::{Document, Shared, State},
 };
 use crate::webview_startup::{RequestId, Start};
 use serde_json::{Value, json};
@@ -47,15 +47,12 @@ pub(super) fn tick(webview: &ICoreWebView2, shared: &Shared) {
             }
         } else if state.document == Document::Available {
             match state.slot.start() {
-                Ok(Start::Begun(id)) => match document_command(&state, id) {
-                    Ok(command) => Some(command),
-                    Err(error) => {
-                        state.slot.finish(id);
-                        state.failed = true;
-                        state.error("DOM.document identity", &error);
-                        None
-                    }
-                },
+                Ok(Start::Begun(id)) => Some(Command {
+                    id,
+                    stage: Stage::Document,
+                    method: "DOM.getDocument",
+                    parameters: json!({"depth":0,"pierce":false}),
+                }),
                 Ok(Start::Busy | Start::Closed) => None,
                 Err(error) => {
                     state.failed = true;
@@ -84,27 +81,6 @@ pub(super) fn tick(webview: &ICoreWebView2, shared: &Shared) {
     }
 }
 
-fn document_command(state: &State, id: RequestId) -> windows::core::Result<Command> {
-    let generation = state.slot.snapshot().generation;
-    if !state.slot.is_current(id) || state.root.is_some_and(|root| root.generation != generation) {
-        return Err(invalid("DOM document root belongs to a stale generation"));
-    }
-    let existing = state.root.map(|root| root.node);
-    let (method, parameters) = match existing {
-        Some(root) => (
-            "DOM.describeNode",
-            json!({"nodeId":root,"depth":0,"pierce":false}),
-        ),
-        None => ("DOM.getDocument", json!({"depth":0,"pierce":false})),
-    };
-    Ok(Command {
-        id,
-        stage: Stage::Document { existing },
-        method,
-        parameters,
-    })
-}
-
 fn advance(
     state: &mut State,
     id: RequestId,
@@ -112,32 +88,19 @@ fn advance(
     value: &Value,
 ) -> windows::core::Result<Option<Command>> {
     match stage {
-        Stage::Document { existing } => {
-            let key = if existing.is_some() { "node" } else { "root" };
-            let document = value.get(key);
-            let uri = document
+        Stage::Document => {
+            let uri = value
+                .get("root")
                 .and_then(|root| root.get("documentURL"))
                 .and_then(Value::as_str)
                 .ok_or_else(|| invalid("DOM document omits its documentURL"))?;
             if uri != state.selection.start_uri {
                 return Err(invalid("DOM documentURL differs from selected startup URI"));
             }
-            let root = node(document.and_then(|root| root.get("nodeId")))?;
+            let root = node(value.get("root").and_then(|root| root.get("nodeId")))?;
             if root == 0 {
                 return Err(invalid("DOM document has no root node"));
             }
-            if existing.is_some_and(|expected| root != expected) {
-                return Err(invalid(
-                    "DOM described document identity differs from the bound root",
-                ));
-            }
-            // Only the identity is retained. Every chain revalidates the live
-            // URL and queries all current selectors/HTML. Actual invalidation
-            // revokes this generation before any stale completion is admitted.
-            state.root = Some(DocumentRoot {
-                node: root,
-                generation: state.slot.snapshot().generation,
-            });
             Ok(Some(query(state, id, 0, root)))
         }
         Stage::Query { index, root } => {
