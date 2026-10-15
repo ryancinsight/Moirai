@@ -5,6 +5,17 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - Unreleased
+
+### Changed
+
+- [patch] Accept Mnemosyne-memory 0.10 through the canonical Git source.
+  Allocator calls remain private and their Rust implementation is unchanged;
+  the public GPU budget remains on mnemosyne-memory-core 0.3. All workspace
+  versions and internal requirements advance together. No scheduling, bridge,
+  feature, test or security behavior changes. The API gate compares each exact
+  locked base/head provider graph.
+
 ## [0.9.2] - Unreleased
 
 ### Fixed

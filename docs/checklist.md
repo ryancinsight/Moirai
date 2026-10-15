@@ -4,7 +4,10 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: 0.9.2 (workspace); moirai-webview 0.2.0
+**Target Version**: 0.9.3 (workspace); moirai-webview 0.2.0
+
+- [patch] The private allocator edge accepts Mnemosyne-memory 0.10; public
+  mnemosyne-memory-core 0.3 budget types and all Rust implementations remain unchanged.
 
 - [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.
 - [x] [patch] Checked native method admission, registration compensation and exact callback lifetime.

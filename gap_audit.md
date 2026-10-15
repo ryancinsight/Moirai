@@ -3,6 +3,18 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
+
+Moirai main `2b189f0a` requires allocator facade 0.9 while the reviewed Eunomia
+0.10 cohort advances that facade to 0.10. The allocator is private to core,
+scheduler and executor implementations; the public GPU budget comes from
+unchanged mnemosyne-memory-core 0.3. The proposed 0.9.3 graph changes manifests
+and the lock only. All Rust implementation/test bytes must match the base.
+Mnemosyne PR #237 is merged at default `b7e0e1e3` and allocator 0.10 is
+published. The lock uses that integrated source; native/API/package and
+fresh-consumer gates establish their own acceptance boundaries. Re-open if API
+comparison finds an observable change, a provider acquires two identities, or source/package gates fail.
+
 ## Native bridge verification boundary — 2026-10-14 [patch]
 
 The private startup observer is verified by its protected provider run. In
