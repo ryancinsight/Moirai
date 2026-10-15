@@ -5,6 +5,17 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - Unreleased
+
+### Fixed
+
+- [patch] The explicitly selected private Windows diagnostic observes actual
+  controller focus and eligible accelerator keys. Native callbacks preserve
+  Handled and input, retain fixed bounded records and defer formatting/tracing
+  until callback return. Capacity loss, raw key/focus state and token-removal
+  failures stay explicit. Ordinary hosts install no diagnostic callbacks;
+  supported APIs and every input/acceptance deadline remain unchanged.
+
 ## [0.9.2] - Unreleased
 
 ### Fixed

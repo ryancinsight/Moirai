@@ -27,11 +27,15 @@
 //! manufactured Ready event or a guarantee that a browser callback completes.
 
 mod config;
+#[cfg(any(all(windows, feature = "webview2"), test))]
+mod deferred;
 mod quota;
 mod state;
 
 #[cfg(all(windows, feature = "webview2"))]
 pub(crate) use config::Selection;
+#[cfg(all(windows, feature = "webview2"))]
+pub(crate) use deferred::Deferred;
 #[cfg(test)]
 pub(crate) use quota::BudgetSnapshot;
 pub(crate) use quota::{RecordAdmission, TraceBudget};

@@ -3,6 +3,14 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Native text-consumption attribution — 2026-10-15 [patch]
+
+Metis PR 504 retains unchanged UIA values after physical input at different
+fields across actual Windows runs. Owned focus and successful SendInput do not
+prove renderer consumption. The active controller-observation item in backlog
+owns this bounded investigation. No functional cause or focus correction is
+established by the source capability gap alone.
+
 ## Native bridge verification boundary — 2026-10-14 [patch]
 
 The private startup observer is verified by its protected provider run. In

@@ -6,6 +6,17 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-WEBVIEW-INPUT-OBSERVATION-2026-10-15"></a>
+## MOI-WEBVIEW-INPUT-OBSERVATION-2026-10-15 — Attribute Metis native text delivery [patch]
+- status: todo
+- priority: correctness
+- outcome: Bound actual controller focus and accelerator receipt separately from UIA values, renderer consumption and Rust submission.
+- scope: Default-off private Windows startup owner; deferred callback records and exact token cleanup. No supported API, Handled/focus setter, input or deadline change.
+- acceptance: Portable capacity/order/loss laws, strict Windows SDK diagnostics, installed real Ctrl+A/Escape observations and the unchanged Metis full-form/script gates.
+- verification: Fifteen selection/quota/request/buffer tests pass; strict production and all-target Windows SDK diagnostics pass. Installed-runtime and consumer evidence remain pending.
+- next step: Execute the selected controller fixture and bind the Metis replay to this provider revision before selecting any functional correction.
+- basis: Moirai protected default `2b189f0a`; Metis PR 504 final-head run 38685234146 reaches Ready, accepts earlier fields and retains dose 0.2 after requested 0.25. Its 502 scripts pass in 40.796s.
+
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
 - status: todo

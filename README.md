@@ -17,6 +17,12 @@ belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
 ## Browser I/O
 
+Workspace 0.9.3 extends the default-off private Windows diagnostic with bounded
+controller focus and accelerator observations. Synchronous input callbacks
+retain values and return before tracing; they never change Handled, focus,
+input or deadlines. Installed-runtime and Metis form acceptance remain separate
+checks under the [diagnostic contract](moirai-pal/src/windows/webview/host/diagnostics/design.md).
+
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The
 private interface checks real callable methods and preserves their original

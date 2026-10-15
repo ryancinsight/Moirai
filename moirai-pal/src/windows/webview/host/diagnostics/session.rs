@@ -2,20 +2,22 @@
 
 use super::super::super::{config::WebViewConfig, pump::wait_for};
 use super::state::{Shared, State};
-use super::{cdp, completion, dom, native, registration::Registrations};
+use super::{cdp, completion, dom, input, native, registration::Registrations};
 use crate::webview_startup::{SELECTION_ENV, Selection, TRACE_TARGET};
 use serde_json::json;
 use std::{cell::RefCell, io, rc::Rc, sync::mpsc, time::Instant};
-use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
+use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2Controller};
 
 pub(in super::super) struct Startup {
     state: Shared,
     tokens: Registrations,
+    input: input::Observer,
 }
 
 impl Startup {
     pub(in super::super) fn selected(
         webview: &ICoreWebView2,
+        controller: &ICoreWebView2Controller,
         config: &WebViewConfig,
     ) -> io::Result<Option<Self>> {
         if !tracing::enabled!(target: TRACE_TARGET, tracing::Level::DEBUG) {
@@ -37,7 +39,12 @@ impl Startup {
             return Err(io::Error::other(error));
         }
         state.borrow_mut().record(&json!({"kind":"registered"}));
-        Ok(Some(Self { state, tokens }))
+        let input = input::Observer::new(controller, &state)?;
+        Ok(Some(Self {
+            state,
+            tokens,
+            input,
+        }))
     }
 
     pub(in super::super) fn activate(&self, deadline: Instant) -> io::Result<()> {
@@ -68,10 +75,13 @@ impl Startup {
     }
 
     pub(in super::super) fn tick(&self) {
+        self.input.flush();
         dom::tick(&self.tokens.webview, &self.state);
     }
 
     pub(in super::super) fn close(&mut self) -> io::Result<()> {
-        self.tokens.close()
+        let input = self.input.close();
+        let tokens = self.tokens.close();
+        input.and(tokens)
     }
 }

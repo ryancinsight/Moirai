@@ -105,6 +105,13 @@ jobs:
               "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
               "test(=windows::webview::tests::startup::installed_runtime_observes_selected_dom_and_owned_shutdown)",
           ], env=environment, check=True, timeout=120)
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
+              "test(=windows::webview::host::diagnostics::input::tests::installed_runtime_observes_controller_input_without_handling)",
+          ], env=environment, check=True, timeout=120)
       - name: Compile the actual Rust native bridge payload
         shell: pwsh
         run: >-

@@ -3,6 +3,7 @@
 mod cdp;
 mod completion;
 mod dom;
+mod input;
 mod native;
 mod protocol;
 mod registration;

@@ -19,7 +19,8 @@ impl WebViewHost {
     pub(super) fn navigate_and_wait(&mut self, uri: String) -> io::Result<()> {
         let observation_started = Instant::now();
         let webview = self.webview.as_ref().ok_or_else(closed_error)?.clone();
-        self.startup = super::diagnostics::Startup::selected(&webview, &self.config)?;
+        let controller = self.controller.as_ref().ok_or_else(closed_error)?;
+        self.startup = super::diagnostics::Startup::selected(&webview, controller, &self.config)?;
         let deadline = if let Some(startup) = &self.startup {
             let deadline = observation_started
                 .checked_add(self.config.wait())

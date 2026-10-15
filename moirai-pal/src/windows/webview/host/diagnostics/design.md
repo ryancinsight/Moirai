@@ -8,6 +8,36 @@ Without both conditions no observer or DOM command is installed. Normal
 navigation, permission policy, page messages and product filters keep their
 existing owners. PAL contains no application selector constants.
 
+## Controller input boundary (0.9.3)
+
+The same private selection additionally observes GotFocus, LostFocus,
+MoveFocusRequested and eligible AcceleratorKeyPressed callbacks on the actual
+controller. Each callback copies the SDK event kind, virtual key, signed lParam
+and existing Handled value, plus non-atomic owner focus/foreground and raw
+Control/Shift/Alt key states. Owner-thread GetKeyState and system-wide
+GetAsyncKeyState retain distinct labels. Sequence and monotonic elapsed time
+belong to this observer, not the page protocol or Python actor clock.
+
+These synchronous callbacks enqueue only Copy records into preallocated fixed
+storage of MAX_WEBVIEW_EVENTS elements. They perform no formatting, subscriber
+call, disk I/O, outgoing cross-process COM, Handled setter or focus operation.
+The existing owner pump drains records after callback return through the same
+aggregate byte/event quota. Capacity loss and reentrant contention are explicit
+incomplete-evidence records; neither overwrites an earlier observation. Close
+drains the final batch and attempts all four token removals before controller
+close, preserving the first error after remaining cleanup.
+
+Accelerator callbacks prove that an eligible key reaches this controller.
+They do not prove renderer default action, DOM value change or Rust submission.
+Unicode packets are not all eligible accelerators. Missing callbacks and a
+collapsed UIA range do not establish where text is lost. No MoveFocus change,
+input retry, extra sleep, acceptance predicate or time-limit change follows
+without actual native evidence. The installed-runtime fixture exercises real
+foreground/controller focus and physical Ctrl+A/Escape, checking SDK values,
+unchanged Handled, bounded output and callback/profile cleanup.
+
+[SDK callback contract](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controller?view=webview2-1.0.4022.49#add_acceleratorkeypressed).
+
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion
 precedes `Log.enable`, whose successful completion precedes Navigate. Every

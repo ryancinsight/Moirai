@@ -18,7 +18,7 @@ use super::{
 mod bridge;
 mod permissions;
 mod preview;
-mod startup;
+pub(super) mod startup;
 
 #[test]
 fn file_policy_allows_only_the_packaged_directory() {
@@ -404,7 +404,7 @@ window.chrome.webview.postMessage({"ready":true});
         )
     }
 
-    fn create_with_script(script: &[u8]) -> Self {
+    pub(super) fn create_with_script(script: &[u8]) -> Self {
         static NEXT_PACKAGE: AtomicUsize = AtomicUsize::new(0);
         let id = NEXT_PACKAGE.fetch_add(1, Ordering::Relaxed);
         let directory =
@@ -438,7 +438,7 @@ window.chrome.webview.postMessage({"ready":true});
         .expect("fresh local profile")
     }
 
-    fn cleanup(&self) -> io::Result<()> {
+    pub(super) fn cleanup(&self) -> io::Result<()> {
         std::fs::remove_dir_all(&self.directory)?;
         std::fs::remove_dir_all(&self.profile)
     }

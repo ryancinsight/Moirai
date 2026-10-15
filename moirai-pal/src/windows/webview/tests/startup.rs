@@ -280,7 +280,7 @@ fn decimal(value: &Value) -> u64 {
 }
 
 #[derive(Clone)]
-pub(super) struct Trace(Arc<Mutex<Buffer>>);
+pub(in crate::windows::webview) struct Trace(Arc<Mutex<Buffer>>);
 
 struct Buffer {
     bytes: Vec<u8>,
@@ -296,7 +296,7 @@ impl Trace {
             .clone()
     }
 
-    pub(super) fn observations(&self) -> Vec<Value> {
+    pub(in crate::windows::webview) fn observations(&self) -> Vec<Value> {
         self.bytes()
             .split_inclusive(|byte| *byte == b'\n')
             .map(|line| {
@@ -361,7 +361,7 @@ impl Write for Capture {
     }
 }
 
-pub(super) fn tracing() -> (Trace, tracing::subscriber::DefaultGuard) {
+pub(in crate::windows::webview) fn tracing() -> (Trace, tracing::subscriber::DefaultGuard) {
     let envelope = json!({"level":"DEBUG", "fields":{"event":"webview_startup_observation","observation":""},"target":TRACE_TARGET}).to_string().len() + 1;
     assert_eq!(envelope, 133);
     let limit = 6 * MAX_WEBVIEW_MESSAGE_BYTES + envelope * (MAX_WEBVIEW_EVENTS + 2);

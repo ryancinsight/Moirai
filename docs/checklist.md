@@ -4,7 +4,12 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: 0.9.2 (workspace); moirai-webview 0.2.0
+**Target Version**: 0.9.3 (workspace); moirai-webview 0.2.0
+
+- [x] [patch] Fixed native callback storage preserves order and reports capacity loss; two portable tests pass.
+- [x] [patch] Production Windows SDK compilation admits private controller observations.
+- [ ] [patch] Installed-runtime physical Ctrl+A/Escape and exact callback cleanup.
+- [ ] [patch] Source-bound Metis native form and complete Windows script acceptance.
 
 - [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.
 - [x] [patch] Checked native method admission, registration compensation and exact callback lifetime.

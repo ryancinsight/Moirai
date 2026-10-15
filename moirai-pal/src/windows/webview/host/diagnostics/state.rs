@@ -27,6 +27,7 @@ pub(super) struct State {
     pub(super) document: Document,
     pub(super) navigation: Option<u64>,
     pub(super) failed: bool,
+    pub(super) cleanup_failed: bool,
     pub(super) samples: u64,
     pub(super) stale: u64,
     pub(super) last: Vec<Option<Value>>,
@@ -45,6 +46,7 @@ impl State {
             document: Document::Outside,
             navigation: None,
             failed: false,
+            cleanup_failed: false,
             samples: 0,
             stale: 0,
             metadata_sent: false,
@@ -134,7 +136,7 @@ impl State {
             "omitted":budget.omitted.to_string(),"exhausted":budget.exhausted,
             "generation":request.generation.to_string(),"pending":request.pending,
             "closed":request.closed,"samples":self.samples.to_string(),"stale":self.stale.to_string(),
-            "failed":self.failed,"cleanup_failed":cleanup_failed}).to_string();
+            "failed":self.failed,"cleanup_failed":cleanup_failed || self.cleanup_failed}).to_string();
         emit(&encoded);
         if kind == "closed" {
             self.metadata_sent = true;
