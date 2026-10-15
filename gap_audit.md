@@ -67,6 +67,11 @@ repeated binding reset as a necessary condition. The candidate is withdrawn.
 All six actual owning environments report154.0.4258.62. Eight-mode controls
 now distinguish domain activation, one complete original snapshot and
 continuous work, with every original input/assertion/deadline unchanged.
+Source197924cd domain and snapshot controls both complete16/64; only
+continuous modes fail under actual154.0.4258.62. The caller-budget coalescing
+candidate now separates existing-stage progress from new-chain admission
+without a new interval or timeout. Actual ongoing observations, eight-mode
+values/cleanup and both full consumer journeys remain unverified.
 
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 

@@ -1,7 +1,7 @@
 //! The host handle: its WebView2 interfaces, the operations over them,
 //! and the teardown that keeps COM alive until the last one is gone.
 
-use std::{cell::RefCell, io, rc::Rc, sync::mpsc, time::Duration};
+use std::{cell::RefCell, io, rc::Rc, sync::mpsc};
 
 use webview2_com::CapturePreviewCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -15,10 +15,7 @@ use windows::{
     Win32::{
         Foundation::{HWND, RECT},
         System::Com::{STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET},
-        UI::{
-            Shell::SHCreateMemStream,
-            WindowsAndMessaging::{GetClientRect, MSG},
-        },
+        UI::{Shell::SHCreateMemStream, WindowsAndMessaging::GetClientRect},
     },
     core::{BOOL, HSTRING, Interface, PCWSTR},
 };
@@ -29,9 +26,8 @@ use super::super::super::window::{NativeWindow, WindowPlacement};
 use super::super::{
     capture::MAX_WEBVIEW_CAPTURE_BYTES,
     config::{MAX_WEBVIEW_URI_UNITS, WebViewConfig},
-    event::WebViewHostEvent,
     folder::FolderMapping,
-    pump::{dispatch_pending, wait_for, wait_for_messages},
+    pump::wait_for,
     state::WebViewState,
 };
 
@@ -369,40 +365,6 @@ impl WebViewHost {
                 })?;
         }
         Ok(bytes)
-    }
-
-    /// Pumps pending owner-thread messages and returns native and WebView2
-    /// events in one bounded batch.
-    ///
-    /// # Errors
-    /// Returns queue overflow, callback decoding, native window or controller
-    /// errors.
-    pub fn poll_events(&mut self) -> io::Result<Vec<WebViewHostEvent>> {
-        if self.closed {
-            return self.collect_events();
-        }
-        let mut message = MSG::default();
-        dispatch_pending(&mut message);
-        self.collect_events()
-    }
-
-    /// Waits for owner-thread input or a WebView2 callback for a finite duration.
-    ///
-    /// # Errors
-    /// Returns queue overflow, callback decoding, native window or controller
-    /// errors, or an invalid duration.
-    pub fn wait_events(&mut self, timeout: Duration) -> io::Result<Vec<WebViewHostEvent>> {
-        if self.closed {
-            return self.poll_events();
-        }
-        let events = self.poll_events()?;
-        if !events.is_empty() {
-            return Ok(events);
-        }
-        if !wait_for_messages(timeout)? {
-            return Ok(Vec::new());
-        }
-        self.poll_events()
     }
 }
 

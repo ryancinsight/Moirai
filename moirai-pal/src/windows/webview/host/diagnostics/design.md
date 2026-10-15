@@ -131,7 +131,7 @@ chains (at least 52,032 CDP calls); without per-chain timestamps this proves
 additional work, not its timing or input-loss causality.
 
 Private-parent experiment `27cd682d` / run 38766339399 preserves the fixture,
-bounds, runner and actual WebView2 154.0.4258.62/SDK 0.39.1. It passes 33 policy
+bounds, runner and available WebView2 154.0.4258.62/SDK 0.39.1. It passes 33 policy
 and ten installed cases, including real inner focus, sibling/foreign focus,
 resize and destruction. Ordinary mode completes 16/64 in 7.428s; selected mode
 completes 6/24 then retains concentration 2 after admitted input requests 4.
@@ -196,6 +196,44 @@ physical input/value and 30/60/120-second bound remains. The next evidence
 distinguishes initial domain attachment or one snapshot from continuous work,
 before a scheduling correction. Activation counters include DOM.enable;
 DOM-attempt counters count sampling calls separately.
+
+### Caller-owned observation turns
+
+Eight-mode source 197924cd / run 38776749790 completes ordinary, controller,
+native, events, DOM-domain and single-snapshot controls (all 16/64) under
+actual runtime 154.0.4258.62. Only continuous startup/full sampling fails.
+Domain has three actual enables and no samples; snapshot has one getDocument,
+six native sampling calls, one complete chain and no pending request. Initial
+attachment or a complete snapshot is therefore insufficient to reproduce.
+
+The existing wait returned an empty application batch after an internal CDP
+completion. The caller immediately waited again, letting those completions
+drive fresh sampler starts. The correction coalesces positive waits only for
+continuous observation. Its first poll admits at most one chain. Subsequent
+private wakes still dispatch every owner-thread message and advance/settle
+existing stages, but admit no fresh chain. Actual application events return
+immediately; otherwise one original caller-supplied deadline ends the wait.
+No callback restarts that deadline. Ordinary/noncontinuous and zero-duration
+paths preserve their original behavior. Public direct polling still admits
+one chain per poll. No fixed sampling interval or sleep is added.
+
+For W logical wait/poll turns, A fresh admissions satisfy A <= W. A chain with
+n selectors performs at most 1+2n native calls, so a measured window has
+D <= (1+2n)(W+1), including one initially pending chain. Existing byte/event
+quotas and callback ownership remain independent. Native fixture turns use
+their existing 25ms cap; Metis supplies its existing 250ms cap. Neither value
+is a new interval or a changed acceptance deadline. Fresh URI/selector/HTML
+reads and original document-binding lifetime remain unchanged.
+
+The eight-mode gate additionally requires at least two complete samples for
+each continuous mode (the minimum that exercises recurrence), actual document
+starts bounded by fixture wait turns, and the derived native-call bound.
+Snapshot must still complete exactly one chain. Pure transition coverage
+settles every document/query/HTML stage with fresh admission disabled, then
+admits work on the next caller turn. Exact zero/fractional/inclusive native
+deadline tests preserve the existing millisecond conversion. These Windows
+tests are source-compiled locally; actual eight-mode and full Metis execution
+remain required before claiming a corrected form.
 
 
 The original navigation deadline starts before registration/activation.

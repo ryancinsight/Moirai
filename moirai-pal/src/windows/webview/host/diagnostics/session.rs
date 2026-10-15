@@ -101,13 +101,30 @@ impl Startup {
         Ok(())
     }
 
-    pub(in super::super) fn tick(&self) {
+    pub(in super::super) fn tick(&self, admit_new_sample: bool) {
         if let Some(input) = &self.input {
             input.flush();
         }
         if self.sampling_enabled() {
-            dom::tick(&self.tokens.webview, &self.state);
+            dom::tick(&self.tokens.webview, &self.state, admit_new_sample);
         }
+    }
+
+    pub(in super::super) fn repeating_samples(&self) -> bool {
+        // Exactly the policies that admit another sample after the first.
+        self.state.borrow().selection.components.admits_sample(1)
+    }
+
+    pub(in super::super) fn begin_wait_turn(&self) -> io::Result<()> {
+        let mut state = self
+            .state
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("Startup wait state is borrowed"))?;
+        state.wait_turns_attempted = state
+            .wait_turns_attempted
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("Startup wait turn count exhausted"))?;
+        Ok(())
     }
 
     pub(in super::super) fn close(&mut self) -> io::Result<()> {

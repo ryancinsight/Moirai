@@ -94,6 +94,23 @@ impl ObservationMode {
             if self == Self::Snapshot {
                 assert_eq!(count("samples"), 1, "one actual complete chain");
                 assert_eq!(closed["pending"], false, "snapshot settled before close");
+                assert_eq!(count("wait_turns_attempted"), 0);
+            } else {
+                // Two complete samples are the minimum that exercises
+                // recurring admission; one initial snapshot is insufficient.
+                assert!(
+                    count("samples") > 1,
+                    "continuous observation remains active"
+                );
+                let turns = count("wait_turns_attempted");
+                assert!(turns > 0);
+                assert!(
+                    count("document_calls_attempted") <= turns,
+                    "fixture starts at most one chain per caller wait"
+                );
+                // Three selectors admit at most 1 + 2*3 native calls/chain;
+                // include one chain already pending at a measured boundary.
+                assert!(u128::from(count("dom_calls_attempted")) <= 7 * (u128::from(turns) + 1));
             }
             assert!(
                 count("dom_calls_attempted") >= 6,

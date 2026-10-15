@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Coalesce continuous diagnostic completions within the caller's
+  existing native wait. Pending stages still advance; observation-only wakes
+  cannot start another chain or reset the deadline. Actual event batches,
+  ordinary/noncontinuous and zero-duration paths preserve their behavior.
+  Fresh selector/HTML reads, original bindings and every input/assertion/budget
+  remain. The native gate verifies recurring samples and derived admission/call
+  bounds. Domain activation and one snapshot already pass all16/64, isolating
+  continuous work; corrected runtime/full consumer results remain pending.
+
 - [patch] Add real DOM-domain-only and single-complete-snapshot input controls.
   Original full/ordinary and prior controls remain fatal, with the exact
   sixteen replacements, sixty-four preservation checks and every deadline.

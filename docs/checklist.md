@@ -19,6 +19,7 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [ ] [patch] Six-mode real-component comparison distinguishes native events, CDP activation and DOM sampling. Four-mode source 4e7b1968 passes ordinary/controller-only but fails startup/full; all original gates remain required.
 
 - [ ] [patch] Eight-mode native comparison separates DOM activation, one complete snapshot and continuous sampling. Binding reuse 8c49630c fails and is withdrawn; original full Metis journeys and all bounds remain required.
+- [ ] [patch] Caller-owned wait turns preserve immediate application events, current-stage settlement and original absolute/zero-duration behavior; all eight native16/64 modes and both full Metis journeys pass with recurring observation and derived work bounds.
 
 - [patch] The private allocator edge accepts Mnemosyne-memory 0.10; public
   mnemosyne-memory-core 0.3 budget types and all Rust implementations remain unchanged.

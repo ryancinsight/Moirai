@@ -3,6 +3,8 @@
 use super::*;
 use crate::webview_startup::{RecordAdmission, Selection};
 
+mod admission;
+
 fn trace() -> tracing::subscriber::DefaultGuard {
     tracing::subscriber::set_default(
         tracing_subscriber::fmt()

@@ -147,10 +147,13 @@ impl WebViewHost {
         Ok(())
     }
 
-    pub(super) fn collect_events(&mut self) -> io::Result<Vec<WebViewHostEvent>> {
+    pub(super) fn collect_events(
+        &mut self,
+        admit_new_sample: bool,
+    ) -> io::Result<Vec<WebViewHostEvent>> {
         let window_events = self.window.poll_events()?;
         if let Some(startup) = &self.startup {
-            startup.tick();
+            startup.tick(admit_new_sample);
         }
         let (webview_events, overflowed) = self
             .state

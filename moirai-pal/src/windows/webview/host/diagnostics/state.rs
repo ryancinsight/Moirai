@@ -29,6 +29,7 @@ pub(super) struct State {
     pub(super) failed: bool,
     pub(super) cleanup_failed: bool,
     pub(super) samples: u64,
+    pub(super) wait_turns_attempted: u64,
     pub(super) dom_calls_attempted: u64,
     pub(super) activation_calls_attempted: u64,
     pub(super) document_calls_attempted: u64,
@@ -52,6 +53,7 @@ impl State {
             failed: false,
             cleanup_failed: false,
             samples: 0,
+            wait_turns_attempted: 0,
             dom_calls_attempted: 0,
             activation_calls_attempted: 0,
             document_calls_attempted: 0,
@@ -168,6 +170,7 @@ impl State {
             "closed":request.closed,"samples":self.samples.to_string(),"stale":self.stale.to_string(),
             "dom_calls_attempted":self.dom_calls_attempted.to_string(),
             "activation_calls_attempted":self.activation_calls_attempted.to_string(),
+            "wait_turns_attempted":self.wait_turns_attempted.to_string(),
             "document_calls_attempted":self.document_calls_attempted.to_string(),
             "description_calls_attempted":self.description_calls_attempted.to_string(),
             "failed":self.failed,"cleanup_failed":cleanup_failed || self.cleanup_failed}).to_string();

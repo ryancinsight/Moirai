@@ -48,6 +48,11 @@ The document-binding reuse experiment also fails and is withdrawn. Two more
 controls distinguish DOM domain activation and one complete snapshot from
 continuous sampling. These controls retain the whole native field journey;
 full observation and both Metis form journeys remain required.
+The domain/snapshot controls now pass while continuous sampling still fails.
+The next correction makes private completion wakes finish their current chain
+inside one caller-owned wait, with fresh admission on the next turn. Actual
+events remain immediate and the same deadline ends the wait. Native validation
+must prove ongoing observation as well as all field replacements.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The
