@@ -33,11 +33,18 @@ impl Startup {
         let state = Rc::new(RefCell::new(State::new(selection)));
         let mut tokens =
             Registrations::new(webview, Rc::clone(&state)).map_err(io::Error::other)?;
-        let result = if components.startup() {
-            native::install(&mut tokens, &state).and_then(|()| cdp::install(&mut tokens, &state))
+        let result = if components.native() {
+            native::install(&mut tokens, &state)
         } else {
             Ok(())
-        };
+        }
+        .and_then(|()| {
+            if components.cdp() {
+                cdp::install(&mut tokens, &state)
+            } else {
+                Ok(())
+            }
+        });
         if let Err(error) = result {
             state.borrow_mut().error("observer registration", &error);
             return Err(io::Error::other(error));
@@ -61,7 +68,7 @@ impl Startup {
     }
 
     pub(in super::super) fn activate(&self, deadline: Instant) -> io::Result<()> {
-        if !self.startup_enabled() {
+        if !self.cdp_enabled() {
             return Ok(());
         }
         for method in ["Runtime.enable", "Log.enable"] {
@@ -94,7 +101,7 @@ impl Startup {
         if let Some(input) = &self.input {
             input.flush();
         }
-        if self.startup_enabled() {
+        if self.sampling_enabled() {
             dom::tick(&self.tokens.webview, &self.state);
         }
     }
@@ -105,8 +112,12 @@ impl Startup {
         input.and(tokens)
     }
 
-    fn startup_enabled(&self) -> bool {
+    fn cdp_enabled(&self) -> bool {
         // This short borrow ends before any native call or callback dispatch.
-        self.state.borrow().selection.components.startup()
+        self.state.borrow().selection.components.cdp()
+    }
+
+    fn sampling_enabled(&self) -> bool {
+        self.state.borrow().selection.components.sampling()
     }
 }

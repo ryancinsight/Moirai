@@ -28,6 +28,8 @@ const TEST_NAME: &str = "windows::webview::host::focus::tests::installed_runtime
 enum ObservationMode {
     Ordinary,
     Controller,
+    Native,
+    Events,
     Startup,
     Selected,
 }
@@ -40,6 +42,8 @@ impl ObservationMode {
         {
             "ordinary" => Self::Ordinary,
             "controller" => Self::Controller,
+            "native" => Self::Native,
+            "events" => Self::Events,
             "startup" => Self::Startup,
             "selected" => Self::Selected,
             mode => panic!("unknown fixture observation mode: {mode}"),
@@ -50,6 +54,8 @@ impl ObservationMode {
         match self {
             Self::Ordinary => "ordinary",
             Self::Controller => "controller",
+            Self::Native => "native",
+            Self::Events => "events",
             Self::Startup => "startup",
             Self::Selected => "selected",
         }
@@ -59,7 +65,7 @@ impl ObservationMode {
         let selection = std::env::var_os(crate::webview_startup::SELECTION_ENV);
         match self {
             Self::Ordinary => assert!(selection.is_none(), "ordinary fixture has no selection"),
-            Self::Selected | Self::Controller | Self::Startup => {
+            Self::Selected | Self::Controller | Self::Native | Self::Events | Self::Startup => {
                 let actual: serde_json::Value = serde_json::from_str(
                     selection
                         .expect("selected fixture configuration")

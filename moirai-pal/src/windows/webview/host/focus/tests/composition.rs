@@ -18,6 +18,8 @@ impl ObservationMode {
         let (components, native, cdp, input) = match self {
             Self::Selected => ("full", 6, 3, 4),
             Self::Controller => ("controller", 0, 0, 4),
+            Self::Native => ("native", 6, 0, 0),
+            Self::Events => ("events", 6, 3, 0),
             Self::Startup => ("startup", 6, 3, 0),
             Self::Ordinary => unreachable!("ordinary returned before selected-owner checks"),
         };
@@ -49,13 +51,17 @@ impl ObservationMode {
                 .parse::<u64>()
                 .expect("native call count")
         };
-        if self == Self::Controller {
+        let activation = if matches!(self, Self::Controller | Self::Native) {
+            0
+        } else {
+            2
+        };
+        assert_eq!(count("activation_calls_attempted"), activation);
+        if matches!(self, Self::Controller | Self::Native | Self::Events) {
             assert_eq!(count("samples"), 0);
             assert_eq!(count("dom_calls_attempted"), 0);
-            assert_eq!(count("activation_calls_attempted"), 0);
             assert!(!observations.iter().any(|v| v["kind"] == "dom_status"));
         } else {
-            assert_eq!(count("activation_calls_attempted"), 2);
             assert!(count("samples") > 0, "a complete real DOM chain");
             assert!(
                 count("dom_calls_attempted") >= 6,

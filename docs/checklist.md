@@ -16,6 +16,7 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [ ] [patch] Real MTA UIA focus completion, all sixteen exact Unicode/numeric replacements and preservation of every other field; the initial immediate-property probe fails before input and is not the Metis dose defect.
 - [ ] [patch] The unchanged 16/64 native isolation passes ordinary and selected modes with actual phase/input/value receipts; native collection and host-close proof admit directory removal, and every failure remains fatal.
 - [ ] [patch] The four-mode real-component comparison retains computed native receiver/command identities and all original input/value/deadline gates. Private-parent experiment 27cd682d fails selected delivery and is withdrawn.
+- [ ] [patch] Six-mode real-component comparison distinguishes native events, CDP activation and DOM sampling. Four-mode source 4e7b1968 passes ordinary/controller-only but fails startup/full; all original gates remain required.
 
 - [patch] The private allocator edge accepts Mnemosyne-memory 0.10; public
   mnemosyne-memory-core 0.3 budget types and all Rust implementations remain unchanged.

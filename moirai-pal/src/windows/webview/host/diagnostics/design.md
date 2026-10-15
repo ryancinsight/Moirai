@@ -141,7 +141,7 @@ and the exact terminal receipts remain reproducible. The independently proved
 outer-parent correction and original acceptance gates remain.
 
 The private selection now accepts a closed optional `components` enum:
-`full` (default), `controller`, or `startup`. Existing JSON therefore retains
+`full` (default), `controller`, `native`, `events`, or `startup`. Existing JSON therefore retains
 all observers. Controller-only installs the actual four controller callbacks,
 without lifecycle/resource/CDP receivers, domain enable or DOM tick. Its empty
 real token owner retains common slot invalidation and terminal metadata.
@@ -153,13 +153,29 @@ checked counts of attempted activation/DOM SDK calls. No state borrow crosses
 those calls, and the existing quotas still bound all retained records.
 
 The same real native client now executes ordinary, controller-only,
-startup-only and full selected modes, each with all 16 edits, 64 exact value
+native-only, events-only, startup-only and full selected modes, each with all 16 edits, 64 exact value
 checks and unchanged 30/60/120-second client/nextest/wrapper bounds. Both
 original modes remain fatal and all four run before aggregate failure.
 Successful isolated modes additionally verify actual receiver identities,
-zero CDP calls for controller-only, real selected nodes and completed chains
+zero CDP calls for controller/native-only, exactly two activation calls and no
+DOM sampling for events-only, real selected nodes and completed chains
 for startup/full, and terminal token cleanup. Partial-mode success never
 substitutes for full selected or either unchanged Metis journey.
+
+The initial four-mode source `4e7b1968` / run 38769791520 passes ordinary
+16/64 in 3.812s and controller-only in 3.136s. Startup-only reaches the same
+30-second bound at weight 64 (60 retained); full selected fails its first
+reference replacement (demo retained). Both observe focus and admit every
+requested physical record. The controller callbacks are therefore unnecessary
+to reproduce. Startup-only reports 18,759 completed chains/112,555 DOM calls;
+full reports 20,113/120,681. Activation is exactly two and observer loss/error
+is absent in both; one request remains pending. This group-level result does
+not identify the final native call or attribute a particular CDP method.
+Native-only retains the six lifecycle/resource receivers without CDP or input
+callbacks. Events-only adds the three actual CDP receivers and original
+Runtime/Log activation, with no DOM tick. These additional controls distinguish
+the recurring sampling algorithm from passive subscription and activation;
+the original four modes and every bound remain unchanged.
 
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion

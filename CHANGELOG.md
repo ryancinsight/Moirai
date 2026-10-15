@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - [patch] The native UIA isolation now runs ordinary, controller-only,
-  startup-only and full selected observation
+  native-only, events-only, startup-only and full selected observation
   modes, retaining bounded operation-start/return, admitted physical input and
   exact value evidence. It preserves all sixteen replacements and sixty-four
   field-preservation checks. Native collection and successful host shutdown
@@ -24,8 +24,11 @@ Controlled source 23561b59 / run 38763941253 passes ordinary 16/64 and fails
 selected weight replacement. Private-parent experiment 27cd682d / run
 38766339399 passes ownership/focus/resize/lifetime and ordinary 16/64, but
 selected mode retains concentration 2 after input requests 4. That candidate
-is withdrawn; complete form acceptance remains open. The four-mode component
-comparison is source-compiled and awaits actual Windows execution.
+is withdrawn; complete form acceptance remains open. Four-mode source 4e7b1968
+/ run 38769791520 completes ordinary and controller-only 16/64, while startup
+and full selected modes retain earlier values after admitted input. Native
+event and CDP-activation controls now isolate the recurring DOM work; their
+Windows execution remains pending. All seventeen portable contracts pass.
 
 - [patch] Native parent focus synchronously enters its hosted WebView2
   controller with PROGRAMMATIC restoration of the previous page element.

@@ -102,10 +102,19 @@ mod tests {
     fn selection_admits_exact_named_observer_components() {
         let _trace = trace();
         let _test = tracing::info_span!("startup_component_selection").entered();
-        for (components, expected, controller, startup) in [
-            ("full", Components::Full, true, true),
-            ("controller", Components::Controller, true, false),
-            ("startup", Components::Startup, false, true),
+        for (components, expected, controller, native, cdp, sampling) in [
+            ("full", Components::Full, true, true, true, true),
+            (
+                "controller",
+                Components::Controller,
+                true,
+                false,
+                false,
+                false,
+            ),
+            ("native", Components::Native, false, true, false, false),
+            ("events", Components::Events, false, true, true, false),
+            ("startup", Components::Startup, false, true, true, true),
         ] {
             let text = tracing::info_span!("arrange", components).in_scope(|| {
                 json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
@@ -119,7 +128,30 @@ mod tests {
                 assert_eq!(actual.components, expected);
                 assert_eq!(actual.components.as_str(), components);
                 assert_eq!(actual.components.controller(), controller);
-                assert_eq!(actual.components.startup(), startup);
+                assert_eq!(actual.components.native(), native);
+                assert_eq!(actual.components.cdp(), cdp);
+                assert_eq!(actual.components.sampling(), sampling);
+            });
+        }
+    }
+
+    #[test]
+    fn selection_admits_native_and_event_controls_without_changing_selectors() {
+        let _trace = trace();
+        let _test = tracing::info_span!("startup_passive_controls").entered();
+        for components in ["native", "events"] {
+            let text = tracing::info_span!("arrange", components).in_scope(|| {
+                json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
+                    .to_string()
+            });
+            let selected = tracing::info_span!("act").in_scope(|| {
+                Selection::decode(&text, "x").expect("real passive component control")
+            });
+            tracing::info_span!("assert").in_scope(|| {
+                assert_eq!(selected.start_uri, "x");
+                assert_eq!(selected.selectors, ["#状態-🦀"]);
+                assert_eq!(selected.components.as_str(), components);
+                assert!(!selected.components.controller());
             });
         }
     }

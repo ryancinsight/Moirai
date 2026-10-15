@@ -47,16 +47,20 @@ and reaches dose after the preceding three exact replacements, then fails the
 30-second admission bound (31.721s including cleanup). The final phase record
 does not distinguish unconsumed input from a blocked native getter. Both
 ordinary and selected modes now retain bounded actual operation/input/value
-receipts. Controlled baseline23561b59 / run38763941253 passes ordinary16/64
-but selected mode admits weight64 input while the last changed value remains60.
-Private-parent experiment27cd682d / run38766339399 passes33 policy and ten
+receipts. Controlled baseline 23561b59 / run 38763941253 passes ordinary 16/64
+but selected mode admits weight 64 input while the last changed value remains 60.
+Private-parent experiment 27cd682d / run 38766339399 passes 33 policy and ten
 installed cases, including focus ownership, resize and native lifetime, plus
-ordinary16/64; selected mode fails after6 edits/24 checks at concentration4
-while UIA retains2. The candidate is withdrawn. Its quota-bound tail does not
+ordinary 16/64; selected mode fails after 6 edits/24 checks at concentration 4
+while UIA retains 2. The candidate is withdrawn. Its quota-bound tail does not
 identify the final active getter. The next real-component comparison keeps
-all four ordinary/controller/startup/full-selected modes fatal with computed
+all six ordinary/controller/native/events/startup/full selected modes fatal with computed
 token/command identities and unchanged input/value/deadline gates. It does
 not substitute for the full managed STA actor's acceptance evidence.
+Four-mode source 4e7b1968 / run 38769791520 completes ordinary and controller-only
+16/64 but startup-only/full retain weight 60/demo after admitted 64/Unicode input.
+Their 112,555/120,681 actual DOM attempts establish recurring work, not the
+particular failed method; native/event controls remain pending.
 
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 

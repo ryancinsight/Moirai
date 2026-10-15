@@ -39,7 +39,10 @@ isolates field delivery; it does not replace the complete Metis actor/journey.
 Its controlled ordinary baseline completes 16 replacements/64 preservation
 checks while selected mode fails. The private-parent experiment also fails
 selected delivery and is withdrawn. The next native comparison isolates actual
-controller callbacks from startup/CDP observers; full selected and ordinary
+controller callbacks from startup/CDP observers. Four-mode Windows execution
+passes ordinary and controller-only, while startup-only and full selected
+fail before a complete replacement journey. Two more controls distinguish
+native events and CDP activation from DOM sampling; full selected and ordinary
 acceptance remain required, with exact Unicode and every deadline unchanged.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
