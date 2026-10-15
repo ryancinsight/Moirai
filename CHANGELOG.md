@@ -9,22 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- [patch] Each Windows controller now owns a private native parent. Actual
-  inner-parent focus enters its controller child synchronously without COM,
-  retries or a LostFocus repair policy. Resize and destruction follow the same
-  owner; sibling and foreign focus remain outside admission. Strict Windows
-  compilation passes; installed-runtime and full Metis acceptance are pending.
-
 - [patch] The native UIA isolation now runs ordinary and selected observation
   modes, retaining bounded operation-start/return, admitted physical input and
   exact value evidence. It preserves all sixteen replacements and sixty-four
   field-preservation checks. Native collection and successful host shutdown
   explicitly admit fixture-directory removal; unresolved ownership retains
-  the real directories and fails acceptance. Baseline run 38763941253 completes
-  ordinary mode (16 replacements/64 preservation checks); selected mode admits
-  weight 64 input but retains 60 before its unchanged deadline. The observation
-  quota prevents identifying the final active call. Both modes must pass on
-  the private-parent candidate before consumer replay.
+  the real directories and fails acceptance. Both native modes remain pending.
 
 - [patch] Both canonical locks select Rustls 0.23.46 to satisfy the current
   advisory gate; every other dependency record remains unchanged.
@@ -39,9 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Full Metis form acceptance remains open: run 38750658426 still fails the
   second dose replacement. A native MTA UIA fixture now isolates actual field
   focus, physical input and exact UTF-16 ValuePattern data, preserving every
-  other field after each replacement. Its controlled mode comparison now
-  establishes observer-sensitive native delivery; it does not establish the
-  complete PowerShell journey's renderer or Rust dispatch outcome.
+  other field after each replacement. No additional production focus policy
+  follows from that incomplete consumer result.
 - [patch] The explicitly selected private Windows diagnostic observes actual
   controller focus and eligible accelerator keys. Native callbacks preserve
   Handled and input, retain fixed bounded records and defer formatting/tracing

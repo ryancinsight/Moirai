@@ -36,9 +36,6 @@ impl WebViewHost {
         }
         let mut first_error = self.window.clear_focus_target().err();
         self.focus.take();
-        if let Some(container) = &self.container {
-            container.deactivate();
-        }
         if let Some(mut startup) = self.startup.take()
             && let Err(error) = startup.close()
         {
@@ -93,11 +90,6 @@ impl WebViewHost {
             first_error.get_or_insert(error);
         }
         self.webview.take();
-        if let Some(mut container) = self.container.take()
-            && let Err(error) = container.close()
-        {
-            first_error.get_or_insert(error);
-        }
         if let Some(observer) = observer
             && let Err(error) = observer.wait(self.config.wait())
         {

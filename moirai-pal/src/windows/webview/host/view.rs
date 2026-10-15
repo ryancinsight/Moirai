@@ -43,7 +43,6 @@ use super::{
 
 /// A thread-affine WebView2 controller hosted inside one [`NativeWindow`].
 pub struct WebViewHost {
-    pub(super) container: Option<super::container::ControllerContainer>,
     pub(super) focus: Option<Rc<super::focus::ControllerFocus>>,
     pub(super) startup: Option<super::diagnostics::Startup>,
     pub(super) window: NativeWindow,
@@ -100,9 +99,8 @@ impl WebViewHost {
         config.validate_directories()?;
         let apartment = ComApartment::initialize()?;
         let environment = create_environment(config.wait(), config.user_data_folder())?;
-        let container = super::container::ControllerContainer::new(window.hwnd)?;
-        let controller = create_controller(&environment, container.hwnd, config.wait())?;
-        present_in_client_area(&controller, container.hwnd)?;
+        let controller = create_controller(&environment, window.hwnd, config.wait())?;
+        present_in_client_area(&controller, window.hwnd)?;
         let webview = unsafe { controller.CoreWebView2() }.map_err(windows_error)?;
         let settings = unsafe { webview.Settings() }.map_err(windows_error)?;
         unsafe {
@@ -119,7 +117,6 @@ impl WebViewHost {
         let state = Rc::new(RefCell::new(WebViewState::new()?));
         let current_uri = Rc::new(RefCell::new(String::new()));
         let mut host = Self {
-            container: Some(container),
             focus: None,
             startup: None,
             window,
@@ -136,10 +133,6 @@ impl WebViewHost {
         };
         host.install_callbacks()?;
         host.navigate_and_wait(host.config.start_uri().to_owned())?;
-        host.container
-            .as_ref()
-            .ok_or_else(closed_error)?
-            .activate()?;
         host.focus = Some(super::focus::ControllerFocus::attach(
             &mut host.window,
             host.controller.as_ref().ok_or_else(closed_error)?,
@@ -172,10 +165,6 @@ impl WebViewHost {
             ));
         }
         let controller = self.controller.as_ref().ok_or_else(closed_error)?;
-        self.container
-            .as_ref()
-            .ok_or_else(closed_error)?
-            .resize(right, bottom)?;
         unsafe {
             controller
                 .SetBounds(RECT {

@@ -119,17 +119,6 @@ jobs:
               "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
               "test(=windows::webview::host::diagnostics::input::tests::installed_runtime_restores_controller_input_after_native_parent_focus)",
           ], env=environment, check=True, timeout=120)
-          for native_test in (
-              "windows::webview::host::diagnostics::input::tests::installed_runtime_restores_controller_input_after_private_parent_focus",
-              "windows::webview::host::container::tests::installed_runtime_owns_private_parent_and_rejects_destroyed_handle_use",
-          ):
-              subprocess.run([
-                  "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
-                  "--no-default-features", "--features", "webview2",
-                  "--config-file", ".config/nextest.toml", "--test-threads", "1",
-                  "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
-                  f"test(={native_test})",
-              ], env=environment, check=True, timeout=120)
       - name: Require ordinary and selected native UIA field delivery
         shell: python
         run: |

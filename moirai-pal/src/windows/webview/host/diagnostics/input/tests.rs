@@ -1,7 +1,6 @@
 //! Real SendInput reaches installed controller callbacks with Handled unchanged.
 
 use crate::windows::window::focus::NativeFocusTarget;
-mod ownership;
 use crate::windows::{
     webview::{
         WebViewHost,
@@ -23,30 +22,16 @@ use windows::Win32::UI::{
 #[test]
 #[ignore = "requires an installed WebView2 runtime, visible desktop and explicit native observations"]
 fn installed_runtime_observes_controller_input_without_handling() {
-    observe_controller_input(FocusEntry::Controller);
+    observe_controller_input(false);
 }
 
 #[test]
 #[ignore = "requires an installed WebView2 runtime, visible desktop and explicit native observations"]
 fn installed_runtime_restores_controller_input_after_native_parent_focus() {
-    observe_controller_input(FocusEntry::ApplicationParent);
+    observe_controller_input(true);
 }
 
-#[test]
-#[ignore = "requires an installed WebView2 runtime, visible desktop and explicit native observations"]
-fn installed_runtime_restores_controller_input_after_private_parent_focus() {
-    observe_controller_input(FocusEntry::PrivateParent);
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum FocusEntry {
-    Controller,
-    ApplicationParent,
-    PrivateParent,
-}
-
-fn observe_controller_input(entry: FocusEntry) {
-    let native_parent_focus = entry != FocusEntry::Controller;
+fn observe_controller_input(native_parent_focus: bool) {
     let (trace, _subscriber) = tracing();
     let _test = tracing::info_span!("controller_native_input").entered();
     let (package, mut host) = tracing::info_span!("arrange").in_scope(|| {
@@ -96,19 +81,13 @@ fn observe_controller_input(entry: FocusEntry) {
             // the controller synchronously. No test-side MoveFocus follows
             // this transition; subsequent input uses the actual recipient.
             unsafe {
-                let target = if entry == FocusEntry::PrivateParent {
-                    ownership::private_parent(&host)
-                } else { host.window.hwnd };
-                SetFocus(Some(target)).expect("actual parent focus request");
+                SetFocus(Some(host.window.hwnd)).expect("actual parent focus request");
                 let recipient = GetFocus();
                 assert!(
                     IsChild(host.window.hwnd, recipient).as_bool(),
                     "native parent focus must restore its controller: parent={:?}, recipient={recipient:?}",
                     host.window.hwnd
                 );
-                if entry == FocusEntry::PrivateParent {
-                    assert!(IsChild(target,recipient).as_bool(), "private parent entry reaches its SDK child");
-                }
             }
         });
     }
@@ -119,11 +98,7 @@ fn observe_controller_input(entry: FocusEntry) {
         let layout = unsafe {
             let focus = GetFocus();
             assert!(!focus.is_invalid());
-            let thread = GetWindowThreadProcessId(focus, None);
-            assert_ne!(thread, 0, "actual recipient thread lookup");
-            let layout = GetKeyboardLayout(thread);
-            assert!(!layout.is_invalid(), "actual recipient HKL");
-            layout
+            GetKeyboardLayout(GetWindowThreadProcessId(focus, None))
         };
         std::array::from_fn::<_, 6, _>(|index| {
             // SAFETY: the SDK maps one admitted virtual key using that HKL.
@@ -221,7 +196,6 @@ fn observe_controller_input(entry: FocusEntry) {
             assert_ne!(record["kind"], "quota_exhausted");
         }
     });
-    let foreign = native_parent_focus.then(|| ownership::preserve_external_focus(&mut host));
     let closed_target =
         native_parent_focus.then(|| host.focus.as_ref().expect("live focus owner").clone());
     tracing::info_span!("act")
@@ -242,9 +216,6 @@ fn observe_controller_input(entry: FocusEntry) {
                 .downcast_ref::<windows::core::Error>()
                 .expect("actual SDK error");
             assert!(native.code().is_err(), "actual HRESULT remains failed");
-        }
-        if let Some(foreign) = &foreign {
-            ownership::assert_foreign_focus(foreign);
         }
         let observations = trace.observations();
         let closed = observations.last().expect("actual close metadata");

@@ -31,7 +31,7 @@ error retention. Miri/release SemVer remain skipped. A fresh external consumer
 resolves the exact Git candidate with no local overrides. Independent receipts
 bind the actual merge tree, eight artifact members, five payload originals and
 ten producer inputs; the producer's source_dirty=true remains explicit and
-does not establish a clean whole checkout. Full Metis run 38750658426
+does not establish a clean whole checkout. Full Metis run 38750658426 remains
 fails functionally after 501 script passes and one Apple-only skip in 44.777s:
 the second dose remains 0.25 after requested 0.5. The controller emits
 Lost/Got/Lost (last two 5.5us apart) while the actual focus remains on an owned
@@ -47,17 +47,8 @@ and reaches dose after the preceding three exact replacements, then fails the
 30-second admission bound (31.721s including cleanup). The final phase record
 does not distinguish unconsumed input from a blocked native getter. Both
 ordinary and selected modes now retain bounded actual operation/input/value
-receipts. Controlled source 23561b59 / run 38763941253 completes ordinary
-mode (16 replacements and 64 preservation checks) in 5.683s. Selected mode
-admits actual focus, four Ctrl+A and four Unicode input records for weight
-64, while the last changed native value remains 60. Query 99 returns before
-the fixture diagnostic quota; the final active call remains unavailable.
-Selected admission reaches the same 30-second bound and unsuccessful first
-close retains WouldBlock. This establishes observation-sensitive native input,
-not a proved blocked getter. The candidate private native controller parent
-now compiles under strict Windows Clippy; native ownership, inner focus,
-sibling/foreign focus, resize/lifetime, both 16/64 modes and the full managed
-STA journeys remain runtime acceptance gaps.
+receipts; their new native execution remains pending. The isolated MTA result
+is not the full managed STA actor's acceptance evidence.
 
 ## Native bridge verification boundary — 2026-10-14 [patch]
 
