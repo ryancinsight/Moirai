@@ -108,6 +108,17 @@ ordinary spans remain on inherited stderr. Native stop/collection errors remain
 failed acceptance even after remaining cleanup attempts; host close can unblock
 a pending remote UIA call, and final collection precedes profile cleanup.
 
+Fadaeaaa's refined native run 38758440683 observes focus for all first-row
+fields (13/7/2/1 samples), then reaches its original 30-second admission bound
+in the dose path. Its tail does not identify which native operation remains
+active or retain the current dose. The next isolation therefore runs both
+ordinary and selected modes against the same production source and records
+bounded operation entry/return, native insertion counts, recipients and actual
+value changes. Neither mode drops the 16/64 domain or extends a time limit;
+both results are required. Actual collection and host-close evidence admit
+directory removal, including unwind paths, and unavailable proof retains the
+owned directories as a failed cleanup outcome.
+
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion
 precedes `Log.enable`, whose successful completion precedes Navigate. Every

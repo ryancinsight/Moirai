@@ -42,6 +42,13 @@ Its first cde46135 execution fails the immediate UIA focus-property assertion
 before any input, in 2.225s. Refined completion observation retains the same
 deadline and exact input/value assertions; no persistent-focus or complete
 form mechanism follows from the first isolated result.
+Refined fadaeaaa / run 38758440683 confirms all first-row UIA focus properties
+and reaches dose after the preceding three exact replacements, then fails the
+30-second admission bound (31.721s including cleanup). The final phase record
+does not distinguish unconsumed input from a blocked native getter. Both
+ordinary and selected modes now retain bounded actual operation/input/value
+receipts; their new native execution remains pending. The isolated MTA result
+is not the full managed STA actor's acceptance evidence.
 
 ## Native bridge verification boundary — 2026-10-14 [patch]
 

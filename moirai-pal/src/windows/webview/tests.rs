@@ -2,8 +2,6 @@
 
 use std::{
     io,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -16,6 +14,9 @@ use super::{
 };
 
 mod bridge;
+mod package;
+pub(super) use package::TestPackage;
+use package::file_uri;
 mod permissions;
 mod preview;
 pub(super) mod startup;
@@ -387,100 +388,4 @@ window.chrome.webview.postMessage({"module": origin});"#,
     );
     host.close().expect("close WebView2 host");
     std::fs::remove_dir_all(&folder).expect("remove mapped folder");
-}
-
-pub(super) struct TestPackage {
-    pub(super) directory: PathBuf,
-    pub(super) entry: PathBuf,
-    pub(super) profile: PathBuf,
-}
-
-impl TestPackage {
-    pub(super) fn create() -> Self {
-        Self::create_with_script(
-            br#"<!doctype html><meta charset="utf-8"><script>
-window.chrome.webview.postMessage({"ready":true});
-</script>"#,
-        )
-    }
-
-    pub(super) fn create_with_script(script: &[u8]) -> Self {
-        static NEXT_PACKAGE: AtomicUsize = AtomicUsize::new(0);
-        let id = NEXT_PACKAGE.fetch_add(1, Ordering::Relaxed);
-        let directory =
-            std::env::temp_dir().join(format!("moirai-webview2-{}-{id}", std::process::id()));
-        std::fs::create_dir(&directory).expect("create unique package directory");
-        let entry = directory.join("index.html");
-        std::fs::write(&entry, script).expect("write package entry");
-        let profile = directory.with_file_name(format!(
-            "moirai-webview2-profile-{}-{id}",
-            std::process::id()
-        ));
-        Self {
-            directory,
-            entry,
-            profile,
-        }
-    }
-
-    pub(super) fn fresh_config(&self) -> WebViewConfig {
-        std::fs::create_dir(&self.profile).expect("create exclusively owned fresh profile");
-        WebViewConfig::folder(
-            "metis.invalid",
-            &self.directory,
-            "index.html",
-            Duration::from_millis(u64::from(
-                crate::webview_limits::MAX_WEBVIEW_WAIT_MILLISECONDS,
-            )),
-        )
-        .expect("secure packaged origin")
-        .with_user_data_folder(&self.profile)
-        .expect("fresh local profile")
-    }
-
-    pub(super) fn cleanup(&self) -> io::Result<()> {
-        std::fs::remove_dir_all(&self.directory)?;
-        std::fs::remove_dir_all(&self.profile)
-    }
-
-    fn uri(&self) -> String {
-        let entry = self
-            .entry
-            .canonicalize()
-            .expect("temporary package entry is canonical");
-        file_uri(&entry)
-    }
-}
-
-impl Drop for TestPackage {
-    fn drop(&mut self) {
-        for folder in [&self.directory, &self.profile] {
-            if let Err(error) = std::fs::remove_dir_all(folder)
-                && error.kind() != io::ErrorKind::NotFound
-            {
-                tracing::error!(path = %folder.display(), error = %error, "WebView2 fixture directory cleanup failed");
-            }
-        }
-    }
-}
-
-fn file_uri(path: &Path) -> String {
-    let path = path
-        .to_str()
-        .expect("temporary package path is valid UTF-8")
-        .replace('\\', "/");
-    let path = path.strip_prefix("//?/").unwrap_or(&path);
-    let mut uri = String::from("file:///");
-    for byte in path.bytes() {
-        if matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':')
-        {
-            uri.push(char::from(byte));
-        } else {
-            const HEX: &[u8; 16] = b"0123456789ABCDEF";
-            uri.push('%');
-            uri.push(char::from(HEX[usize::from(byte >> 4)]));
-            uri.push(char::from(HEX[usize::from(byte & 0x0f)]));
-        }
-    }
-    uri
 }

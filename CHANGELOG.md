@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] The native UIA isolation now runs ordinary and selected observation
+  modes, retaining bounded operation-start/return, admitted physical input and
+  exact value evidence. It preserves all sixteen replacements and sixty-four
+  field-preservation checks. Native collection and successful host shutdown
+  explicitly admit fixture-directory removal; unresolved ownership retains
+  the real directories and fails acceptance. Both native modes remain pending.
+
 - [patch] Both canonical locks select Rustls 0.23.46 to satisfy the current
   advisory gate; every other dependency record remains unchanged.
 - [patch] Native parent focus synchronously enters its hosted WebView2
