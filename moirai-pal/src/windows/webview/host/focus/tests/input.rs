@@ -52,6 +52,18 @@ impl Observations {
         self.field = field;
     }
 
+    pub(super) fn exhausted(&self) -> bool {
+        self.budget.snapshot().exhausted
+    }
+
+    pub(super) fn replacement(&self) -> usize {
+        self.replacement
+    }
+
+    pub(super) fn field_name(&self) -> &'static str {
+        self.field
+    }
+
     pub(super) fn record(&mut self, value: Value) {
         if self.encoding_failed {
             return;

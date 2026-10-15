@@ -232,8 +232,20 @@ Snapshot must still complete exactly one chain. Pure transition coverage
 settles every document/query/HTML stage with fresh admission disabled, then
 admits work on the next caller turn. Exact zero/fractional/inclusive native
 deadline tests preserve the existing millisecond conversion. These Windows
-tests are source-compiled locally; actual eight-mode and full Metis execution
-remain required before claiming a corrected form.
+tests pass in Windows run38779895376 (36 policy cases). That run still fails
+startup-only on final dose0.125 after15/60 checks; actual UIA remains0.5.
+Full selected16/64 passes; quota exhausts during the run, so it does not establish
+active observation throughout the journey. Startup-only remains active and
+within the derived work bound: coalescing alone is insufficient. All eight
+owning environments report154.0.4258.62. Both complete Metis journeys remain
+required; its unchanged graph cannot admit the new allocator cohort without
+a separate Gaia/Eunomia upgrade.
+
+The [opt-in live-value probe](../focus/tests/renderer.md) now observes one
+DOMSnapshot after a returned persistent UIA mismatch. Its separate execution
+preserves the original eight-mode gate, input, observations and all deadlines.
+Exact sparse live values can distinguish attribute/AX observations from
+renderer state, subject to layout flushing and non-atomic read timing.
 
 
 The original navigation deadline starts before registration/activation.

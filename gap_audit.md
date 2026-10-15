@@ -68,10 +68,16 @@ All six actual owning environments report154.0.4258.62. Eight-mode controls
 now distinguish domain activation, one complete original snapshot and
 continuous work, with every original input/assertion/deadline unchanged.
 Source197924cd domain and snapshot controls both complete16/64; only
-continuous modes fail under actual154.0.4258.62. The caller-budget coalescing
-candidate now separates existing-stage progress from new-chain admission
-without a new interval or timeout. Actual ongoing observations, eight-mode
-values/cleanup and both full consumer journeys remain unverified.
+continuous modes fail under actual154.0.4258.62. Coalescing9cf4d47a /
+run38779895376 enforces the work bound, but active startup-only observation
+still fails the final dose0.125 (UIA0.5), after15/60 checks. Full selected16/64
+passes; shared observer quota exhausts during the run. This cannot prove active
+observation for every edit. No renderer live value is retained by outerHTML.
+The opt-in fixture probe requests one DOMSnapshot after a returned post-quota
+UIA mismatch, using a separate Weak callback and the same absolute deadline.
+Layout flushing may affect timing; it is an observation experiment, not a
+repair. Original eight-mode assertions remain fatal. Strict MSVC compilation
+passes; actual probe values and both full consumer journeys remain unverified.
 
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 

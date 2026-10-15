@@ -25,6 +25,7 @@ pub(super) struct NativeClient {
     child: Child,
     collection: Collection,
     termination_attempted: bool,
+    probe: Option<super::renderer::Probe>,
 }
 
 #[derive(Debug)]
@@ -64,6 +65,7 @@ impl Error for CollectionErrors {
 
 impl NativeClient {
     pub(super) fn spawn(handle: usize, mode: super::ObservationMode) -> io::Result<Self> {
+        let probe = super::renderer::Probe::new(handle, mode);
         Command::new(std::env::current_exe()?)
             .args(["--exact", super::TEST_NAME, "--ignored", "--nocapture"])
             .env(super::CLIENT_ENV, handle.to_string())
@@ -76,6 +78,7 @@ impl NativeClient {
                 child,
                 collection: Collection::Running,
                 termination_attempted: false,
+                probe,
             })
     }
 
@@ -88,12 +91,24 @@ impl NativeClient {
             if let Some(status) = self.observe_exit()? {
                 return Ok(status);
             }
-            let remaining = deadline.saturating_duration_since(Instant::now());
+            let mut remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "actual MTA UIA client exceeded 30 seconds",
                 ));
+            }
+            if let Some(probe) = &mut self.probe {
+                let stdout = self
+                    .child
+                    .stdout
+                    .as_mut()
+                    .ok_or_else(|| io::Error::other("UIA probe stdout missing"))?;
+                probe.poll(stdout, host, deadline);
+                remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    continue;
+                }
             }
             host.wait_events(remaining.min(Duration::from_millis(25)))?;
         }
@@ -185,6 +200,12 @@ impl NativeClient {
         self.read_completion()
     }
 
+    pub(super) fn close_probe(&mut self) -> io::Result<()> {
+        self.probe
+            .as_mut()
+            .map_or(Ok(()), super::renderer::Probe::close)
+    }
+
     fn read_completion(&mut self) -> io::Result<super::client::Completion> {
         // This client creates no browser or descendant process. Its only
         // stdout is libtest status plus a computed completion (<1 KiB for the
@@ -195,14 +216,25 @@ impl NativeClient {
             .stdout
             .take()
             .ok_or_else(|| io::Error::other("UIA client stdout missing"))?;
-        let mut bytes = Vec::new();
-        stdout
-            .take(crate::webview_limits::MAX_WEBVIEW_MESSAGE_BYTES as u64 + 1)
-            .read_to_end(&mut bytes)?;
+        let mut bytes = self
+            .probe
+            .as_mut()
+            .map_or_else(Vec::new, super::renderer::Probe::take_stdout);
         if bytes.len() > crate::webview_limits::MAX_WEBVIEW_MESSAGE_BYTES {
             return Err(io::Error::other(
                 "UIA client output exceeds the existing byte limit",
             ));
+        }
+        let remaining =
+            crate::webview_limits::MAX_WEBVIEW_MESSAGE_BYTES.saturating_sub(bytes.len());
+        stdout.take(remaining as u64 + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > crate::webview_limits::MAX_WEBVIEW_MESSAGE_BYTES {
+            return Err(io::Error::other(
+                "UIA client output exceeds the existing byte limit",
+            ));
+        }
+        if let Some(probe) = &mut self.probe {
+            probe.validate_stdout(&bytes)?;
         }
         let text = std::str::from_utf8(&bytes).map_err(io::Error::other)?;
         let mut receipts = text

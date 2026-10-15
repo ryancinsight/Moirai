@@ -21,8 +21,8 @@ use windows::{
     core::Interface,
 };
 
-const FIELDS: [&str; 4] = ["reference", "weight", "concentration", "dose"];
-const CASES: [(&str, &str, &str, &str); 4] = [
+pub(super) const FIELDS: [&str; 4] = ["reference", "weight", "concentration", "dose"];
+pub(super) const CASES: [(&str, &str, &str, &str); 4] = [
     ("患者-🦀-one", "64", "2", "0.25"),
     ("患者-🦀-two", "80", "4", "0.5"),
     ("患者-invalid", "80", "0", "0.5"),
@@ -73,6 +73,7 @@ pub(super) fn replace_fields(
     deadline: Instant,
 ) -> Completion {
     let mut observations = Observations::new(mode, 0);
+    let mut probe = super::renderer::Emitter::new(handle, mode);
     // SAFETY: this worker owns its MTA and all UIA client interfaces.
     observations
         .operation("CoInitializeEx", || unsafe {
@@ -113,7 +114,13 @@ pub(super) fn replace_fields(
             super::input::select_all(handle, &mut observations);
             let expected_units: Vec<_> = expected.encode_utf16().collect();
             super::input::insert_unicode(handle, expected, &mut observations);
-            await_value(&pattern, &expected_units, deadline, &mut observations);
+            await_value(
+                &pattern,
+                &expected_units,
+                deadline,
+                &mut observations,
+                &mut probe,
+            );
             values.insert(id, expected_units);
             for (other_id, expected_units) in &values {
                 let other = unique(&automation, &root, other_id, deadline, &mut observations);
@@ -246,6 +253,7 @@ fn await_value(
     expected: &[u16],
     deadline: Instant,
     observations: &mut Observations,
+    probe: &mut super::renderer::Emitter,
 ) {
     let mut queries = 0_usize;
     let mut previous = None;
@@ -266,6 +274,7 @@ fn await_value(
                 .record(json!({"kind":"value_completed", "queries":queries,"units":actual}));
             break;
         }
+        probe.mismatch(observations, expected, &actual, queries, deadline);
         assert!(
             Instant::now() < deadline,
             "UIA replacement: expected units {expected:?}, actual units {actual:?}"

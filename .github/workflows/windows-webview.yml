@@ -120,6 +120,7 @@ jobs:
               "test(=windows::webview::host::diagnostics::input::tests::installed_runtime_restores_controller_input_after_native_parent_focus)",
           ], env=environment, check=True, timeout=120)
       - name: Require ordinary, isolated and selected native UIA field delivery
+        id: uia-matrix
         shell: python
         run: |
           import json
@@ -129,6 +130,7 @@ jobs:
           failures = []
           for mode in ("ordinary", "controller", "native", "events", "domain", "snapshot", "startup", "selected"):
               environment = os.environ.copy()
+              environment.pop("MOIRAI_NATIVE_UIA_RENDERER_PROBE", None)
               environment["MOIRAI_NATIVE_UIA_OBSERVATION_MODE"] = mode
               if mode != "ordinary":
                   selection = {
@@ -159,6 +161,30 @@ jobs:
                   failures.append({"mode": mode, "timeout_seconds": error.timeout})
           if failures:
               raise RuntimeError("Native UIA modes failed: " + json.dumps(failures, sort_keys=True))
+      - name: Observe live renderer values after a returned persistent UIA mismatch
+        if: ${{ always() && steps.uia-matrix.outcome != 'skipped' }}
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+
+          environment = os.environ.copy()
+          environment["MOIRAI_NATIVE_UIA_OBSERVATION_MODE"] = "startup"
+          environment["MOIRAI_NATIVE_UIA_RENDERER_PROBE"] = "1"
+          environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+              "start_uri": "https://metis.invalid/index.html",
+              "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
+              "components": "startup",
+          }, separators=(",", ":"))
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+              "--success-output", "immediate", "-E",
+              "test(=windows::webview::host::focus::tests::installed_runtime_delivers_uia_focused_unicode_replacements)",
+          ], env=environment, check=True, timeout=120)
       - name: Compile the actual Rust native bridge payload
         shell: pwsh
         run: >-

@@ -7,6 +7,7 @@ mod client;
 mod composition;
 mod input;
 mod process;
+mod renderer;
 
 use crate::windows::{
     webview::{
@@ -139,6 +140,7 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
     let result = tracing::info_span!("act").in_scope(|| child.wait(&mut host, deadline));
     let child_cleanup = child.close();
     let completion = child.completion();
+    let probe_cleanup = child.close_probe();
     let host_cleanup = host.close();
     // Native termination errors remain failures. Closing the remote host can
     // unblock an outstanding UIA call; collect again before profile cleanup.
@@ -149,6 +151,7 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
         for (operation, error) in [
             ("UIA client close", child_cleanup.as_ref().err()),
             ("UIA final collection", final_child_cleanup.as_ref().err()),
+            ("renderer probe", probe_cleanup.as_ref().err()),
             ("WebView close", host_cleanup.as_ref().err()),
             ("profile cleanup", profile_cleanup.as_ref().err()),
         ] {
@@ -172,6 +175,7 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
         completion
             .expect("actual computed child completion")
             .verify(host.window.hwnd.0 as usize, mode);
+        probe_cleanup.expect("independent renderer diagnostic");
         host_cleanup.expect("WebView close");
         mode.verify_closed(&trace.observations());
         profile_cleanup.expect("owned profile cleanup");

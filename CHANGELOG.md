@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Add an opt-in native fixture probe for one live DOMSnapshot after a
+  returned persistent UIA mismatch. Exact sparse inputValue, node/frame
+  ownership, UTF-16 values, native admission/errors and unobserved replies
+  remain distinct. Bounded incremental stdout preserves the original computed
+  completion; the independent Weak callback retires before host Close.
+  A separate Windows invocation retains all original modes and time limits.
+  This diagnostic can flush layout; it is not a text-delivery correction.
+
 - [patch] Coalesce continuous diagnostic completions within the caller's
   existing native wait. Pending stages still advance; observation-only wakes
   cannot start another chain or reset the deadline. Actual event batches,
@@ -16,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Fresh selector/HTML reads, original bindings and every input/assertion/budget
   remain. The native gate verifies recurring samples and derived admission/call
   bounds. Domain activation and one snapshot already pass all16/64, isolating
-  continuous work; corrected runtime/full consumer results remain pending.
+  continuous work. Run38779895376 still fails startup-only15/60; full16/64
+  exhausts the observer quota. No full-form correction is established.
 
 - [patch] Add real DOM-domain-only and single-complete-snapshot input controls.
   Original full/ordinary and prior controls remain fatal, with the exact
@@ -25,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   availability. The document-binding reuse candidate 8c49630c fails first
   reference replacement under startup/full sampling and is withdrawn; it is
   not a form correction. Eighteen portable selection/ownership contracts and
-  strict Windows diagnostics pass; eight-mode native execution remains pending.
+  strict Windows diagnostics pass; the eight-mode native gate remains red.
 
 - [patch] The native UIA isolation now runs ordinary, controller-only,
   native-only, events-only, domain-only, snapshot-only, startup-only and full selected observation
