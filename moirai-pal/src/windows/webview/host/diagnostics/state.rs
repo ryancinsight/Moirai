@@ -37,6 +37,8 @@ pub(super) struct State {
     pub(super) stale: u64,
     pub(super) last: Vec<Option<Value>>,
     metadata_sent: bool,
+    #[cfg(test)]
+    pub(super) fixture_input: bool,
 }
 
 impl State {
@@ -60,13 +62,15 @@ impl State {
             description_calls_attempted: 0,
             stale: 0,
             metadata_sent: false,
+            #[cfg(test)]
+            fixture_input: false,
         }
     }
 
     pub(super) fn record(&mut self, value: &Value) -> bool {
         match self.budget.record(value) {
             Ok(RecordAdmission::Admitted(encoded)) => {
-                emit(&encoded);
+                self.emit(&encoded);
                 true
             }
             Ok(RecordAdmission::Exhausted { first: true }) => {
@@ -174,10 +178,23 @@ impl State {
             "document_calls_attempted":self.document_calls_attempted.to_string(),
             "description_calls_attempted":self.description_calls_attempted.to_string(),
             "failed":self.failed,"cleanup_failed":cleanup_failed || self.cleanup_failed}).to_string();
-        emit(&encoded);
+        self.emit(&encoded);
         if kind == "closed" {
             self.metadata_sent = true;
         }
+    }
+
+    fn emit(&self, encoded: &str) {
+        #[cfg(test)]
+        if self.fixture_input {
+            // This owner has an independent existing-size quota. Its INFO
+            // target cannot enter the canonical startup collector or alter
+            // main-owner registration, quota and closed observations.
+            tracing::info!(target: "moirai_pal::native_uia_fixture",
+                event = "uia_controller_probe_observation", observation = %encoded);
+            return;
+        }
+        emit(encoded);
     }
 }
 

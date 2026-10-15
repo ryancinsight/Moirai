@@ -135,8 +135,7 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
     });
     mode.verify_installed(&host, &trace.observations());
     let deadline = Instant::now() + Duration::from_secs(30);
-    let mut child = process::NativeClient::spawn(host.window.hwnd.0 as usize, mode)
-        .expect("real UIA client process");
+    let mut child = process::NativeClient::spawn(&host, mode).expect("real UIA client process");
     let result = tracing::info_span!("act").in_scope(|| child.wait(&mut host, deadline));
     let child_cleanup = child.close();
     let completion = child.completion();

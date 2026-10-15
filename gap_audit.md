@@ -77,7 +77,14 @@ The opt-in fixture probe requests one DOMSnapshot after a returned post-quota
 UIA mismatch, using a separate Weak callback and the same absolute deadline.
 Layout flushing may affect timing; it is an observation experiment, not a
 repair. Original eight-mode assertions remain fatal. Strict MSVC compilation
-passes; actual probe values and both full consumer journeys remain unverified.
+passes. Run38785314523/source9aca passes original128 edits/512 checks and43
+policy cases, but the independent probe fails concentration4 after6/24. All
+physical records admit; UIA and the timely live snapshot both report2, with
+owned focus and active sampler. The requested value is absent from the live field at
+that point; stale UIA alone is insufficient. Its exact routing cause and both
+full consumer journeys remain unverified. The next opt-in variant adds
+canonical controller receipt with a separate existing-size quota/INFO sink;
+all original modes stay untouched. Native execution remains pending.
 
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 

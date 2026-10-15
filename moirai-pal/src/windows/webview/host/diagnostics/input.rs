@@ -34,6 +34,11 @@ pub(super) struct Observer {
 }
 
 impl Observer {
+    #[cfg(test)]
+    pub(super) fn checkpoint(&self) -> (std::time::Instant, u64) {
+        self.queue.checkpoint()
+    }
+
     pub(super) fn new(controller: &ICoreWebView2Controller, state: &Shared) -> io::Result<Self> {
         let mut observer = Self {
             controller: controller.clone(),

@@ -15,7 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remain distinct. Bounded incremental stdout preserves the original computed
   completion; the independent Weak callback retires before host Close.
   A separate Windows invocation retains all original modes and time limits.
-  This diagnostic can flush layout; it is not a text-delivery correction.
+  Windows9aca validates43 policy cases and all eight original modes, but the
+  separate probe fails concentration4 after6/24: timely liveDOM and UIA both
+  report2. This rules out stale UIA alone at that point. The diagnostic can
+  flush layout; it is not a text-delivery correction.
+- [patch] The opt-in probe now also reuses canonical controller callbacks with
+  an independent64KiB state/256-entry queue and separate INFO sink. Default
+  production emission and the original matrix remain unchanged. Parent clock
+  origins/sequence checkpoints permit correlation without aligning child
+  clocks; all-token cleanup and controller-reference release precede host
+  Close. Native execution of this diagnostic variant remains pending.
 
 - [patch] Coalesce continuous diagnostic completions within the caller's
   existing native wait. Pending stages still advance; observation-only wakes

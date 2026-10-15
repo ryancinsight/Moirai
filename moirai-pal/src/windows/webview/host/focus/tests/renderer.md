@@ -51,3 +51,31 @@ fields in one capture. OuterHTML cannot answer this question; injected JS would
 change the established diagnostic boundary. Decoder/framing/owner/deadline
 unit cases and strict MSVC Clippy cover the source contract; the installed
 Windows invocation must establish actual method support and retained values.
+
+Run38785314523/source9aca passes all eight original modes and43 policy cases,
+but its separate snapshot diagnostic fails concentration4 after6/24. The
+requested Unicode record[52] and four Ctrl+A records all admit. A returned
+UIA query100 reports[50], followed through stdout/SDK ordering by a timely
+snapshot with live concentration[50]. Other fields remain patienttwo/80/0.25.
+No Rust form handler exists in this fixture. The sampler remains active,
+unexhausted and error-free. These facts exclude stale UIA alone at that
+snapshot point; they do not identify a focus/routing/synchronization cause.
+
+The next opt-in variant adds four canonical controller receivers, with a
+separate existing64KiB State/256-entry queue. Its INFO target keeps records and
+quota/closed metadata out of the main DEBUG collector. Only this fixture owner
+selects that sink; production and original matrix paths keep their exact
+emission. The main DOM sampler cannot stop because this independent input
+quota exhausts. SDK argument/user32 reads and Copy enqueue remain the entire
+callback body; deferred flush performs formatting. Synchronous accelerator
+callbacks can change timing, so this is an additional observation intervention.
+
+At a mismatch, a checkpoint logs the actual callback sequence and queue origin
+offset from the parent probe's Instant. Adding that offset to callback elapsed
+nanoseconds uses one parent monotonic clock. No child elapsed clock is aligned.
+The snapshot owner closes and releases its borrow before input token-removal
+COM. The adapter attempts all removals, preserves the first failure and
+callback/loss flags, closes its slot and releases its controller clone before
+host Close. Quota exhaustion is explicit uncertainty, not complete receipt.
+A State/TraceBudget/real-subscriber unit verifies that the independent owner's
+exhaustion and terminal metadata cannot enter or exhaust the main collector.

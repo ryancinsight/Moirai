@@ -64,8 +64,9 @@ impl Error for CollectionErrors {
 }
 
 impl NativeClient {
-    pub(super) fn spawn(handle: usize, mode: super::ObservationMode) -> io::Result<Self> {
-        let probe = super::renderer::Probe::new(handle, mode);
+    pub(super) fn spawn(host: &WebViewHost, mode: super::ObservationMode) -> io::Result<Self> {
+        let handle = host.window.hwnd.0 as usize;
+        let probe = super::renderer::Probe::new(host, mode)?;
         Command::new(std::env::current_exe()?)
             .args(["--exact", super::TEST_NAME, "--ignored", "--nocapture"])
             .env(super::CLIENT_ENV, handle.to_string())

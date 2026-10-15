@@ -9,7 +9,9 @@ mod channel;
 mod protocol;
 pub(super) use channel::Emitter;
 
+use super::super::super::diagnostics::FixtureInput;
 use super::{ObservationMode, WebViewHost};
+use crate::webview_startup::{SELECTION_ENV, Selection};
 use std::{
     cell::{Cell, RefCell},
     io,
@@ -67,6 +69,7 @@ pub(super) struct Probe {
     mode: ObservationMode,
     started: Instant,
     channel: channel::Channel,
+    controller: FixtureInput,
     reply: Rc<RefCell<Reply>>,
     callback: Option<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>,
     triggered: bool,
@@ -79,12 +82,24 @@ pub(super) struct Probe {
 }
 
 impl Probe {
-    pub(super) fn new(handle: usize, mode: ObservationMode) -> Option<Self> {
-        channel::enabled().then(|| Self {
-            handle,
+    pub(super) fn new(host: &WebViewHost, mode: ObservationMode) -> io::Result<Option<Self>> {
+        if !channel::enabled() {
+            return Ok(None);
+        }
+        let started = Instant::now();
+        let encoded = std::env::var(SELECTION_ENV).map_err(io::Error::other)?;
+        let selection = Selection::decode(&encoded, host.config.start_uri())?;
+        let controller = host
+            .controller
+            .as_ref()
+            .ok_or_else(|| io::Error::other("controller probe has no actual controller"))?;
+        let controller = FixtureInput::new(controller, selection)?;
+        Ok(Some(Self {
+            handle: host.window.hwnd.0 as usize,
             mode,
-            started: Instant::now(),
+            started,
             channel: channel::Channel::default(),
+            controller,
             reply: Rc::default(),
             callback: None,
             triggered: false,
@@ -94,10 +109,13 @@ impl Probe {
             deadline: None,
             late: false,
             error: None,
-        })
+        }))
     }
 
     pub(super) fn poll(&mut self, stdout: &mut ChildStdout, host: &WebViewHost, deadline: Instant) {
+        // Callbacks have returned before this owner-thread flush. This separate
+        // quota never retires or exhausts the still-active startup sampler.
+        self.controller.flush();
         if self.error.is_some() {
             return;
         }
@@ -117,6 +135,14 @@ impl Probe {
     ) -> io::Result<()> {
         if let Some(progress) = self.channel.poll(stdout)? {
             progress.validate(self.handle, self.mode)?;
+            let (origin, sequence) = self.controller.checkpoint()?;
+            let origin = origin
+                .checked_duration_since(self.started)
+                .ok_or_else(|| io::Error::other("controller probe origin precedes parent probe"))?;
+            tracing::info!(event="uia_controller_probe_checkpoint", sequence=%sequence,
+                queue_origin_parent_ns=%origin.as_nanos(),
+                parent_elapsed_ns=%self.started.elapsed().as_nanos(),
+                "callback sequence at returned UIA mismatch; both origins belong to this parent clock");
             tracing::info!(event="uia_renderer_probe_trigger", progress=?progress,
                 parent_elapsed_ns=%self.started.elapsed().as_nanos(), "returned native mismatch point observation");
             if self.triggered {
@@ -226,14 +252,27 @@ impl Probe {
             }
         }
         let mut reply = self.reply.borrow_mut();
-        if !reply.closed {
+        let retiring = !reply.closed;
+        let retired_at = Instant::now();
+        if retiring {
             reply.closed = true;
-            tracing::info!(event="uia_renderer_probe_closed", triggered=self.triggered, attempted=self.attempted, admitted=self.admitted, completed=self.completed,
-                late=self.late,
-                pending=self.admitted && !self.completed, failed=self.error.is_some(),
-                parent_elapsed_ns=%self.started.elapsed().as_nanos(), "retire independent probe before host Close; late result remains unobserved");
             reply.response = None;
             self.callback = None;
+        }
+        drop(reply);
+        // No reply borrow crosses token-removal COM; the snapshot owner is
+        // already closed, even if removal reenters a late completion.
+        if let Err(error) = self.controller.close() {
+            tracing::error!(%error, "independent controller probe close failed");
+            if self.error.is_none() {
+                self.error = Some(error);
+            }
+        }
+        if retiring {
+            tracing::info!(event="uia_renderer_probe_closed", triggered=self.triggered, attempted=self.attempted, admitted=self.admitted, completed=self.completed,
+                late=self.late, pending=self.admitted && !self.completed, failed=self.error.is_some(),
+                retired_parent_ns=%retired_at.duration_since(self.started).as_nanos(),
+                parent_elapsed_ns=%self.started.elapsed().as_nanos(), "snapshot owner retires before controller token cleanup and host Close; final status retains cleanup errors");
         }
         self.error.take().map_or(Ok(()), Err)
     }

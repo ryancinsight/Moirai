@@ -54,6 +54,11 @@ pub(super) struct Queue {
 }
 
 impl Queue {
+    #[cfg(test)]
+    pub(super) fn checkpoint(&self) -> (Instant, u64) {
+        (self.started, self.sequence.get())
+    }
+
     pub(super) fn new() -> Self {
         Self {
             pending: RefCell::new(Deferred::new()),

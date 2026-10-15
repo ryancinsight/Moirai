@@ -55,7 +55,13 @@ completes 16/64; its observer exhausts its quota during the run. That does not p
 observation stays active through the journey. The root cause remains open.
 An opt-in, fixture-only one-shot DOMSnapshot now separates live input values
 from UIA reports without injected JavaScript. Its separate diagnostic run
-preserves every original gate and deadline; installed execution is pending.
+preserves every original gate and deadline. Run38785314523 passes all eight
+original modes (128 edits/512 preservation checks), but the separate probe
+fails concentration4 after6/24. UIA and a timely live snapshot both report2;
+the renderer responds while the original sampler remains active. This point
+rules out stale UIA alone, without identifying the delivery cause. The next
+opt-in variant reuses canonical controller callbacks with their own quota to
+trace eligible-key/focus receipt alongside live values; its execution is pending.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The
