@@ -1,5 +1,6 @@
 //! Real SendInput reaches installed controller callbacks with Handled unchanged.
 
+use crate::windows::window::focus::NativeFocusTarget;
 use crate::windows::{
     webview::{
         WebViewHost,
@@ -195,9 +196,27 @@ fn observe_controller_input(native_parent_focus: bool) {
             assert_ne!(record["kind"], "quota_exhausted");
         }
     });
+    let closed_target =
+        native_parent_focus.then(|| host.focus.as_ref().expect("live focus owner").clone());
     tracing::info_span!("act")
         .in_scope(|| host.close().expect("remove actual controller callbacks"));
     tracing::info_span!("assert").in_scope(|| {
+        if let Some(target) = closed_target {
+            let error = target
+                .focus()
+                .expect_err("closed native controller rejects focus");
+            assert!(
+                error
+                    .to_string()
+                    .contains("WebView2 MoveFocus(PROGRAMMATIC)")
+            );
+            let native = error
+                .get_ref()
+                .expect("retained native source")
+                .downcast_ref::<windows::core::Error>()
+                .expect("actual SDK error");
+            assert!(native.code().is_err(), "actual HRESULT remains failed");
+        }
         let observations = trace.observations();
         let closed = observations.last().expect("actual close metadata");
         assert_eq!(closed["kind"], "closed");

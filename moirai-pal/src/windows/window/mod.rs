@@ -8,6 +8,8 @@
 mod accessibility;
 mod config;
 mod event;
+#[cfg(feature = "webview2")]
+pub(crate) mod focus;
 mod hotkey;
 mod input;
 mod menu_bar;

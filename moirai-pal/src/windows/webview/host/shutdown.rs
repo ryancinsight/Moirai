@@ -34,11 +34,12 @@ impl WebViewHost {
                 None => Ok(()),
             };
         }
-        let mut first_error = None;
+        let mut first_error = self.window.clear_focus_target().err();
+        self.focus.take();
         if let Some(mut startup) = self.startup.take()
             && let Err(error) = startup.close()
         {
-            first_error = Some(error);
+            first_error.get_or_insert(error);
         }
         let observer = if self.config.user_data_folder().is_some() {
             match self.webview.as_ref().zip(self.environment.as_ref()) {

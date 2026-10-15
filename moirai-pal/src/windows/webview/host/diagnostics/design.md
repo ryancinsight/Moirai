@@ -30,9 +30,9 @@ close, preserving the first error after remaining cleanup.
 Accelerator callbacks prove that an eligible key reaches this controller.
 They do not prove renderer default action, DOM value change or Rust submission.
 Unicode packets are not all eligible accelerators. Missing callbacks and a
-collapsed UIA range do not establish where text is lost. No MoveFocus change,
-input retry, extra sleep, acceptance predicate or time-limit change follows
-without actual native evidence. The installed-runtime fixture exercises real
+collapsed UIA range do not establish where text is lost. Input retries, extra
+sleeps, acceptance predicate or time-limit changes do not follow from these
+observations. The installed-runtime fixture exercises real
 foreground/controller focus and physical Ctrl+A/Escape, checking SDK values,
 unchanged Handled, bounded output and callback/profile cleanup.
 
@@ -52,9 +52,22 @@ focused page element. The regression starts with actual controller focus,
 calls native SetFocus(parent), requires an actual descendant recipient, and
 sends the same six physical Ctrl+A/Escape records without a subsequent
 test-side MoveFocus. Existing Handled, scan/release and cleanup assertions
-apply to both entry paths. Its installed Windows failure on unchanged host
-code is required before a focus correction; Metis's unchanged full journey
-remains the causal acceptance gate.
+apply to both entry paths. [Baseline Windows run 38748681812](https://github.com/ryancinsight/Moirai/actions/runs/38748681812),
+source `7a5b3073`, fails that assertion in 1.957s because parent and recipient
+are the same HWND. Its original controller-entry fixture passes in 7.193s.
+
+The correction binds one private Weak native-window focus target to a stable,
+host-owned Rc controller target. WM_SETFOCUS calls PROGRAMMATIC synchronously
+after releasing every WindowState borrow; queued event replay could let later
+input precede forwarding. Window and WebView dependencies remain one-way. Bind
+also forwards an already-focused parent, only when GetFocus equals that parent;
+it never claims focus from a different recipient. Close revokes the weak target
+before controller shutdown and preserves pending native failures. MoveFocus
+failure retains its operation, HRESULT and typed SDK source. The regression
+also calls the actual closed controller and checks that failure retention.
+No raw host address, subclass context, Handled setter or input synthesis enters
+this route. Metis's unchanged full journey remains the causal acceptance gate;
+the fixed provider and consumer Windows results remain pending.
 
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion

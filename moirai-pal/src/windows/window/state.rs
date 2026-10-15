@@ -25,6 +25,8 @@ pub(super) struct PresentedFrame {
 
 #[derive(Debug)]
 pub(super) struct WindowState {
+    #[cfg(feature = "webview2")]
+    pub(super) focus_target: Option<std::rc::Weak<dyn super::focus::NativeFocusTarget>>,
     pub(super) events: VecDeque<WindowEvent>,
     pub(super) hotkey_presses: VecDeque<u16>,
     pub(super) menu_commands: VecDeque<u16>,
@@ -56,6 +58,8 @@ impl WindowState {
             .try_reserve(MAX_PENDING_TRAY_EVENTS)
             .map_err(|_| allocation_error())?;
         Ok(Self {
+            #[cfg(feature = "webview2")]
+            focus_target: None,
             events,
             hotkey_presses,
             menu_commands,

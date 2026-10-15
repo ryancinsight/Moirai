@@ -11,10 +11,10 @@ belong in [gap_audit.md](gap_audit.md).
 - status: todo
 - priority: correctness
 - outcome: Bound actual controller focus and accelerator receipt separately from UIA values, renderer consumption and Rust submission.
-- scope: Default-off private Windows startup owner; deferred callback records and exact token cleanup. No supported API, Handled/focus setter, input or deadline change.
+- scope: Default-off private Windows startup owner; deferred callback records and exact token cleanup. Synchronous private native-parent focus delegation follows the reproduced host contract; supported APIs, Handled, input and deadlines stay unchanged.
 - acceptance: Portable capacity/order/loss laws, strict Windows SDK diagnostics, installed real Ctrl+A/Escape observations and the unchanged Metis full-form/script gates.
 - verification: Fifteen selection/quota/request/buffer tests and strict Windows SDK diagnostics pass. Actual Windows run 38743789587 passes 31 policy/frame cases and the real Ctrl+A/Escape fixture in 7.306s with Handled and cleanup assertions. Broader run 38745823182 rejects existing Rustls 0.23.45 advisories; only the Rustls record changes to 0.23.46 in each lock. The Metis 05a2e7c replay retains diagnostic source 924dd8ac and unchanged acceptance.
-- next step: Execute the new real native-parent focus regression on unchanged host code. Metis run 38745314161 passes 502 scripts in 34.004s and completes its first exact Unicode calculation, then reports controller LostFocus with no further key receipt before the second patient replacement. Require baseline/fix evidence before adopting synchronous focus forwarding.
+- next step: Validate synchronous private native-parent focus delegation, then both unchanged Metis full-form journeys. Baseline Windows run 38748681812 fails the real parent-focus assertion in 1.957s (recipient remains parent); its original controller-entry fixture passes in 7.193s. Metis run 38745314161 passes 502 scripts in 34.004s and its first Unicode calculation, then loses controller focus before patient two. Corrected Windows results remain pending.
 - basis: Moirai protected default `2b189f0a`; Metis PR 504 final-head run 38685234146 reaches Ready, accepts earlier fields and retains dose 0.2 after requested 0.25. Its 502 scripts pass in 40.796s.
 
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>

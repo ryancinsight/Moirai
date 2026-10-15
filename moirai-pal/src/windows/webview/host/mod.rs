@@ -4,6 +4,7 @@ mod callbacks;
 mod com;
 mod diagnostics;
 mod error;
+mod focus;
 mod frame;
 mod hotkey;
 mod lifecycle;

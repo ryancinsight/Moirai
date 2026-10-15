@@ -22,6 +22,10 @@ controller focus and accelerator observations. Synchronous input callbacks
 retain values and return before tracing; they never change Handled, focus,
 input or deadlines. Installed-runtime and Metis form acceptance remain separate
 checks under the [diagnostic contract](moirai-pal/src/windows/webview/host/diagnostics/design.md).
+The same patch restores synchronous native-parent focus entry through
+MoveFocus(PROGRAMMATIC), with weak callback ownership and typed native errors.
+The unchanged-host Windows regression leaves focus at the parent and fails;
+corrected provider and full Metis form results remain pending.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

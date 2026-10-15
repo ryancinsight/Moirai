@@ -21,7 +21,12 @@ Metis run 38745314161 passes all 502 scripts in 34.004s and completes the first
 Unicode calculation, then retains controller LostFocus and no further key
 callbacks before the second patient replacement. The new installed regression
 requires native SetFocus(parent) to restore controller receipt synchronously;
-its baseline and corrected Windows results remain pending.
+baseline Windows run 38748681812 fails in 1.957s because the keyboard recipient
+remains the parent HWND, while original direct-controller receipt passes.
+The private synchronous Weak/Rc focus correction preserves native reentrancy,
+typed errors and clear-before-Close ownership. Corrected provider and full
+consumer Windows results remain pending; the host regression alone does not
+establish complete form correctness.
 
 ## Native bridge verification boundary — 2026-10-14 [patch]
 

@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [patch] Both canonical locks select Rustls 0.23.46 to satisfy the current
   advisory gate; every other dependency record remains unchanged.
+- [patch] Native parent focus synchronously enters its hosted WebView2
+  controller with PROGRAMMATIC restoration of the previous page element.
+  A private weak binding avoids borrowed state across native reentrancy and
+  revokes admission before controller Close; errors retain their typed SDK
+  source, HRESULT and focus operation. The real unchanged-host regression
+  fails because the recipient remains the parent HWND. Corrected Windows
+  runtime and full Metis form acceptance remain pending.
 - [patch] The explicitly selected private Windows diagnostic observes actual
   controller focus and eligible accelerator keys. Native callbacks preserve
   Handled and input, retain fixed bounded records and defer formatting/tracing
@@ -24,8 +31,8 @@ The exact diagnostic source `924dd8ac` passes the actual Windows gate in
 real Ctrl+A/Escape fixture (7.306s), preserving Handled and owned cleanup.
 The later full-workspace run rejects the preceding Rustls 0.23.45 locks; the
 targeted correction `499ed39e` passes its full Rust Workspace gate. A real
-native-parent focus regression now specifies the missing entry contract;
-no functional focus correction is yet applied or established.
+native-parent focus regression now reproduces the missing entry contract in
+run 38748681812 (1.957s); the correction awaits its own native runtime evidence.
 
 ## [0.9.2] - Unreleased
 
