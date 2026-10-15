@@ -1,5 +1,6 @@
 //! Closed selection data belongs to the fixture, not the native mechanism.
 
+use super::components::Components;
 use crate::webview_limits::{
     MAX_WEBVIEW_EVENTS, MAX_WEBVIEW_MESSAGE_BYTES, MAX_WEBVIEW_MESSAGE_UNITS, validate_message,
 };
@@ -12,6 +13,8 @@ use std::{collections::BTreeSet, io};
 pub(crate) struct Selection {
     pub(crate) start_uri: String,
     pub(crate) selectors: Vec<String>,
+    #[serde(default)]
+    pub(crate) components: Components,
 }
 
 impl Selection {
@@ -90,8 +93,35 @@ mod tests {
         tracing::info_span!("assert").in_scope(|| {
             assert_eq!(value.start_uri, "https://example.invalid/index.html");
             assert_eq!(value.selectors, selectors);
+            assert_eq!(value.components, Components::Full);
             assert_eq!(SELECTION_ENV, "MOIRAI_WEBVIEW_STARTUP_OBSERVATION");
         });
+    }
+
+    #[test]
+    fn selection_admits_exact_named_observer_components() {
+        let _trace = trace();
+        let _test = tracing::info_span!("startup_component_selection").entered();
+        for (components, expected, controller, startup) in [
+            ("full", Components::Full, true, true),
+            ("controller", Components::Controller, true, false),
+            ("startup", Components::Startup, false, true),
+        ] {
+            let text = tracing::info_span!("arrange", components).in_scope(|| {
+                json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
+                    .to_string()
+            });
+            let actual = tracing::info_span!("act")
+                .in_scope(|| Selection::decode(&text, "x").expect("real component selection"));
+            tracing::info_span!("assert").in_scope(|| {
+                assert_eq!(actual.start_uri, "x");
+                assert_eq!(actual.selectors, ["#状態-🦀"]);
+                assert_eq!(actual.components, expected);
+                assert_eq!(actual.components.as_str(), components);
+                assert_eq!(actual.components.controller(), controller);
+                assert_eq!(actual.components.startup(), startup);
+            });
+        }
     }
 
     #[test]
@@ -114,6 +144,9 @@ mod tests {
                 ),
                 (r#"{"start_uri":"x","selectors":false}"#, "invalid type"),
                 (r#"{"start_uri":"x"}"#, "missing field"),
+                (r#"{"start_uri":"x","selectors":["p"],"components":"other"}"#, "unknown variant"),
+                (r#"{"start_uri":"x","selectors":["p"],"components":null}"#, "expected value"),
+                (r#"{"start_uri":"x","selectors":["p"],"components":"full","components":"controller"}"#, "duplicate field"),
                 (
                     r#"{"start_uri":"x","selectors":["p"]} true"#,
                     "trailing characters",

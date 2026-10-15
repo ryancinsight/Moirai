@@ -23,7 +23,7 @@ the dependency owner.
 
 ## Browser I/O
 
-Workspace 0.9.3 extends the default-off private Windows diagnostic with bounded
+Workspace 0.9.4 extends the default-off private Windows diagnostic with bounded
 controller focus and accelerator observations. Synchronous input callbacks
 retain values and return before tracing; they never change Handled, focus,
 input or deadlines. Installed-runtime and Metis form acceptance remain separate
@@ -36,6 +36,11 @@ passes the real parent-entry regression and all nine installed fixtures.
 Full Metis form acceptance remains open: run 38750658426 still retains the
 second dose after a Lost/Got/Lost controller transition. A real MTA UIA fixture
 isolates field delivery; it does not replace the complete Metis actor/journey.
+Its controlled ordinary baseline completes 16 replacements/64 preservation
+checks while selected mode fails. The private-parent experiment also fails
+selected delivery and is withdrawn. The next native comparison isolates actual
+controller callbacks from startup/CDP observers; full selected and ordinary
+acceptance remain required, with exact Unicode and every deadline unchanged.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

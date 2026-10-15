@@ -34,10 +34,11 @@ fn installed_runtime_restores_controller_input_after_native_parent_focus() {
 fn observe_controller_input(native_parent_focus: bool) {
     let (trace, _subscriber) = tracing();
     let _test = tracing::info_span!("controller_native_input").entered();
-    let (package, mut host) = tracing::info_span!("arrange").in_scope(|| {
-        let package = TestPackage::create_with_script(
+    let (mut package, mut host) = tracing::info_span!("arrange").in_scope(|| {
+        let mut package = TestPackage::create_with_script(
             br#"<!doctype html><meta charset="utf-8"><input autofocus value="actual seed"><p id="host-status">native input</p><output id="result">unsubmitted</output>"#,
         );
+        package.permit_cleanup(false);
         let window = NativeWindow::new(
             &WindowConfig::with_visibility("Moirai actual controller input", 480, 320, WindowVisibility::Visible)
                 .expect("window configuration"),
@@ -200,6 +201,7 @@ fn observe_controller_input(native_parent_focus: bool) {
         native_parent_focus.then(|| host.focus.as_ref().expect("live focus owner").clone());
     tracing::info_span!("act")
         .in_scope(|| host.close().expect("remove actual controller callbacks"));
+    package.permit_cleanup(true);
     tracing::info_span!("assert").in_scope(|| {
         if let Some(target) = closed_target {
             let error = target

@@ -14,6 +14,7 @@ fn trace() -> tracing::subscriber::DefaultGuard {
 
 fn state() -> (State, RequestId) {
     let mut state = State::new(Selection {
+        components: crate::webview_startup::Components::Full,
         start_uri: "https://startup.invalid/index.html".to_owned(),
         selectors: vec!["#status".to_owned(), "#result".to_owned()],
     });

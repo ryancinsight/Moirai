@@ -11,7 +11,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2
 pub(in super::super) struct Startup {
     state: Shared,
     tokens: Registrations,
-    input: input::Observer,
+    input: Option<input::Observer>,
 }
 
 impl Startup {
@@ -29,17 +29,30 @@ impl Startup {
             Err(error) => return Err(io::Error::new(io::ErrorKind::InvalidInput, error)),
         };
         let selection = Selection::decode(&encoded, config.start_uri())?;
+        let components = selection.components;
         let state = Rc::new(RefCell::new(State::new(selection)));
         let mut tokens =
             Registrations::new(webview, Rc::clone(&state)).map_err(io::Error::other)?;
-        let result =
-            native::install(&mut tokens, &state).and_then(|()| cdp::install(&mut tokens, &state));
+        let result = if components.startup() {
+            native::install(&mut tokens, &state).and_then(|()| cdp::install(&mut tokens, &state))
+        } else {
+            Ok(())
+        };
         if let Err(error) = result {
             state.borrow_mut().error("observer registration", &error);
             return Err(io::Error::other(error));
         }
-        state.borrow_mut().record(&json!({"kind":"registered"}));
-        let input = input::Observer::new(controller, &state)?;
+        let input = components
+            .controller()
+            .then(|| input::Observer::new(controller, &state))
+            .transpose()?;
+        let (native_receivers, cdp_receivers) = tokens.counts();
+        let controller_receivers = input.as_ref().map_or(0, input::Observer::registered);
+        state.borrow_mut().record(
+            &json!({"kind":"registered", "components":components.as_str(),
+            "native_receivers":native_receivers, "cdp_receivers":cdp_receivers,
+            "controller_receivers":controller_receivers}),
+        );
         Ok(Some(Self {
             state,
             tokens,
@@ -48,6 +61,9 @@ impl Startup {
     }
 
     pub(in super::super) fn activate(&self, deadline: Instant) -> io::Result<()> {
+        if !self.startup_enabled() {
+            return Ok(());
+        }
         for method in ["Runtime.enable", "Log.enable"] {
             let (sender, receiver) = mpsc::sync_channel(1);
             if let Err(error) = completion::enable(
@@ -75,13 +91,22 @@ impl Startup {
     }
 
     pub(in super::super) fn tick(&self) {
-        self.input.flush();
-        dom::tick(&self.tokens.webview, &self.state);
+        if let Some(input) = &self.input {
+            input.flush();
+        }
+        if self.startup_enabled() {
+            dom::tick(&self.tokens.webview, &self.state);
+        }
     }
 
     pub(in super::super) fn close(&mut self) -> io::Result<()> {
-        let input = self.input.close();
+        let input = self.input.as_mut().map_or(Ok(()), input::Observer::close);
         let tokens = self.tokens.close();
         input.and(tokens)
+    }
+
+    fn startup_enabled(&self) -> bool {
+        // This short borrow ends before any native call or callback dispatch.
+        self.state.borrow().selection.components.startup()
     }
 }

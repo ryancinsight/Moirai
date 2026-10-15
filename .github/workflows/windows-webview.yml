@@ -119,7 +119,7 @@ jobs:
               "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
               "test(=windows::webview::host::diagnostics::input::tests::installed_runtime_restores_controller_input_after_native_parent_focus)",
           ], env=environment, check=True, timeout=120)
-      - name: Require ordinary and selected native UIA field delivery
+      - name: Require ordinary, isolated and selected native UIA field delivery
         shell: python
         run: |
           import json
@@ -127,17 +127,20 @@ jobs:
           import subprocess
 
           failures = []
-          for mode in ("ordinary", "selected"):
+          for mode in ("ordinary", "controller", "startup", "selected"):
               environment = os.environ.copy()
               environment["MOIRAI_NATIVE_UIA_OBSERVATION_MODE"] = mode
-              if mode == "selected":
-                  environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+              if mode != "ordinary":
+                  selection = {
                       "start_uri": "https://metis.invalid/index.html",
                       "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
-                  }, separators=(",", ":"))
+                  }
+                  if mode != "selected":
+                      selection["components"] = mode
+                  environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps(selection, separators=(",", ":"))
               else:
                   environment.pop("MOIRAI_WEBVIEW_STARTUP_OBSERVATION", None)
-              # Run each mode even if the first fails; both retain the same
+              # Run every mode even if an earlier one fails; each retains the same
               # sixteen edits, sixty-four value checks and 30s client deadline.
               print(json.dumps({"native_uia_mode": mode, "stage": "start"}), flush=True)
               try:

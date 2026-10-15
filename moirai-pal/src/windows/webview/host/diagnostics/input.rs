@@ -160,6 +160,18 @@ impl Observer {
         self.queue.flush(&self.state);
     }
 
+    pub(super) fn registered(&self) -> usize {
+        [
+            self.gained.is_some(),
+            self.lost.is_some(),
+            self.moved.is_some(),
+            self.key.is_some(),
+        ]
+        .into_iter()
+        .filter(|present| *present)
+        .count()
+    }
+
     pub(super) fn close(&mut self) -> io::Result<()> {
         if self.queue.closed.replace(true) {
             return Ok(());

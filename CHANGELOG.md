@@ -5,16 +5,27 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.3] - Unreleased
+## [0.9.4] - Unreleased
 
 ### Fixed
 
-- [patch] The native UIA isolation now runs ordinary and selected observation
+- [patch] The native UIA isolation now runs ordinary, controller-only,
+  startup-only and full selected observation
   modes, retaining bounded operation-start/return, admitted physical input and
   exact value evidence. It preserves all sixteen replacements and sixty-four
   field-preservation checks. Native collection and successful host shutdown
   explicitly admit fixture-directory removal; unresolved ownership retains
-  the real directories and fails acceptance. Both native modes remain pending.
+  the real directories and fails acceptance. The private closed component
+  selection defaults to full observation; actual token and SDK call counts
+  identify each intervention. The original two acceptance modes remain fatal.
+  The shared native-input fixture also defers removal until proved shutdown.
+
+Controlled source 23561b59 / run 38763941253 passes ordinary 16/64 and fails
+selected weight replacement. Private-parent experiment 27cd682d / run
+38766339399 passes ownership/focus/resize/lifetime and ordinary 16/64, but
+selected mode retains concentration 2 after input requests 4. That candidate
+is withdrawn; complete form acceptance remains open. The four-mode component
+comparison is source-compiled and awaits actual Windows execution.
 
 - [patch] Native parent focus synchronously enters its hosted WebView2
   controller with PROGRAMMATIC restoration of the previous page element.
@@ -48,6 +59,8 @@ passes all 31 policy/frame cases and nine installed-runtime fixtures. All 16
 active checks pass on `bd88d2c5`; Miri and release SemVer are skipped, and the
 informational API check is not release compatibility proof. A fresh external
 consumer resolves the exact Git candidate with WebView2 and no local overrides.
+
+## [0.9.3] - 2026-10-15
 
 ### Changed
 

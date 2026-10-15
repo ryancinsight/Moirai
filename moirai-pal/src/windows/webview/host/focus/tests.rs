@@ -4,6 +4,7 @@
 //! selection/ownership observations and remains a separate acceptance gate.
 
 mod client;
+mod composition;
 mod input;
 mod process;
 
@@ -26,6 +27,8 @@ const TEST_NAME: &str = "windows::webview::host::focus::tests::installed_runtime
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ObservationMode {
     Ordinary,
+    Controller,
+    Startup,
     Selected,
 }
 
@@ -36,6 +39,8 @@ impl ObservationMode {
             .as_str()
         {
             "ordinary" => Self::Ordinary,
+            "controller" => Self::Controller,
+            "startup" => Self::Startup,
             "selected" => Self::Selected,
             mode => panic!("unknown fixture observation mode: {mode}"),
         }
@@ -44,6 +49,8 @@ impl ObservationMode {
     fn as_str(self) -> &'static str {
         match self {
             Self::Ordinary => "ordinary",
+            Self::Controller => "controller",
+            Self::Startup => "startup",
             Self::Selected => "selected",
         }
     }
@@ -52,7 +59,7 @@ impl ObservationMode {
         let selection = std::env::var_os(crate::webview_startup::SELECTION_ENV);
         match self {
             Self::Ordinary => assert!(selection.is_none(), "ordinary fixture has no selection"),
-            Self::Selected => {
+            Self::Selected | Self::Controller | Self::Startup => {
                 let actual: serde_json::Value = serde_json::from_str(
                     selection
                         .expect("selected fixture configuration")
@@ -60,13 +67,14 @@ impl ObservationMode {
                         .expect("UTF-8 selection"),
                 )
                 .expect("actual selected fixture JSON");
-                assert_eq!(
-                    actual,
-                    serde_json::json!({
-                        "start_uri": "https://metis.invalid/index.html",
-                        "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
-                    })
-                );
+                let mut expected = serde_json::json!({
+                    "start_uri": "https://metis.invalid/index.html",
+                    "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
+                });
+                if self != Self::Selected {
+                    expected["components"] = self.as_str().into();
+                }
+                assert_eq!(actual, expected);
             }
         }
     }
@@ -106,6 +114,7 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
         unsafe { assert!(SetForegroundWindow(host.window.hwnd).as_bool()); }
         (package, host)
     });
+    mode.verify_installed(&host, &trace.observations());
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut child = process::NativeClient::spawn(host.window.hwnd.0 as usize, mode)
         .expect("real UIA client process");
@@ -146,6 +155,7 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
             .expect("actual computed child completion")
             .verify(host.window.hwnd.0 as usize, mode);
         host_cleanup.expect("WebView close");
+        mode.verify_closed(&trace.observations());
         profile_cleanup.expect("owned profile cleanup");
     });
 }

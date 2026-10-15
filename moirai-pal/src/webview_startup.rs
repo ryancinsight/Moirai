@@ -26,12 +26,15 @@
 //! These are point observations under the existing native deadline, never a
 //! manufactured Ready event or a guarantee that a browser callback completes.
 
+mod components;
 mod config;
 #[cfg(any(all(windows, feature = "webview2"), test))]
 mod deferred;
 mod quota;
 mod state;
 
+#[cfg(all(windows, feature = "webview2", test))]
+pub(crate) use components::Components;
 #[cfg(all(windows, feature = "webview2"))]
 pub(crate) use config::Selection;
 #[cfg(all(windows, feature = "webview2"))]

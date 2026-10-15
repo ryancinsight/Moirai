@@ -29,6 +29,8 @@ pub(super) struct State {
     pub(super) failed: bool,
     pub(super) cleanup_failed: bool,
     pub(super) samples: u64,
+    pub(super) dom_calls_attempted: u64,
+    pub(super) activation_calls_attempted: u64,
     pub(super) stale: u64,
     pub(super) last: Vec<Option<Value>>,
     metadata_sent: bool,
@@ -48,6 +50,8 @@ impl State {
             failed: false,
             cleanup_failed: false,
             samples: 0,
+            dom_calls_attempted: 0,
+            activation_calls_attempted: 0,
             stale: 0,
             metadata_sent: false,
         }
@@ -136,6 +140,8 @@ impl State {
             "omitted":budget.omitted.to_string(),"exhausted":budget.exhausted,
             "generation":request.generation.to_string(),"pending":request.pending,
             "closed":request.closed,"samples":self.samples.to_string(),"stale":self.stale.to_string(),
+            "dom_calls_attempted":self.dom_calls_attempted.to_string(),
+            "activation_calls_attempted":self.activation_calls_attempted.to_string(),
             "failed":self.failed,"cleanup_failed":cleanup_failed || self.cleanup_failed}).to_string();
         emit(&encoded);
         if kind == "closed" {

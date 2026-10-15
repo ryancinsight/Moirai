@@ -8,7 +8,7 @@ Without both conditions no observer or DOM command is installed. Normal
 navigation, permission policy, page messages and product filters keep their
 existing owners. PAL contains no application selector constants.
 
-## Controller input boundary (0.9.3)
+## Controller input boundary (0.9.4)
 
 The same private selection additionally observes GotFocus, LostFocus,
 MoveFocusRequested and eligible AcceleratorKeyPressed callbacks on the actual
@@ -118,6 +118,48 @@ value changes. Neither mode drops the 16/64 domain or extends a time limit;
 both results are required. Actual collection and host-close evidence admit
 directory removal, including unwind paths, and unavailable proof retains the
 owned directories as a failed cleanup outcome.
+
+### Controlled observation-component comparison
+
+Baseline `23561b59` / Windows run 38763941253 completes ordinary mode's
+16 replacements and 64 preservation checks in 5.683s. Selected mode admits
+weight 64 input while the last changed ValuePattern remains 60, then reaches
+its unchanged 30-second bound. Its fixture log quota ends after query 99;
+the final active call is unavailable. Controller Lost/Got/Lost precedes the
+missing subsequent eligible key receipts. The observer completes 8,672 DOM
+chains (at least 52,032 CDP calls); without per-chain timestamps this proves
+additional work, not its timing or input-loss causality.
+
+Private-parent experiment `27cd682d` / run 38766339399 preserves the fixture,
+bounds, runner and actual WebView2 154.0.4258.62/SDK 0.39.1. It passes 33 policy
+and ten installed cases, including real inner focus, sibling/foreign focus,
+resize and destruction. Ordinary mode completes 16/64 in 7.428s; selected mode
+completes 6/24 then retains concentration 2 after admitted input requests 4.
+The next observed failing field does not establish a correction. The private
+container and its experiment-only assertions are withdrawn; source history
+and the exact terminal receipts remain reproducible. The independently proved
+outer-parent correction and original acceptance gates remain.
+
+The private selection now accepts a closed optional `components` enum:
+`full` (default), `controller`, or `startup`. Existing JSON therefore retains
+all observers. Controller-only installs the actual four controller callbacks,
+without lifecycle/resource/CDP receivers, domain enable or DOM tick. Its empty
+real token owner retains common slot invalidation and terminal metadata.
+Startup-only installs the existing native/CDP observation machinery without
+controller callbacks. This includes resource/lifecycle, Runtime/Log enable and
+DOM sampling; its label does not claim DOM-only isolation. No callback or
+computation is substituted. Records identify actual retained token counts and
+checked counts of attempted activation/DOM SDK calls. No state borrow crosses
+those calls, and the existing quotas still bound all retained records.
+
+The same real native client now executes ordinary, controller-only,
+startup-only and full selected modes, each with all 16 edits, 64 exact value
+checks and unchanged 30/60/120-second client/nextest/wrapper bounds. Both
+original modes remain fatal and all four run before aggregate failure.
+Successful isolated modes additionally verify actual receiver identities,
+zero CDP calls for controller-only, real selected nodes and completed chains
+for startup/full, and terminal token cleanup. Partial-mode success never
+substitutes for full selected or either unchanged Metis journey.
 
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion

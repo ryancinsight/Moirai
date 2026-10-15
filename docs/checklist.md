@@ -4,7 +4,7 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: 0.9.3 (workspace); moirai-webview 0.2.0
+**Target Version**: 0.9.4 (workspace); moirai-webview 0.2.0
 
 - [x] [patch] Fixed native callback storage preserves order and reports capacity loss; two portable tests pass.
 - [x] [patch] Production Windows SDK compilation admits private controller observations.
@@ -15,6 +15,7 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [ ] [patch] Source-bound Metis native form and complete Windows script acceptance.
 - [ ] [patch] Real MTA UIA focus completion, all sixteen exact Unicode/numeric replacements and preservation of every other field; the initial immediate-property probe fails before input and is not the Metis dose defect.
 - [ ] [patch] The unchanged 16/64 native isolation passes ordinary and selected modes with actual phase/input/value receipts; native collection and host-close proof admit directory removal, and every failure remains fatal.
+- [ ] [patch] The four-mode real-component comparison retains computed native receiver/command identities and all original input/value/deadline gates. Private-parent experiment 27cd682d fails selected delivery and is withdrawn.
 
 - [patch] The private allocator edge accepts Mnemosyne-memory 0.10; public
   mnemosyne-memory-core 0.3 budget types and all Rust implementations remain unchanged.
