@@ -2,7 +2,7 @@
 
 use crate::windows::webview::WebViewHost;
 use std::{
-    io,
+    io::{self, Read},
     process::{Child, Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
@@ -15,7 +15,7 @@ impl NativeClient {
             .args(["--exact", super::TEST_NAME, "--ignored", "--nocapture"])
             .env(super::CLIENT_ENV, handle.to_string())
             .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
+            .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
             .map(Self)
@@ -42,11 +42,69 @@ impl NativeClient {
     }
 
     pub(super) fn close(&mut self) -> io::Result<()> {
-        if self.0.try_wait()?.is_none() {
-            self.0.kill()?;
+        let mut first_error = None;
+        let mut may_collect = match self.0.try_wait() {
+            Ok(status) => status.is_some(),
+            Err(error) => {
+                first_error = Some(error);
+                false
+            }
+        };
+        if !may_collect {
+            match self.0.kill() {
+                Ok(()) => may_collect = true,
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
         }
-        self.0.wait()?;
-        Ok(())
+        if may_collect {
+            if let Err(error) = self.0.wait() {
+                first_error.get_or_insert(error);
+            }
+        } else if let Err(error) = self.0.try_wait().and_then(|status| {
+            status.ok_or_else(|| {
+                io::Error::other("native UIA client termination remains unconfirmed")
+            })
+        }) {
+            first_error.get_or_insert(error);
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    pub(super) fn completion(&mut self) -> io::Result<super::client::Completion> {
+        if self.0.try_wait()?.is_none() {
+            return Err(io::Error::other("native UIA client has not exited"));
+        }
+        // This client creates no browser or descendant process. Its only
+        // stdout is libtest status plus a computed completion (<1 KiB for the
+        // declared four-field domain); tracing uses inherited stderr.
+        let stdout = self
+            .0
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("UIA client stdout missing"))?;
+        let mut bytes = Vec::new();
+        stdout
+            .take(crate::webview_limits::MAX_WEBVIEW_MESSAGE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > crate::webview_limits::MAX_WEBVIEW_MESSAGE_BYTES {
+            return Err(io::Error::other(
+                "UIA client output exceeds the existing byte limit",
+            ));
+        }
+        let text = std::str::from_utf8(&bytes).map_err(io::Error::other)?;
+        let receipts: Vec<_> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix(super::COMPLETION_PREFIX))
+            .collect();
+        if receipts.len() != 1 {
+            return Err(io::Error::other(format!(
+                "expected one computed UIA completion, received {}: {text}",
+                receipts.len()
+            )));
+        }
+        serde_json::from_str(receipts[0]).map_err(io::Error::other)
     }
 }
 

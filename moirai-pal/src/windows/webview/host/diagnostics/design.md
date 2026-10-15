@@ -90,6 +90,24 @@ every other field. Parent admission stops at 30 seconds, then owns child
 termination/collection before controller/profile cleanup; nextest retains its
 existing strict 60-second limit. Primary and cleanup errors remain separate.
 
+Source cde46135's actual Windows run 38756775119 fails in 2.225s on its first
+immediate HasKeyboardFocus read, before any physical input. Its five controller
+records are Got/Lost/Got/Lost/Got; this is not the persistent b7 dose failure.
+The refined fixture observes HasKeyboardFocus completion within the same
+absolute 30-second bound and retains its apartment, sample count and elapsed
+time, then performs each input exactly once. Current upstream Chromium forwards
+the UIA focus action and returns S_OK independently from its separate focused
+property read; that architecture supports this observation protocol but is
+not a source match to the installed WebView2 runtime.
+
+The child emits a typed computed completion bound to the actual HWND, sixteen
+completed replacements, sixty-four preservation checks and all four final raw
+UTF-16 values. Successful exit with no matching receipt rejects, including a
+stale libtest selector. Its bounded stdout contains no browser descendants;
+ordinary spans remain on inherited stderr. Native stop/collection errors remain
+failed acceptance even after remaining cleanup attempts; host close can unblock
+a pending remote UIA call, and final collection precedes profile cleanup.
+
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion
 precedes `Log.enable`, whose successful completion precedes Navigate. Every

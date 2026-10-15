@@ -14,10 +14,12 @@ use crate::windows::{
     },
     window::{NativeWindow, WindowConfig, WindowVisibility},
 };
+use std::io::Write;
 use std::time::{Duration, Instant};
 use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
 
 const CLIENT_ENV: &str = "MOIRAI_NATIVE_UIA_CLIENT_WINDOW";
+const COMPLETION_PREFIX: &str = "MOIRAI_UIA_COMPLETED ";
 const TEST_NAME: &str = "windows::webview::host::focus::tests::installed_runtime_delivers_uia_focused_unicode_replacements";
 
 #[test]
@@ -31,7 +33,12 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
             .expect("decimal HWND")
             .parse()
             .expect("native HWND");
-        client::replace_fields(handle, Instant::now() + Duration::from_secs(30));
+        let completion = client::replace_fields(handle, Instant::now() + Duration::from_secs(30));
+        completion.verify(handle);
+        // Computed child-protocol receipt, separate from libtest's status text.
+        let encoded = serde_json::to_string(&completion).expect("actual UIA completion JSON");
+        writeln!(std::io::stdout(), "\n{COMPLETION_PREFIX}{encoded}")
+            .expect("actual UIA completion output");
         return;
     }
     let (package, mut host) = tracing::info_span!("arrange").in_scope(|| {
@@ -48,11 +55,16 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
         process::NativeClient::spawn(host.window.hwnd.0 as usize).expect("real UIA client process");
     let result = tracing::info_span!("act").in_scope(|| child.wait(&mut host, deadline));
     let child_cleanup = child.close();
+    let completion = child.completion();
     let host_cleanup = host.close();
+    // Native termination errors remain failures. Closing the remote host can
+    // unblock an outstanding UIA call; collect again before profile cleanup.
+    let final_child_cleanup = child.close();
     let profile_cleanup = package.cleanup();
     tracing::info_span!("assert").in_scope(|| {
         for (operation, error) in [
             ("UIA client close", child_cleanup.as_ref().err()),
+            ("UIA final collection", final_child_cleanup.as_ref().err()),
             ("WebView close", host_cleanup.as_ref().err()),
             ("profile cleanup", profile_cleanup.as_ref().err()),
         ] {
@@ -72,6 +84,10 @@ fn installed_runtime_delivers_uia_focused_unicode_replacements() {
             trace.observations()
         );
         child_cleanup.expect("UIA client cleanup");
+        final_child_cleanup.expect("UIA final client collection");
+        completion
+            .expect("actual computed child completion")
+            .verify(host.window.hwnd.0 as usize);
         host_cleanup.expect("WebView close");
         profile_cleanup.expect("owned profile cleanup");
     });

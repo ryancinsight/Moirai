@@ -11,7 +11,15 @@ use windows::Win32::UI::{
 
 pub(super) fn select_all(handle: usize) {
     let focus = recipient(handle);
-    let layout = unsafe { GetKeyboardLayout(GetWindowThreadProcessId(focus, None)) };
+    let thread = unsafe { GetWindowThreadProcessId(focus, None) };
+    assert_ne!(
+        thread,
+        0,
+        "actual recipient thread lookup failed: {}",
+        std::io::Error::last_os_error()
+    );
+    let layout = unsafe { GetKeyboardLayout(thread) };
+    assert!(!layout.is_invalid(), "actual recipient HKL unavailable");
     let mut records = Vec::new();
     for (key, released) in [(0x11, false), (0x41, false), (0x41, true), (0x11, true)] {
         let mapped = unsafe { MapVirtualKeyExW(key, MAPVK_VK_TO_VSC_EX, Some(layout)) };

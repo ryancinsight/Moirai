@@ -38,6 +38,10 @@ Lost/Got/Lost (last two 5.5us apart) while the actual focus remains on an owned
 renderer, then no further eligible key callbacks. This refutes full form closure
 from synchronous parent entry alone. A real MTA UIA/physical-input/ValuePattern
 fixture now isolates that remaining path; it changes no production behavior.
+Its first cde46135 execution fails the immediate UIA focus-property assertion
+before any input, in 2.225s. Refined completion observation retains the same
+deadline and exact input/value assertions; no persistent-focus or complete
+form mechanism follows from the first isolated result.
 
 ## Native bridge verification boundary — 2026-10-14 [patch]
 
