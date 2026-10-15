@@ -5,6 +5,27 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native text-consumption attribution — 2026-10-15 [patch]
 
+Current source aa532b88/run38788877397 still fails original startup-only
+concentration0 after10/40 (UIA4), while seven other modes complete16/64. Its
+separate controller diagnostic completes16/64 without triggering any snapshot;
+254 callbacks exhaust the independent quota with7 omissions. No joint failed
+scope, modifier or renderer-consumption attribution follows. The active backlog
+also owns two source-established SDK deadline/event-priority corrections; their
+ability to repair input remains unverified. Both Metis locks now resolve the
+aa532 provider with its necessary compatible cohort; full consumer runtime
+acceptance remains required.
+
+Baseline source44184f40/run38795557575 proves the ready-event scheduling
+defect: a real resize returns after document/DOM counters advance1/6 to2/7.
+The regression fails in7.097s; original45 policy and8 installed cases pass.
+Candidate native GREEN remains required. The controlled aa532 replay38791481506
+passes the original matrix and actual Rust bridge, but its final availability
+metadata query exceeds60s downloading unrelated platform dependencies. Metis
+source5e5c4e2/run38792889172 completes four exact Unicode submissions and passes
+502 scripts in37.299s, then stalls on Alt+Shift+S with UIA still reporting Dark.
+Its controller quota exhausts before the fourth submit, so it cannot attribute
+the late shortcut. These are separate functional and environmental results.
+
 Metis PR 504 retains unchanged UIA values after physical input at different
 fields across actual Windows runs. Owned focus and successful SendInput do not
 prove renderer consumption. The active controller-observation item in backlog

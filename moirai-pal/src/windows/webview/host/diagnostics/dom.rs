@@ -2,7 +2,7 @@
 
 use super::{
     completion,
-    protocol::{Failure, Stage},
+    protocol::{Command, Failure, Stage},
     state::{Document, Shared, State},
 };
 use crate::webview_startup::{RequestId, Start};
@@ -10,49 +10,74 @@ use serde_json::{Value, json};
 use std::rc::Rc;
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 
-struct Command {
-    id: RequestId,
-    stage: Stage,
-    method: &'static str,
-    parameters: Value,
-}
-
-pub(super) fn tick(webview: &ICoreWebView2, shared: &Shared, admit_new_sample: bool) {
+/// Preparation may settle a returned stage even when SDK admission is closed.
+/// A denied command remains the sole prepared stage under its original ID.
+pub(super) fn tick(
+    webview: &ICoreWebView2,
+    shared: &Shared,
+    admit_new_sample: bool,
+    can_issue: impl Fn() -> bool,
+) {
+    {
+        let Ok(mut state) = shared.try_borrow_mut() else {
+            return;
+        };
+        if retire_unusable(&mut state) {
+            return;
+        }
+    }
+    // Preserve an exact pending reply when input or the caller deadline wins.
+    // This early check avoids fresh slot/parameter work; SDK entry checks again.
+    if !can_issue() {
+        return;
+    }
     let command = {
         let Ok(mut state) = shared.try_borrow_mut() else {
             return;
         };
         next_command(&mut state, admit_new_sample)
     };
-    if let Some(command) = command
-        && let Err(error) = completion::dom(
-            webview,
-            Rc::downgrade(shared),
-            command.method,
-            &command.parameters,
-            command.id,
-            command.stage,
-        )
-        && let Ok(mut state) = shared.try_borrow_mut()
-    {
+    let Some(command) = command else {
+        return;
+    };
+    let result = completion::dom(
+        webview,
+        Rc::downgrade(shared),
+        command.method,
+        &command.parameters,
+        command.id,
+        command.stage,
+        can_issue,
+    );
+    if let Ok(mut state) = shared.try_borrow_mut() {
+        match result {
+            Ok(true) => {}
+            Ok(false) => defer(&mut state, command),
+            Err(error) => {
+                state.slot.finish(command.id);
+                state.failed = true;
+                state.error(command.method, &error);
+            }
+        }
+    }
+}
+
+fn defer(state: &mut State, command: Command) {
+    if state.slot.is_current(command.id) && !state.failed && !state.budget.snapshot().exhausted {
+        state.prepared = Some(command);
+    } else {
         state.slot.finish(command.id);
-        state.failed = true;
-        state.error(command.method, &error);
     }
 }
 
 fn next_command(state: &mut State, admit_new_sample: bool) -> Option<Command> {
-    if state.slot.snapshot().closed || state.failed || state.budget.snapshot().exhausted {
-        if let Some((id, _, _)) = state.reply.take() {
-            state.slot.finish(id);
-        }
+    if retire_unusable(state) {
         return None;
     }
+    if let Some(command) = state.prepared.take() {
+        return Some(command);
+    }
     if let Some((id, stage, reply)) = state.reply.take() {
-        if !state.slot.is_current(id) {
-            state.slot.finish(id);
-            return None;
-        }
         match reply.and_then(|value| {
             advance(state, id, stage, &value).map_err(|error| Failure::protocol(error, &value))
         }) {
@@ -82,6 +107,28 @@ fn next_command(state: &mut State, admit_new_sample: bool) -> Option<Command> {
     } else {
         None
     }
+}
+
+fn retire_unusable(state: &mut State) -> bool {
+    let terminal =
+        state.slot.snapshot().closed || state.failed || state.budget.snapshot().exhausted;
+    let prepared_stale = state
+        .prepared
+        .as_ref()
+        .is_some_and(|command| !state.slot.is_current(command.id));
+    let reply_stale = state
+        .reply
+        .as_ref()
+        .is_some_and(|(id, _, _)| !state.slot.is_current(*id));
+    if terminal || prepared_stale {
+        state.retire_prepared();
+    }
+    if (terminal || reply_stale)
+        && let Some((id, _, _)) = state.reply.take()
+    {
+        state.slot.finish(id);
+    }
+    terminal || prepared_stale || reply_stale
 }
 
 fn advance(

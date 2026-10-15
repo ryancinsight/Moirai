@@ -6,6 +6,9 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
 **Target Version**: 0.9.4 (workspace); moirai-webview 0.2.0
 
+- [ ] [patch] Selected native waits admit SDK commands only before their original deadline and after ready public events; deferred real DOM stages resume exactly once under the original request identity. Source/static and installed-runtime regression results remain separate from form acceptance.
+  Baseline source44184f40/run38795557575 fails the real ready-resize assertion in7.097s; candidate native GREEN remains required.
+
 - [x] [patch] Fixed native callback storage preserves order and reports capacity loss; two portable tests pass.
 - [x] [patch] Production Windows SDK compilation admits private controller observations.
 - [x] [patch] Installed-runtime physical Ctrl+A/Escape and exact callback cleanup on source 924dd8ac (Windows run 38743789587).

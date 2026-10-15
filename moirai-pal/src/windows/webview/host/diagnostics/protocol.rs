@@ -1,13 +1,26 @@
 //! Actual native status and complete admitted reply context, independent of state.
 
+use crate::webview_startup::RequestId;
 use serde_json::{Value, json};
 use windows::core::{HRESULT, PCWSTR};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Stage {
     Document,
     Query { index: usize, root: i64 },
     Html { index: usize, root: i64 },
+}
+
+/// One bounded, not-yet-issued stage. Its original request identity survives
+/// admission denial; no SDK callback exists for this command until it is issued.
+/// Parameters contain either fixed document options, one bounded node ID, or
+/// one selector from the already byte-bounded Selection. Only one command is
+/// retained; completed response ownership transfers into this successor.
+pub(super) struct Command {
+    pub(super) id: RequestId,
+    pub(super) stage: Stage,
+    pub(super) method: &'static str,
+    pub(super) parameters: Value,
 }
 
 #[derive(Debug)]

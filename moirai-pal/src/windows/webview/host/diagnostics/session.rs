@@ -82,6 +82,7 @@ impl Startup {
                 Rc::downgrade(&self.state),
                 method,
                 sender,
+                deadline,
             ) {
                 self.state.borrow_mut().error(method, &error);
                 return Err(io::Error::other(error));
@@ -101,12 +102,17 @@ impl Startup {
         Ok(())
     }
 
-    pub(in super::super) fn tick(&self, admit_new_sample: bool) {
+    pub(in super::super) fn tick(&self, admit_new_sample: bool, can_issue: impl Fn() -> bool) {
         if let Some(input) = &self.input {
             input.flush();
         }
         if self.sampling_enabled() {
-            dom::tick(&self.tokens.webview, &self.state, admit_new_sample);
+            dom::tick(
+                &self.tokens.webview,
+                &self.state,
+                admit_new_sample,
+                can_issue,
+            );
         }
     }
 
@@ -128,6 +134,7 @@ impl Startup {
     }
 
     pub(in super::super) fn close(&mut self) -> io::Result<()> {
+        self.state.borrow_mut().retire_prepared();
         let input = self.input.as_mut().map_or(Ok(()), input::Observer::close);
         let tokens = self.tokens.close();
         input.and(tokens)
@@ -143,3 +150,6 @@ impl Startup {
         state.selection.components.admits_sample(state.samples)
     }
 }
+
+#[cfg(test)]
+mod tests;

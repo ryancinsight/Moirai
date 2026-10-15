@@ -119,6 +119,13 @@ jobs:
               "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
               "test(=windows::webview::host::diagnostics::input::tests::installed_runtime_restores_controller_input_after_native_parent_focus)",
           ], env=environment, check=True, timeout=120)
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
+              "test(=windows::webview::host::diagnostics::session::tests::admission::installed_runtime_prioritizes_native_events_and_expired_admission)",
+          ], env=environment, check=True, timeout=120)
       - name: Require ordinary, isolated and selected native UIA field delivery
         id: uia-matrix
         shell: python

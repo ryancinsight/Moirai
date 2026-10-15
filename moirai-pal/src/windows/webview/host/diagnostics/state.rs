@@ -7,7 +7,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use super::protocol::{Reply, Stage};
+use super::protocol::{Command, Reply, Stage};
 
 pub(super) type Shared = Rc<RefCell<State>>;
 pub(super) type Borrowed = Weak<RefCell<State>>;
@@ -24,6 +24,7 @@ pub(super) struct State {
     pub(super) budget: TraceBudget,
     pub(super) slot: RequestSlot,
     pub(super) reply: Option<(RequestId, Stage, Reply)>,
+    pub(super) prepared: Option<Command>,
     pub(super) document: Document,
     pub(super) navigation: Option<u64>,
     pub(super) failed: bool,
@@ -50,6 +51,7 @@ impl State {
             budget: TraceBudget::default(),
             slot: RequestSlot::default(),
             reply: None,
+            prepared: None,
             document: Document::Outside,
             navigation: None,
             failed: false,
@@ -74,6 +76,7 @@ impl State {
                 true
             }
             Ok(RecordAdmission::Exhausted { first: true }) => {
+                self.retire_prepared();
                 self.metadata("quota_exhausted", false);
                 false
             }
@@ -121,6 +124,7 @@ impl State {
     }
 
     pub(super) fn invalidate_nodes(&mut self) {
+        self.retire_prepared();
         if let Err(error) = self.slot.invalidate() {
             self.failed = true;
             self.record(
@@ -128,6 +132,14 @@ impl State {
             );
         }
         self.last.fill(None);
+    }
+
+    /// Only an SDK-unissued command can release its slot here. An admitted
+    /// callback keeps ownership until completion, even across invalidation.
+    pub(super) fn retire_prepared(&mut self) {
+        if let Some(command) = self.prepared.take() {
+            self.slot.finish(command.id);
+        }
     }
 
     /// Counters commit together before an attempted native call; overflow

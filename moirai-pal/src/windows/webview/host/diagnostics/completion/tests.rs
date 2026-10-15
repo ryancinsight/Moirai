@@ -9,6 +9,8 @@ use crate::{
 use serde_json::json;
 use std::{cell::RefCell, rc::Rc};
 
+mod admission;
+
 fn trace() -> tracing::subscriber::DefaultGuard {
     tracing::subscriber::set_default(
         tracing_subscriber::fmt()

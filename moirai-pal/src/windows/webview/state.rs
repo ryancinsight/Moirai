@@ -36,6 +36,10 @@ impl WebViewState {
         (events, overflowed)
     }
 
+    pub(super) fn has_pending_events(&self) -> bool {
+        !self.events.is_empty() || self.overflowed
+    }
+
     pub(super) fn last_navigation_allowed(&self) -> Option<bool> {
         self.events.iter().rev().find_map(|event| match event {
             WebViewEvent::NavigationStarting { allowed, .. } => Some(*allowed),

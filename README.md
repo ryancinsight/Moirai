@@ -60,8 +60,16 @@ original modes (128 edits/512 preservation checks), but the separate probe
 fails concentration4 after6/24. UIA and a timely live snapshot both report2;
 the renderer responds while the original sampler remains active. This point
 rules out stale UIA alone, without identifying the delivery cause. The next
-opt-in variant reuses canonical controller callbacks with their own quota to
-trace eligible-key/focus receipt alongside live values; its execution is pending.
+opt-in variant reuses canonical controller callbacks with their own quota.
+Source aa532b88/run38788877397 passes45 policy cases and seven original modes,
+but startup fails concentration0 after10/40 (UIA4). Its separate16/64 pass
+never triggers a snapshot;254 retained controller callbacks exhaust their own
+quota with7 omissions. These different invocations do not establish a cause.
+The private correction checks the original wait deadline and ready public
+events at outgoing SDK admission, retaining an unissued stage for a later
+caller turn. Baseline source44184f40/run38795557575 reproduces outgoing DOM
+work before a ready resize returns. Corrected native execution and both full
+Metis journeys remain gates.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

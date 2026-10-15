@@ -1,5 +1,43 @@
 # Private startup observation contract
 
+## SDK admission and ready events (0.9.4)
+
+Given a positive selected-observation wait entered at `t` with duration `d`,
+its deadline is the single checked `D = t + d`. Native dispatch, callback
+preparation and JSON/native-string encoding spend that budget. Immediately
+before each outgoing diagnostic SDK call, admission requires `now < D` and
+no already-produced public window or WebView event. A ready public batch
+returns before a fresh sample or pending-chain command can enter the SDK.
+Explicit polling and zero-duration calls have no wait deadline; they still
+give ready public events priority. Ordinary hosts retain their existing pump.
+Constructor activation uses its original navigation deadline, before there
+is an application event consumer.
+
+The command state is `in flight -> reply -> prepared -> in flight`, with at
+most one occupied request slot. If readiness/deadline rejects admission,
+`prepared` retains the exact command, parameters, stage and request identity;
+it is not a failed or attempted SDK call. A later admissible caller turn
+continues that command before considering a new sample. Generation changes,
+quota failure and close retire unissued work; an actual in-flight callback
+keeps its existing weak completion owner. No reply disappears, request is
+duplicated, deadline is renewed or private wake admits a second sample.
+
+An earlier boolean sampled before native dispatch cannot prove admission at
+the SDK boundary. Dropping a consumed reply on denial loses a stage, and
+starting another request leaks or reuses its identity. Retaining one prepared
+command avoids both failures without caching DOM results or changing the
+sampling domain. No sleep, input retry or new interval enters this policy.
+
+Regression scenarios exercise an actual native resize with an idle sampler,
+a second real resize produced by the final predicate after command setup,
+an actual intermediate DOM reply deferred behind an event, and a real
+expired deadline at the SDK admission seam. They inspect actual command
+counters and request identities, then resume real DOM work and verify computed
+selector values. macOS cross-compilation cannot execute those Windows runtime
+scenarios. The original eight typing modes and full Metis ordinary/selected
+journeys remain separate gates; these scheduling defects do not establish the
+cause of the intermittent form-input failure.
+
 This patch adds no supported public API. The unstable
 `MOIRAI_WEBVIEW_STARTUP_OBSERVATION` fixture selection admits exactly the
 configured start URI and unique selectors. The dedicated
@@ -206,16 +244,17 @@ Domain has three actual enables and no samples; snapshot has one getDocument,
 six native sampling calls, one complete chain and no pending request. Initial
 attachment or a complete snapshot is therefore insufficient to reproduce.
 
-The existing wait returned an empty application batch after an internal CDP
+Before source9cf4d47a, the wait returned an empty application batch after an internal CDP
 completion. The caller immediately waited again, letting those completions
-drive fresh sampler starts. The correction coalesces positive waits only for
-continuous observation. Its first poll admits at most one chain. Subsequent
+drive fresh sampler starts. That correction coalesces positive waits for
+continuous observation; the later SDK admission correction carries the same
+entry deadline through every positive selected wait. Its first poll admits at most one chain. Subsequent
 private wakes still dispatch every owner-thread message and advance/settle
 existing stages, but admit no fresh chain. Actual application events return
 immediately; otherwise one original caller-supplied deadline ends the wait.
-No callback restarts that deadline. Ordinary/noncontinuous and zero-duration
-paths preserve their original behavior. Public direct polling still admits
-one chain per poll. No fixed sampling interval or sleep is added.
+No callback restarts that deadline. Ordinary and zero-duration paths preserve
+their native pump behavior. Public direct polling admits at most one chain,
+after ready public events. No fixed sampling interval or sleep is added.
 
 For W logical wait/poll turns, A fresh admissions satisfy A <= W. A chain with
 n selectors performs at most 1+2n native calls, so a measured window has
@@ -238,8 +277,8 @@ Full selected16/64 passes; quota exhausts during the run, so it does not establi
 active observation throughout the journey. Startup-only remains active and
 within the derived work bound: coalescing alone is insufficient. All eight
 owning environments report154.0.4258.62. Both complete Metis journeys remain
-required; its unchanged graph cannot admit the new allocator cohort without
-a separate Gaia/Eunomia upgrade.
+required. Its later coherent Gaia/Eunomia/Mnemosyne/Hermes/Consus upgrade admits
+the aa532 provider in both locks; that resolution does not prove form delivery.
 
 The [opt-in live-value probe](../focus/tests/renderer.md) now observes one
 DOMSnapshot after a returned persistent UIA mismatch. Its separate execution

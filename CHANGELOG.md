@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Check the original selected wait deadline and ready public events
+  after command/callback preparation, before outgoing diagnostic SDK work.
+  Deferred stages retain their original request identity and parameters;
+  stale, quota-exhausted and closed unissued work retires without a native
+  attempt. Real native resize, expired admission and continuation regressions
+  cover this separate scheduling contract. Baseline source44184f40/run38795557575
+  fails the ready-event assertion: DOM counters advance before returning the
+  real resize. Candidate native execution remains pending;
+  no input-delivery cause or full Metis form correction is established.
+
 - [patch] Add an opt-in native fixture probe for one live DOMSnapshot after a
   returned persistent UIA mismatch. Exact sparse inputValue, node/frame
   ownership, UTF-16 values, native admission/errors and unobserved replies
@@ -24,12 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   production emission and the original matrix remain unchanged. Parent clock
   origins/sequence checkpoints permit correlation without aligning child
   clocks; all-token cleanup and controller-reference release precede host
-  Close. Native execution of this diagnostic variant remains pending.
+  Close. Source aa532b88/run38788877397 passes45 policy cases, but original
+  startup fails concentration0 after10/40 (UIA4). The separate16/64 pass never
+  triggers a snapshot; its independent controller quota omits7 callbacks.
+  This supplies no joint observation of the original failed replacement.
 
 - [patch] Coalesce continuous diagnostic completions within the caller's
   existing native wait. Pending stages still advance; observation-only wakes
-  cannot start another chain or reset the deadline. Actual event batches,
-  ordinary/noncontinuous and zero-duration paths preserve their behavior.
+  cannot start another chain or reset the deadline. Ordinary and zero-duration
+  paths preserve their native pump behavior. The later admission correction
+  carries one entry deadline through all positive selected waits.
   Fresh selector/HTML reads, original bindings and every input/assertion/budget
   remain. The native gate verifies recurring samples and derived admission/call
   bounds. Domain activation and one snapshot already pass all16/64, isolating

@@ -279,6 +279,11 @@ impl NativeWindow {
                 DispatchMessageW(&message);
             }
         }
+        self.drain_events()
+    }
+
+    /// Takes produced events without dispatching another native message.
+    pub(crate) fn drain_events(&mut self) -> io::Result<Vec<WindowEvent>> {
         let mut events = self.state.with(|state| {
             if let Some(error) = state.error.take() {
                 return Err(error);
@@ -300,6 +305,16 @@ impl NativeWindow {
             );
         }
         Ok(events)
+    }
+
+    /// Observes produced events without dispatching or consuming them.
+    pub(crate) fn has_pending_events(&self) -> bool {
+        self.state
+            .with(|state| !state.events.is_empty() || state.overflowed || state.error.is_some())
+            || self
+                .accessibility
+                .as_ref()
+                .is_some_and(WindowsAccessibilityAdapter::has_pending_actions)
     }
 
     /// Waits for native input for a finite duration, then returns one bounded
@@ -328,15 +343,7 @@ impl NativeWindow {
                 "native event wait exceeds the 30 second bound",
             ));
         }
-        let pending = self
-            .state
-            .with(|state| !state.events.is_empty() || state.overflowed || state.error.is_some());
-        if pending
-            || self
-                .accessibility
-                .as_ref()
-                .is_some_and(WindowsAccessibilityAdapter::has_pending_actions)
-        {
+        if self.has_pending_events() {
             return self.poll_events();
         }
         // SAFETY: the call observes only this thread's message queue, accepts
