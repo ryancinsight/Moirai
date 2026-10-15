@@ -4,7 +4,10 @@ use crate::windows::window::focus::NativeFocusTarget;
 use crate::windows::{
     webview::{
         WebViewHost,
-        tests::{TestPackage, startup::tracing},
+        tests::{
+            TestPackage,
+            startup::{Trace, tracing},
+        },
     },
     window::{NativeWindow, WindowConfig, WindowVisibility},
 };
@@ -31,7 +34,9 @@ fn installed_runtime_restores_controller_input_after_native_parent_focus() {
     observe_controller_input(true);
 }
 
-fn observe_controller_input(native_parent_focus: bool) {
+mod late;
+
+fn observe_controller_input(native_parent_focus: bool) -> Trace {
     let (trace, _subscriber) = tracing();
     let _test = tracing::info_span!("controller_native_input").entered();
     let (mut package, mut host) = tracing::info_span!("arrange").in_scope(|| {
@@ -228,5 +233,14 @@ fn observe_controller_input(native_parent_focus: bool) {
         package
             .cleanup()
             .expect("owned profile cleanup after browser exit");
+        let selection: serde_json::Value = serde_json::from_str(
+            &std::env::var(crate::webview_startup::SELECTION_ENV)
+                .expect("explicit installed fixture selection"),
+        )
+        .expect("actual selected configuration");
+        if selection["late_input_after_key"].is_null() {
+            assert_eq!(trace.late_bytes(), Vec::<u8>::new());
+        }
     });
+    trace
 }

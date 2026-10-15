@@ -5,6 +5,18 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
 ## Native text-consumption attribution — 2026-10-15 [patch]
 
+The active late-input diagnostic adds one private default-off configured-key
+anchor. It reuses canonical snapshots during deferred flush, after every
+unchanged main record, and retains all subsequent keys/focus/errors under a
+separate quota. No callback read, registration, COM, Handled/focus operation,
+input, wait or scheduling changes. Progress checkpoints spend its quota;
+missing closure, an absent anchor or any loss prevents an absence conclusion.
+See the [co-located design](moirai-pal/src/webview_startup/late_input/design.md).
+All39 portable startup tests, strict MSVC all-target diagnostics and workspace
+formatting pass. The installed late-input fixture is implemented; local
+cross-compilation does not execute it. Native execution and the remaining
+Metis shortcut/full journeys stay open.
+
 Source2fcef45d/run38798617700 closes the separately reproduced SDK-admission
 regression (6.837s) and native SDK availability query (0.39.1/154.0.4258.62),
 but fails ordinary scope16/dose, startup scope2/weight and separate probe
@@ -15,8 +27,36 @@ prior successful callbacks use0x1009ae, on the same browserPID10916/TID2796/HKL.
 Complete independent callbacks1–68 end in LostFocus before the snapshot, with
 no later accelerator and no quota/omissions. This establishes a controller
 receipt boundary, not renderer key-consumption or exact HWND-class identity.
-The active backlog owns one native-parent entry after UIA selection, same-field
-focus preservation and unchanged16/64 acceptance; candidate Windows is pending.
+Source `6343610d` / [Windows run 38803044085](https://github.com/ryancinsight/Moirai/actions/runs/38803044085)
+records 69 PASS test executions. All eight original modes and the separate
+probe pass 16 replacements/64 preservation checks. The collected schema3
+completion verifies 16 parent entries/12 non-first entries per invocation;
+these are assertion evidence, not a directly archived completion JSON object.
+The raw log separately retains 16 entered and 16 same-field-focused events
+per invocation. The actual Rust bridge passes in 7.232s, SDK admission in
+7.453s, and native availability reports SDK 0.39.1/runtime 154.0.4258.62.
+
+The separate probe closes with triggered/attempted/admitted/completed all false:
+its PASS supplies no live snapshot or renderer-consumption result. UIA scope
+quotas omit later observations. Selected-mode sampling exhausts its quota, and
+the independent probe controller retains 255 callbacks with 36 omissions.
+Thus the fixture pass does not prove a complete active diagnostic history.
+Metis source `add41427` / [Windows run 38804568395](https://github.com/ryancinsight/metis/actions/runs/38804568395)
+runs 504 script cases: 503 pass and one existing Apple-only skip in 40.426s.
+Both new native-parent focus cases pass. All four form submissions produce
+the expected results or rejection. The selected journey then times out after
+Alt+Shift+S requests System, while the latest UIA still reports Dark.
+The ordinary journey is unreached. Late-shortcut receipt remains unattributed;
+both complete journeys remain open, with no general text-input repair claim.
+
+The raw job log (`06da3684…`) and source binding (`234274d0…`) bind actual
+checkout `bb4d6962` to feature `6343610d`/tree `69dfdd78` and 1,117 Git blobs.
+The [bridge artifact 12005212167](https://github.com/ryancinsight/Moirai/actions/runs/38803044085/artifacts/12005212167)
+(`3857bcaa…`) verifies eight members, five payloads and ten producer source
+hashes against Git; independent artifact binding is `63c834bd…`.
+Producer `source_dirty=true` remains unexplained by the archived data.
+Packaged post-bindgen WASM is independently hashed; pre-bindgen module and
+compiler executable hashes remain declarations because their bytes are absent.
 Metis ad328f61 adopts2fcef45d with only15/11 lock source substitutions and keeps
 all515 Rust/173 acceptance files and original deadlines unchanged.
 

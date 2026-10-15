@@ -6,11 +6,13 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
 **Target Version**: 0.9.4 (workspace); moirai-webview 0.2.0
 
+- [ ] [patch] Default-off configured-key suffix retention preserves every main observation and uses only copied snapshots. Verify strict selection, arming/order/loss/quota/closure laws, actual INFO envelope, unchanged 1 MiB consumer cap and installed native key receipt. Both complete Metis journeys remain separate gates. Local39 portable startup tests, strict MSVC all-target diagnostics and formatting pass; installed execution remains required.
+
 - [x] [patch] Runtime availability queries use the actual checked native SDK artifact under the original60-second bound. Source2fcef45d/run38798617700 passes the native API with SDK0.39.1 and available runtime154.0.4258.62.
 
 - [x] [patch] Selected native waits admit SDK commands only before their original deadline and after ready public events; deferred real DOM stages resume exactly once under the original request identity. Baseline44184f40 fails in7.097s; corrected2fcef45d/run38798617700 passes the real regression in6.837s and50 policy cases. Input/form acceptance remains separate and open.
 
-- [ ] [patch] One actual native-parent entry after each original UIA selection preserves the same field, verifies an owned non-root native recipient, and retains16 replacements/64 preservation checks plus16 entries/12 non-first entries in all8 modes. No focus/input retry, class guess or deadline change; strict source checks and Windows execution remain required.
+- [x] [patch] One actual native-parent entry after each original UIA selection preserves the same field and verifies an owned non-root native recipient. [Source `6343610d` / Windows run 38803044085](https://github.com/ryancinsight/Moirai/actions/runs/38803044085) passes all eight modes plus the separate probe: each collected schema3 completion verifies 16 replacements/64 preservation checks and 16 entries/12 non-first entries. Original input and deadlines remain unchanged. Diagnostic histories are partial and the snapshot probe is untriggered; complete Metis acceptance stays open.
 
 - [x] [patch] Fixed native callback storage preserves order and reports capacity loss; two portable tests pass.
 - [x] [patch] Production Windows SDK compilation admits private controller observations.

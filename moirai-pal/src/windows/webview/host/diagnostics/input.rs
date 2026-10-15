@@ -42,7 +42,15 @@ impl Observer {
     pub(super) fn new(controller: &ICoreWebView2Controller, state: &Shared) -> io::Result<Self> {
         let mut observer = Self {
             controller: controller.clone(),
-            queue: Rc::new(Queue::new()),
+            queue: Rc::new(Queue::new(
+                state
+                    .borrow()
+                    .selection
+                    .late_input_after_key
+                    .map(std::num::NonZeroU8::try_from)
+                    .transpose()
+                    .map_err(io::Error::other)?,
+            )),
             state: Rc::clone(state),
             gained: None,
             lost: None,
@@ -50,6 +58,7 @@ impl Observer {
             key: None,
         };
         observer.install().map_err(io::Error::other)?;
+        observer.queue.late_checkpoint(0, None, true);
         Ok(observer)
     }
 
@@ -215,6 +224,7 @@ impl Observer {
                 &mut first,
             );
         }
+        self.queue.close_late(first.is_some());
         first.map_or(Ok(()), Err)
     }
 

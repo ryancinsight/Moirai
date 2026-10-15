@@ -18,6 +18,7 @@ fn overlapping_navigation_ids_preserve_the_current_selected_document_phase() {
     let mut state = tracing::info_span!("arrange").in_scope(|| {
         State::new(Selection {
             components: crate::webview_startup::Components::Full,
+            late_input_after_key: None,
             start_uri: "https://startup.invalid/index.html".to_owned(),
             selectors: vec!["#status".to_owned()],
         })
@@ -62,6 +63,7 @@ fn command_count_overflow_rejects_atomically_without_wrapping() {
     let mut state = tracing::info_span!("arrange").in_scope(|| {
         let mut state = State::new(Selection {
             components: crate::webview_startup::Components::Full,
+            late_input_after_key: None,
             start_uri: "https://startup.invalid/index.html".to_owned(),
             selectors: vec!["#状態-🦀".to_owned()],
         });

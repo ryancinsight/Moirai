@@ -15,6 +15,10 @@ pub(crate) struct Selection {
     pub(crate) selectors: Vec<String>,
     #[serde(default)]
     pub(crate) components: Components,
+    /// Absent or null disables this private selection; positive values require
+    /// controller observations. The byte representation admits at most 255.
+    #[serde(default)]
+    pub(crate) late_input_after_key: Option<u8>,
 }
 
 impl Selection {
@@ -57,6 +61,14 @@ impl Selection {
                 return Err(invalid("Startup selectors must be unique"));
             }
         }
+        if selection.late_input_after_key == Some(0) {
+            return Err(invalid("Startup late input key must be nonzero"));
+        }
+        if selection.late_input_after_key.is_some() && !selection.components.controller() {
+            return Err(invalid(
+                "Startup late input requires controller observations",
+            ));
+        }
         Ok(selection)
     }
 }
@@ -64,6 +76,9 @@ impl Selection {
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
+
+#[cfg(test)]
+mod late_input_tests;
 
 #[cfg(test)]
 mod tests {
@@ -94,6 +109,7 @@ mod tests {
             assert_eq!(value.start_uri, "https://example.invalid/index.html");
             assert_eq!(value.selectors, selectors);
             assert_eq!(value.components, Components::Full);
+            assert_eq!(value.late_input_after_key, None);
             assert_eq!(SELECTION_ENV, "MOIRAI_WEBVIEW_STARTUP_OBSERVATION");
         });
     }
@@ -184,6 +200,7 @@ mod tests {
                 assert_eq!(actual.start_uri, "x");
                 assert_eq!(actual.selectors, ["#状態-🦀"]);
                 assert_eq!(actual.components, expected);
+                assert_eq!(actual.late_input_after_key, None);
                 assert_eq!(actual.components.as_str(), components);
                 assert_eq!(actual.components.controller(), controller);
                 assert_eq!(actual.components.native(), native);

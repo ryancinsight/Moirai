@@ -9,6 +9,7 @@ fn pending_only_polls_finish_fresh_html_without_rearming_the_sampler() {
     let mut state = tracing::info_span!("arrange").in_scope(|| {
         let mut state = State::new(Selection {
             components: crate::webview_startup::Components::Full,
+            late_input_after_key: None,
             start_uri: "https://startup.invalid/index.html".to_owned(),
             selectors: vec!["#status".to_owned(), "#missing".to_owned()],
         });

@@ -8,16 +8,20 @@ use crate::{
     webview_limits::{
         MAX_WEBVIEW_EVENTS, MAX_WEBVIEW_MESSAGE_BYTES, MAX_WEBVIEW_WAIT_MILLISECONDS,
     },
-    webview_startup::{SELECTION_ENV, TRACE_TARGET},
+    webview_startup::{
+        LATE_INPUT_EVENT, LATE_INPUT_TARGET, LATE_INPUT_TERMINAL_BYTES, SELECTION_ENV, TRACE_TARGET,
+    },
     windows::window::WindowEvent,
 };
 use serde_json::{Value, json};
 use std::{
-    io::{self, Write},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tracing_subscriber::{Layer, filter::filter_fn, fmt::format::FmtSpan, layer::SubscriberExt};
+
+mod capture;
+use capture::{Buffer, Capture};
 
 const START_URI: &str = "https://metis.invalid/index.html";
 const SELECTORS: [&str; 3] = ["#host-status", "#result", "#missing-observer-fixture"];
@@ -280,12 +284,7 @@ fn decimal(value: &Value) -> u64 {
 }
 
 #[derive(Clone)]
-pub(in crate::windows::webview) struct Trace(Arc<Mutex<Buffer>>);
-
-struct Buffer {
-    bytes: Vec<u8>,
-    limit: usize,
-}
+pub(in crate::windows::webview) struct Trace(Arc<Mutex<Buffer>>, Arc<Mutex<Buffer>>);
 
 impl Trace {
     fn bytes(&self) -> Vec<u8> {
@@ -297,67 +296,31 @@ impl Trace {
     }
 
     pub(in crate::windows::webview) fn observations(&self) -> Vec<Value> {
-        self.bytes()
-            .split_inclusive(|byte| *byte == b'\n')
-            .map(|line| {
-                assert_eq!(
-                    line.last(),
-                    Some(&b'\n'),
-                    "complete native diagnostic record"
-                );
-                let value: Value = serde_json::from_slice(line).expect("actual formatter JSON");
-                assert_eq!(value["target"], TRACE_TARGET);
-                assert_eq!(value["level"], "DEBUG");
-                assert_eq!(value["fields"]["event"], "webview_startup_observation");
-                let encoded = value["fields"]["observation"]
-                    .as_str()
-                    .expect("opaque encoded observation");
-                assert_eq!(
-                    line.len(),
-                    serde_json::to_vec(&value)
-                        .expect("compact physical envelope")
-                        .len()
-                        + 1
-                );
-                assert!(
-                    line.len() <= 133 + 2 * encoded.len(),
-                    "actual second JSON-string escaping bound"
-                );
-                serde_json::from_str(encoded).expect("actual native observation JSON")
-            })
-            .collect()
+        capture::observations(
+            &self.bytes(),
+            TRACE_TARGET,
+            "DEBUG",
+            "webview_startup_observation",
+            133,
+        )
     }
-}
 
-struct Capture(Trace);
-
-impl Write for Capture {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let mut output = self
-            .0
-            .0
+    pub(in crate::windows::webview) fn late_bytes(&self) -> Vec<u8> {
+        self.1
             .lock()
-            .map_err(|error| io::Error::other(error.to_string()))?;
-        if bytes.len() > output.limit - output.bytes.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::WriteZero,
-                "native diagnostic formatter exceeds the derived trace bound",
-            ));
-        }
-        output.bytes.extend_from_slice(bytes);
-        drop(output);
-        io::stderr().write_all(bytes)?;
-        Ok(bytes.len())
+            .expect("actual late diagnostic writer")
+            .bytes
+            .clone()
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        drop(
-            self.0
-                .0
-                .lock()
-                .map_err(|error| io::Error::other(error.to_string()))?,
-        );
-        io::stderr().flush()
+    pub(in crate::windows::webview) fn late_observations(&self) -> Vec<Value> {
+        capture::observations(
+            &self.late_bytes(),
+            LATE_INPUT_TARGET,
+            "INFO",
+            LATE_INPUT_EVENT,
+            138,
+        )
     }
 }
 
@@ -365,16 +328,21 @@ pub(in crate::windows::webview) fn tracing() -> (Trace, tracing::subscriber::Def
     let envelope = json!({"level":"DEBUG", "fields":{"event":"webview_startup_observation","observation":""},"target":TRACE_TARGET}).to_string().len() + 1;
     assert_eq!(envelope, 133);
     let limit = 6 * MAX_WEBVIEW_MESSAGE_BYTES + envelope * (MAX_WEBVIEW_EVENTS + 2);
-    let trace = Trace(Arc::new(Mutex::new(Buffer {
-        bytes: Vec::with_capacity(limit),
-        limit,
-    })));
+    let late_envelope = json!({"level":"INFO", "fields":{"event":LATE_INPUT_EVENT,"observation":""},"target":LATE_INPUT_TARGET}).to_string().len() + 1;
+    assert_eq!(late_envelope, 138);
+    let late_limit = 2 * MAX_WEBVIEW_MESSAGE_BYTES
+        + 4 * LATE_INPUT_TERMINAL_BYTES
+        + late_envelope * (MAX_WEBVIEW_EVENTS + 2);
+    assert_eq!(late_limit, 168_812);
+    assert_eq!(limit + late_limit, 596_342);
+    assert!(limit + late_limit < 1024 * 1024);
+    let trace = Trace(capture::buffer(limit), capture::buffer(late_limit));
     let writer = trace.clone();
     let ordinary = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_span_events(FmtSpan::FULL)
         .with_filter(filter_fn(|metadata| {
-            *metadata.level() <= tracing::Level::INFO
+            *metadata.level() <= tracing::Level::INFO && metadata.target() != LATE_INPUT_TARGET
         }));
     let diagnostic = tracing_subscriber::fmt::layer()
         .json()
@@ -383,12 +351,25 @@ pub(in crate::windows::webview) fn tracing() -> (Trace, tracing::subscriber::Def
         .with_current_span(false)
         .with_span_list(false)
         .with_span_events(FmtSpan::NONE)
-        .with_writer(move || Capture(writer.clone()))
+        .with_writer(move || Capture(writer.0.clone()))
         .with_filter(filter_fn(|metadata| {
             metadata.target() == TRACE_TARGET && *metadata.level() <= tracing::Level::DEBUG
         }));
+    let writer = trace.clone();
+    let late = tracing_subscriber::fmt::layer()
+        .json()
+        .without_time()
+        .with_ansi(false)
+        .with_current_span(false)
+        .with_span_list(false)
+        .with_span_events(FmtSpan::NONE)
+        .with_writer(move || Capture(writer.1.clone()))
+        .with_filter(filter_fn(|metadata| {
+            metadata.target() == LATE_INPUT_TARGET && *metadata.level() <= tracing::Level::INFO
+        }));
     let subscriber = tracing_subscriber::registry()
         .with(ordinary)
-        .with(diagnostic);
+        .with(diagnostic)
+        .with(late);
     (trace, tracing::subscriber::set_default(subscriber))
 }

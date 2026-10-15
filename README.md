@@ -74,11 +74,25 @@ query. Ordinary mode still fails the last dose, startup fails the first weight,
 and the separate probe retains the first patient in both UIA and timely live DOM
 after requesting the second. Its complete controller history ends in LostFocus;
 failed input targets a different owned HWND from prior key callbacks, on the
-same browser process/thread/layout. A fixture correction now enters the known
-native parent once after UIA selection and requires preservation of that same
-field before input. The original16/64 oracle also covers12 non-first entries;
-candidate Windows execution and both full Metis journeys remain gates under
-the [entry contract](moirai-pal/src/windows/webview/host/focus/tests/client/design.md).
+same browser process/thread/layout. The fixture now enters the known native
+parent once after UIA selection and checks preservation of that same field.
+[Windows run 38803044085](https://github.com/ryancinsight/Moirai/actions/runs/38803044085)
+on source `6343610d` records 69 PASS test executions. Each of the eight original
+modes and the separate probe passes 16 replacements/64 preservation checks;
+its collected schema3 completion also verifies 16 entries/12 non-first entries.
+The log separately retains 16 entered and 16 same-field-focused observations
+per invocation. SDK admission and runtime availability pass, as does the actual
+Rust bridge in 7.232s. The separate snapshot probe never triggers; UIA and
+diagnostic quotas leave partial histories, so this supplies no new live-DOM
+or complete-sampler proof. Both full Metis journeys remain open under the
+[entry contract](moirai-pal/src/windows/webview/host/focus/tests/client/design.md).
+
+A separate default-off [late-input diagnostic](moirai-pal/src/webview_startup/late_input/design.md)
+retains copied controller snapshots after an actual configured key-down,
+including later layout-dependent keys outside the exhausted startup quota.
+Portable and strict MSVC checks pass; installed execution and both complete
+Metis journeys remain required. No additional input or callback work supplies
+this evidence.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

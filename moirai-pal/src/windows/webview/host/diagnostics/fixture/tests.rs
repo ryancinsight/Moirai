@@ -50,6 +50,7 @@ fn independent_fixture_emits_exact_payload_and_terminal_metadata_on_info_target(
             start_uri: "https://metis.invalid/index.html".into(),
             selectors: vec!["#result".into()],
             components: Components::Controller,
+            late_input_after_key: None,
         });
         state.fixture_input = true;
         let payload = json!({"kind":"fixture_payload_contract", "sequence":"173",
@@ -104,6 +105,7 @@ fn fixture_controller_quota_and_target_cannot_exhaust_or_enter_main_observations
         start_uri: "https://metis.invalid/index.html".into(),
         selectors: vec!["#host-status".into(), "#result".into()],
         components: Components::Controller,
+        late_input_after_key: None,
     };
     let (mut main, mut independent) = tracing::info_span!("arrange").in_scope(|| {
         let mut independent = State::new(selection());

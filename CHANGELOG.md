@@ -9,12 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Add a default-off private late controller-input selection. Deferred
+  retention arms on an actual configured key-down and preserves every later
+  canonical snapshot under an independent quota. Original callbacks and main
+  observations remain unchanged; bounded checkpoints and terminal metadata
+  report incomplete evidence. This diagnoses the remaining Metis System-theme
+  shortcut; it does not establish a functional correction or native acceptance.
+
 - [patch] The actual MTA UIA fixture enters the known native parent once after
   its original UIA field selection. Legitimate input-queue attachment and
   unconditional cleanup precede a same-field focus check; no focus/input retry
   or deadline change is added. The existing 16 replacements/64 preservation
   checks now also verify 16 real entries, including 12 non-first fields.
-  Candidate Windows execution remains required.
+  Source `6343610d` / Windows run 38803044085 records 69 PASS executions.
+  All eight original modes and the separate probe pass the original 16/64;
+  their collected schema3 completions verify 16 entries/12 non-first entries.
+  The actual Rust bridge passes in 7.232s; SDK admission and availability pass.
+  The snapshot probe is untriggered and retained histories remain quota-limited.
+  Complete ordinary/selected Metis acceptance remains open.
 
 - [patch] Resolve the Windows runtime-query loader from the already-checked
   native SDK compiler/build-script records. Offline checking retains the

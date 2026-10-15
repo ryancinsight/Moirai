@@ -65,7 +65,7 @@ jobs:
           cargo nextest run --locked -p moirai-pal --lib
           --no-default-features --features webview2
           --config-file .config/nextest.toml --test-threads 1 --retries 0
-          --no-tests fail --no-fail-fast -E 'test(windows::webview::) | test(windows::window::tests::destruction::)'
+          --no-tests fail --no-fail-fast -E 'test(windows::webview::) | test(windows::window::tests::destruction::) | test(webview_startup::late_input::) | test(webview_startup::config::late_input_tests::)'
       # Each nextest process owns its COM apartment and native message pump.
       # The two stress tests retain their real 100-host concurrent scenarios;
       # nextest runs those scenarios sequentially with a 60-second test limit.
@@ -126,6 +126,18 @@ jobs:
               "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
               "test(=windows::webview::host::diagnostics::session::tests::admission::installed_runtime_prioritizes_native_events_and_expired_admission)",
           ], env=environment, check=True, timeout=120)
+          late_environment = environment.copy()
+          late_selection = json.loads(late_environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"])
+          late_selection["late_input_after_key"] = 65
+          late_environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps(late_selection, separators=(",", ":"))
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+              "--success-output", "immediate", "-E",
+              "test(=windows::webview::host::diagnostics::input::tests::late::installed_runtime_retains_selected_late_controller_input)",
+          ], env=late_environment, check=True, timeout=120)
       - name: Require ordinary, isolated and selected native UIA field delivery
         id: uia-matrix
         shell: python

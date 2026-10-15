@@ -1,9 +1,13 @@
 //! Copy native callback values now; serialize and trace after the callback.
 
-use crate::{webview_limits::MAX_WEBVIEW_EVENTS, webview_startup::Deferred};
+use crate::{
+    webview_limits::MAX_WEBVIEW_EVENTS,
+    webview_startup::{Deferred, LATE_INPUT_EVENT, LATE_INPUT_TARGET, LateInput, LateInputFailure},
+};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
+    num::NonZeroU8,
     time::Instant,
 };
 use windows::Win32::UI::{
@@ -51,6 +55,7 @@ pub(super) struct Queue {
     contended: Cell<u64>,
     pub(super) closed: Cell<bool>,
     started: Instant,
+    late: Option<RefCell<LateInput>>,
 }
 
 impl Queue {
@@ -59,13 +64,14 @@ impl Queue {
         (self.started, self.sequence.get())
     }
 
-    pub(super) fn new() -> Self {
+    pub(super) fn new(after_key: Option<NonZeroU8>) -> Self {
         Self {
             pending: RefCell::new(Deferred::new()),
             sequence: Cell::new(0),
             contended: Cell::new(0),
             closed: Cell::new(false),
             started: Instant::now(),
+            late: after_key.map(|key| RefCell::new(LateInput::new(key))),
         }
     }
 
@@ -105,15 +111,57 @@ impl Queue {
         // Release callback storage before formatting or invoking a subscriber.
         let (records, omitted) = self.pending.borrow_mut().take();
         let contended = self.contended.replace(0);
+        let checkpoint = self.late.as_ref().map(|_| {
+            (
+                self.sequence.get(),
+                records
+                    .iter()
+                    .flatten()
+                    .last()
+                    .map(|record| record.elapsed_ns),
+            )
+        });
         let mut state = state.borrow_mut();
         for record in records.into_iter().flatten() {
             state.failed |= matches!(record.event, Event::Error { .. });
-            state.record(&record.value());
+            let value = record.value();
+            state.record(&value);
+            self.with_late(|late| late.observe(&value));
         }
         if omitted != 0 || contended != 0 {
             state.failed = true;
             state.record(&json!({"kind":"controller_input_loss",
                 "capacity_omitted":omitted.to_string(),"contended":contended.to_string()}));
+        }
+        if let Some((drained_sequence, elapsed)) = checkpoint {
+            self.with_late(|late| {
+                late.shared_loss(omitted, contended)?;
+                late.checkpoint(drained_sequence, elapsed, false)
+            });
+        }
+    }
+
+    pub(super) fn late_checkpoint(&self, sequence: u64, elapsed: Option<u128>, initial: bool) {
+        self.with_late(|late| late.checkpoint(sequence, elapsed, initial));
+    }
+
+    pub(super) fn close_late(&self, cleanup_failed: bool) {
+        self.with_late(|late| late.close(cleanup_failed));
+    }
+
+    fn with_late(
+        &self,
+        operation: impl FnOnce(&mut LateInput) -> Result<Option<String>, LateInputFailure>,
+    ) {
+        let Some(owner) = self.late.as_ref() else {
+            return;
+        };
+        let mut late = owner.borrow_mut();
+        match operation(&mut late) {
+            Ok(Some(encoded)) => tracing::info!(target: LATE_INPUT_TARGET, parent: None,
+                event = LATE_INPUT_EVENT, observation = %encoded),
+            Ok(None) => {}
+            Err(error) => late.fail(error),
         }
     }
 }

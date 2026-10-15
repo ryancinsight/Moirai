@@ -28,6 +28,7 @@ fn request() -> (
 ) {
     let state = Rc::new(RefCell::new(State::new(Selection {
         components: crate::webview_startup::Components::Full,
+        late_input_after_key: None,
         start_uri: "https://startup.invalid/index.html".to_owned(),
         selectors: vec!["#status".to_owned()],
     })));
