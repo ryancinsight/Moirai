@@ -35,16 +35,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Public-surface compatibility, informational on pull requests: the
-  # detected change class is visible while the change is still in
-  # review. The blocking comparison runs on release.
+  # Compare each exact committed provider graph under --locked. This API
+  # contract participates in the verification result on pull requests.
   # Atlas ATLAS-SEMVER-GATE-FLEETWIDE-2026-08-28.
   semver:
     name: SemVer gate
-    uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@50802ef4c975bdb1e668b94a700d8310f0348e9c
+    uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@7a5a1036973b81dee0e20321942ce0c7e2bf9f9b
     with:
-      package: moirai-async-macros,moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
+      # Proc-macro-only targets have no library surface for this checker;
+      # the workspace gate still compiles and tests moirai-async-macros.
+      package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
       rust-toolchain: 1.97.0
+      dependency-contract: locked
+      atlas-ref: 7a5a1036973b81dee0e20321942ce0c7e2bf9f9b
     permissions:
       contents: read
 
@@ -546,12 +549,12 @@ jobs:
   # condition passes, so a draft pull request is failed here on purpose and
   # cannot leave a stale green result once it is marked ready. Requiring the
   # individual jobs by name instead let a red `Fuzz parsers` run merge, because
-  # only the two jobs named in the protection were checked. The informational
-  # SemVer job is not part of the result.
+  # only the two jobs named in the protection were checked. The locked-source
+  # API contract participates; release-only checks may skip by policy.
   verdict:
     name: Verification result
     if: ${{ always() }}
-    needs: [adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri]
+    needs: [semver, adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
