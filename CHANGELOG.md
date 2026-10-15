@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Resolve the Windows runtime-query loader from the already-checked
+  native SDK compiler/build-script records. Offline checking retains the
+  60-second bound and original native availability query while avoiding an
+  all-platform metadata fetch. Three parser rejection/identity tests pass;
+  actual MSVC artifacts select a byte-identical SDK loader. Windows execution
+  of the corrected availability step remains required.
+
 - [patch] Check the original selected wait deadline and ready public events
   after command/callback preparation, before outgoing diagnostic SDK work.
   Deferred stages retain their original request identity and parameters;

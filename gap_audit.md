@@ -26,6 +26,15 @@ source5e5c4e2/run38792889172 completes four exact Unicode submissions and passes
 Its controller quota exhausts before the fourth submit, so it cannot attribute
 the late shortcut. These are separate functional and environmental results.
 
+The availability correction joins public native compiler/build-script records
+by opaque package ID and reads the actual SDK manifest. It uses an offline
+check of the already-built Windows host feature graph, retaining60s and the
+original native API/error handling. It does not infer Cargo cache hashes or
+claim a platform filter restricts all metadata downloads. Three parser cases
+pass; a real MSVC check selects a loader byte-identical to SDK0.39.1 source.
+Windows execution remains required, separately from form acceptance and each
+controller's actual environment version.
+
 Metis PR 504 retains unchanged UIA values after physical input at different
 fields across actual Windows runs. Owned focus and successful SendInput do not
 prove renderer consumption. The active controller-observation item in backlog

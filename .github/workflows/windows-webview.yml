@@ -235,43 +235,13 @@ jobs:
         if: ${{ always() }}
         shell: python
         run: |
-          import ctypes
-          import json
           import subprocess
-          from pathlib import Path
+          import sys
 
-          metadata = json.loads(subprocess.check_output([
-              "cargo", "metadata", "--locked", "--format-version", "1",
-              "--no-default-features", "--features", "moirai-pal/webview2",
-          ], timeout=60))
-          packages = [package for package in metadata["packages"]
-                      if package["name"] == "webview2-com-sys"]
-          if len(packages) != 1:
-              raise RuntimeError("expected one authoritative WebView2 SDK package")
-          package = packages[0]
-          loader_path = Path(package["manifest_path"]).parent / "x64" / "WebView2Loader.dll"
-          loader = ctypes.WinDLL(str(loader_path))
-          available = loader.GetAvailableCoreWebView2BrowserVersionString
-          available.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p)]
-          available.restype = ctypes.c_long
-          allocator = ctypes.WinDLL("ole32")
-          allocator.CoTaskMemFree.argtypes = [ctypes.c_void_p]
-          allocator.CoTaskMemFree.restype = None
-          version_pointer = ctypes.c_void_p()
-          result = available(None, ctypes.byref(version_pointer))
-          try:
-              if result < 0:
-                  raise OSError(f"native WebView2 version query failed: HRESULT {result:#x}")
-              if not version_pointer.value:
-                  raise RuntimeError("native WebView2 version query returned no runtime")
-              version = ctypes.wstring_at(version_pointer.value)
-              if not version:
-                  raise RuntimeError("native WebView2 version query returned an empty version")
-              print(json.dumps({
-                  "native_api": "GetAvailableCoreWebView2BrowserVersionString",
-                  "runtime_version": version,
-                  "sdk_version": package["version"],
-                  "loader_path": str(loader_path),
-              }, sort_keys=True))
-          finally:
-              allocator.CoTaskMemFree(version_pointer)
+          subprocess.run([
+              sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests",
+              "-p", "test_webview_runtime_version.py",
+          ], check=True, timeout=60)
+          subprocess.run([
+              sys.executable, "scripts/webview/runtime_version.py",
+          ], check=True, timeout=60)

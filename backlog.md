@@ -6,6 +6,16 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-WEBVIEW-NATIVE-SDK-METADATA-2026-10-15"></a>
+## MOI-WEBVIEW-NATIVE-SDK-METADATA-2026-10-15 — Query the checked native SDK [patch]
+- status: todo
+- priority: verification
+- outcome: Native runtime availability evidence uses the SDK selected by the completed Windows build, without resolving unrelated platform sources.
+- scope: Runtime-query loader selection and its parser tests; the native API, failures, output fields and60-second bounds remain.
+- acceptance: Join one successful native compiler artifact and build-script result by opaque package ID, require an unambiguous native link-search path and exact SDK manifest identity/version, then execute the original native availability API. Reject absent, duplicate, mismatched and failed build records.
+- verification: The unchanged aa532 replay38791481506 passes native acceptance before all-platform metadata downloads exceed60s. Three parser cases pass. Real MSVC check records select SDK0.39.1; its emitted loader and original source DLL are byte-identical (160880 bytes, SHA25686545b66cdb0603bc26b626fb9ad610cb6e71f28d468f5ea66df23b03dda96d5). Corrected Windows execution remains required.
+- next step: Execute the exact integrated Windows workflow; distinguish this availability check from per-controller environment versions and form acceptance.
+
 <a id="MOI-WEBVIEW-SDK-ADMISSION-2026-10-15"></a>
 ## MOI-WEBVIEW-SDK-ADMISSION-2026-10-15 — Preserve wait and event priority [patch]
 - status: todo
