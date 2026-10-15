@@ -67,7 +67,11 @@ failure retains its operation, HRESULT and typed SDK source. The regression
 also calls the actual closed controller and checks that failure retention.
 No raw host address, subclass context, Handled setter or input synthesis enters
 this route. Metis's unchanged full journey remains the causal acceptance gate;
-the fixed provider and consumer Windows results remain pending.
+[corrected provider run 38749728275](https://github.com/ryancinsight/Moirai/actions/runs/38749728275)
+passes the real parent-entry regression in 7.028s with the original key,
+Handled, native error and cleanup assertions. Source bd88d2c5 passes all nine
+installed fixtures and 31 policy/frame cases. Full consumer Windows results
+remain pending.
 
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion

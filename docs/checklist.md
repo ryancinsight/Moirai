@@ -9,7 +9,9 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 - [x] [patch] Fixed native callback storage preserves order and reports capacity loss; two portable tests pass.
 - [x] [patch] Production Windows SDK compilation admits private controller observations.
 - [x] [patch] Installed-runtime physical Ctrl+A/Escape and exact callback cleanup on source 924dd8ac (Windows run 38743789587).
-- [ ] [patch] Full current-head gates with the targeted Rustls 0.23.46 lock correction.
+- [x] [patch] Source `bd88d2c5` passes 16 active checks with Rustls 0.23.46; Miri and release SemVer remain skipped, and informational API checks do not prove release compatibility.
+- [x] [patch] Native-parent focus regression fails on unchanged host (1.957s), then passes on corrected source (7.028s) with all original key/Handled/cleanup assertions and actual closed-controller error retention.
+- [x] [patch] Fresh external consumer resolves the exact Git candidate and WebView2 feature without Atlas path overrides or a preceding consumer lock.
 - [ ] [patch] Source-bound Metis native form and complete Windows script acceptance.
 
 - [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.

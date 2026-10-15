@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revokes admission before controller Close; errors retain their typed SDK
   source, HRESULT and focus operation. The real unchanged-host regression
   fails because the recipient remains the parent HWND. Corrected Windows
-  runtime and full Metis form acceptance remain pending.
+  source `bd88d2c5` passes that regression in 7.028s, including real key receipt,
+  Handled/scan/release, shutdown and closed-controller error assertions.
+  Full Metis form acceptance remains pending.
 - [patch] The explicitly selected private Windows diagnostic observes actual
   controller focus and eligible accelerator keys. Native callbacks preserve
   Handled and input, retain fixed bounded records and defer formatting/tracing
@@ -32,7 +34,11 @@ real Ctrl+A/Escape fixture (7.306s), preserving Handled and owned cleanup.
 The later full-workspace run rejects the preceding Rustls 0.23.45 locks; the
 targeted correction `499ed39e` passes its full Rust Workspace gate. A real
 native-parent focus regression now reproduces the missing entry contract in
-run 38748681812 (1.957s); the correction awaits its own native runtime evidence.
+run 38748681812 (1.957s). [Corrected run 38749728275](https://github.com/ryancinsight/Moirai/actions/runs/38749728275)
+passes all 31 policy/frame cases and nine installed-runtime fixtures. All 16
+active checks pass on `bd88d2c5`; Miri and release SemVer are skipped, and the
+informational API check is not release compatibility proof. A fresh external
+consumer resolves the exact Git candidate with WebView2 and no local overrides.
 
 ## [0.9.2] - Unreleased
 

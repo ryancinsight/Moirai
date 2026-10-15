@@ -24,9 +24,15 @@ requires native SetFocus(parent) to restore controller receipt synchronously;
 baseline Windows run 38748681812 fails in 1.957s because the keyboard recipient
 remains the parent HWND, while original direct-controller receipt passes.
 The private synchronous Weak/Rc focus correction preserves native reentrancy,
-typed errors and clear-before-Close ownership. Corrected provider and full
-consumer Windows results remain pending; the host regression alone does not
-establish complete form correctness.
+typed errors and clear-before-Close ownership. Corrected source bd88d2c5 passes
+all 16 active checks and Windows run 38749728275: 31 policy/frame cases and nine
+installed fixtures, including parent entry in 7.028s and real closed-controller
+error retention. Miri/release SemVer remain skipped. A fresh external consumer
+resolves the exact Git candidate with no local overrides. Independent receipts
+bind the actual merge tree, eight artifact members, five payload originals and
+ten producer inputs; the producer's source_dirty=true remains explicit and
+does not establish a clean whole checkout. Full Metis run 38750658426 remains
+pending; the host regression alone does not establish complete form correctness.
 
 ## Native bridge verification boundary — 2026-10-14 [patch]
 

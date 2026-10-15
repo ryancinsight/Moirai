@@ -25,7 +25,9 @@ checks under the [diagnostic contract](moirai-pal/src/windows/webview/host/diagn
 The same patch restores synchronous native-parent focus entry through
 MoveFocus(PROGRAMMATIC), with weak callback ownership and typed native errors.
 The unchanged-host Windows regression leaves focus at the parent and fails;
-corrected provider and full Metis form results remain pending.
+[corrected provider Windows execution](https://github.com/ryancinsight/Moirai/actions/runs/38749728275)
+passes the real parent-entry regression and all nine installed fixtures.
+Full Metis form results remain pending.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The
