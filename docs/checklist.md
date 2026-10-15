@@ -8,7 +8,8 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
 - [x] [patch] Fixed native callback storage preserves order and reports capacity loss; two portable tests pass.
 - [x] [patch] Production Windows SDK compilation admits private controller observations.
-- [ ] [patch] Installed-runtime physical Ctrl+A/Escape and exact callback cleanup.
+- [x] [patch] Installed-runtime physical Ctrl+A/Escape and exact callback cleanup on source 924dd8ac (Windows run 38743789587).
+- [ ] [patch] Full current-head gates with the targeted Rustls 0.23.46 lock correction.
 - [ ] [patch] Source-bound Metis native form and complete Windows script acceptance.
 
 - [x] [patch] Fourteen real Chrome contracts, strict WASM/Windows compilation, and 1,310 native workspace tests.

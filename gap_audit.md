@@ -11,6 +11,13 @@ prove renderer consumption. The active controller-observation item in backlog
 owns this bounded investigation. No functional cause or focus correction is
 established by the source capability gap alone.
 
+The source-924dd8ac installed Windows gate passes 31 policy/frame cases and
+eight installed-runtime fixtures, including the new Ctrl+A/Escape receipt and
+cleanup case. The broader ready-for-review gate rejects Rustls 0.23.45. Both
+canonical locks now select 0.23.46, with every other record unchanged; the exact
+isolated 1,089-file source copy passes advisories, bans, licenses and sources.
+Current-head CI and the independently source-bound Metis replay remain pending.
+
 ## Native bridge verification boundary — 2026-10-14 [patch]
 
 The private startup observer is verified by its protected provider run. In

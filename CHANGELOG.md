@@ -9,12 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Both canonical locks select Rustls 0.23.46 to satisfy the current
+  advisory gate; every other dependency record remains unchanged.
 - [patch] The explicitly selected private Windows diagnostic observes actual
   controller focus and eligible accelerator keys. Native callbacks preserve
   Handled and input, retain fixed bounded records and defer formatting/tracing
   until callback return. Capacity loss, raw key/focus state and token-removal
   failures stay explicit. Ordinary hosts install no diagnostic callbacks;
   supported APIs and every input/acceptance deadline remain unchanged.
+
+The exact diagnostic source `924dd8ac` passes the actual Windows gate in
+[run 38743789587](https://github.com/ryancinsight/Moirai/actions/runs/38743789587):
+31 policy/frame cases, seven existing installed-runtime fixtures and the new
+real Ctrl+A/Escape fixture (7.306s), preserving Handled and owned cleanup.
+The later full-workspace run rejects the preceding Rustls 0.23.45 locks; the
+targeted lock correction requires its own current-head validation.
 
 ## [0.9.2] - Unreleased
 

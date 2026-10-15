@@ -13,8 +13,8 @@ belong in [gap_audit.md](gap_audit.md).
 - outcome: Bound actual controller focus and accelerator receipt separately from UIA values, renderer consumption and Rust submission.
 - scope: Default-off private Windows startup owner; deferred callback records and exact token cleanup. No supported API, Handled/focus setter, input or deadline change.
 - acceptance: Portable capacity/order/loss laws, strict Windows SDK diagnostics, installed real Ctrl+A/Escape observations and the unchanged Metis full-form/script gates.
-- verification: Fifteen selection/quota/request/buffer tests pass; strict production and all-target Windows SDK diagnostics pass. Installed-runtime and consumer evidence remain pending.
-- next step: Execute the selected controller fixture and bind the Metis replay to this provider revision before selecting any functional correction.
+- verification: Fifteen selection/quota/request/buffer tests and strict Windows SDK diagnostics pass. Actual Windows run 38743789587 passes 31 policy/frame cases and the real Ctrl+A/Escape fixture in 7.306s with Handled and cleanup assertions. Broader run 38745823182 rejects existing Rustls 0.23.45 advisories; only the Rustls record changes to 0.23.46 in each lock. The Metis 05a2e7c replay retains diagnostic source 924dd8ac and unchanged acceptance.
+- next step: Verify the corrected provider locks and current-head gates; collect the consumer's controller/UIA evidence before selecting a functional correction.
 - basis: Moirai protected default `2b189f0a`; Metis PR 504 final-head run 38685234146 reaches Ready, accepts earlier fields and retains dose 0.2 after requested 0.25. Its 502 scripts pass in 40.796s.
 
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
