@@ -15,8 +15,9 @@ use windows::Win32::{Foundation::RECT, UI::WindowsAndMessaging::GetClientRect};
 fn installed_runtime_owns_private_parent_and_rejects_destroyed_handle_use() {
     let (_trace, _subscriber) = tracing();
     let _test = tracing::info_span!("native_controller_container_lifetime").entered();
-    let (package, mut host) = tracing::info_span!("arrange").in_scope(|| {
-        let package = TestPackage::create_with_script(br#"<!doctype html><p id="host-status">private parent</p><output id="result">native lifecycle</output>"#);
+    let (mut package, mut host) = tracing::info_span!("arrange").in_scope(|| {
+        let mut package = TestPackage::create_with_script(br#"<!doctype html><p id="host-status">private parent</p><output id="result">native lifecycle</output>"#);
+        package.permit_cleanup(false);
         let config = WindowConfig::with_visibility("Moirai private controller lifecycle",480,320,WindowVisibility::Visible).expect("window configuration");
         let window = NativeWindow::new(&config).expect("real native window");
         let host = WebViewHost::new(window,package.fresh_config()).expect("installed WebView2");
@@ -60,6 +61,7 @@ fn installed_runtime_owns_private_parent_and_rejects_destroyed_handle_use() {
     let mut retained = host.container.take().expect("private owner transfer");
     retained.deactivate();
     tracing::info_span!("act").in_scope(|| host.close().expect("real controller/root close"));
+    package.permit_cleanup(true);
     tracing::info_span!("assert").in_scope(|| {
         assert!(
             !alive(),
