@@ -19,18 +19,28 @@ pub(super) enum Document {
     Available,
 }
 
+/// A native node identity admitted under one actual document generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DocumentRoot {
+    pub(super) node: i64,
+    pub(super) generation: u64,
+}
+
 pub(super) struct State {
     pub(super) selection: Selection,
     pub(super) budget: TraceBudget,
     pub(super) slot: RequestSlot,
     pub(super) reply: Option<(RequestId, Stage, Reply)>,
     pub(super) document: Document,
+    pub(super) root: Option<DocumentRoot>,
     pub(super) navigation: Option<u64>,
     pub(super) failed: bool,
     pub(super) cleanup_failed: bool,
     pub(super) samples: u64,
     pub(super) dom_calls_attempted: u64,
     pub(super) activation_calls_attempted: u64,
+    pub(super) document_calls_attempted: u64,
+    pub(super) description_calls_attempted: u64,
     pub(super) stale: u64,
     pub(super) last: Vec<Option<Value>>,
     metadata_sent: bool,
@@ -46,12 +56,15 @@ impl State {
             slot: RequestSlot::default(),
             reply: None,
             document: Document::Outside,
+            root: None,
             navigation: None,
             failed: false,
             cleanup_failed: false,
             samples: 0,
             dom_calls_attempted: 0,
             activation_calls_attempted: 0,
+            document_calls_attempted: 0,
+            description_calls_attempted: 0,
             stale: 0,
             metadata_sent: false,
         }
@@ -111,6 +124,7 @@ impl State {
     }
 
     pub(super) fn invalidate_nodes(&mut self) {
+        self.root = None;
         if let Err(error) = self.slot.invalidate() {
             self.failed = true;
             self.record(
@@ -118,6 +132,33 @@ impl State {
             );
         }
         self.last.fill(None);
+    }
+
+    pub(super) fn close_admission(&mut self) {
+        self.root = None;
+        self.slot.close();
+    }
+
+    /// Counters commit together before an attempted native call; overflow
+    /// cannot partially count a call that is never issued.
+    pub(super) fn command_attempt(&mut self, method: &str, dom: bool) -> windows::core::Result<()> {
+        let increment = |value: u64, admitted: bool| {
+            value.checked_add(u64::from(admitted)).ok_or_else(|| {
+                super::super::error::callback_error("WebView2 command count exhausted")
+            })
+        };
+        let dom_calls = increment(self.dom_calls_attempted, dom)?;
+        let activation_calls = increment(self.activation_calls_attempted, !dom)?;
+        let document_calls = increment(self.document_calls_attempted, method == "DOM.getDocument")?;
+        let description_calls = increment(
+            self.description_calls_attempted,
+            method == "DOM.describeNode",
+        )?;
+        self.dom_calls_attempted = dom_calls;
+        self.activation_calls_attempted = activation_calls;
+        self.document_calls_attempted = document_calls;
+        self.description_calls_attempted = description_calls;
+        Ok(())
     }
 
     pub(super) fn changed(&mut self, selector: usize, value: Value) {
@@ -142,6 +183,9 @@ impl State {
             "closed":request.closed,"samples":self.samples.to_string(),"stale":self.stale.to_string(),
             "dom_calls_attempted":self.dom_calls_attempted.to_string(),
             "activation_calls_attempted":self.activation_calls_attempted.to_string(),
+            "document_calls_attempted":self.document_calls_attempted.to_string(),
+            "description_calls_attempted":self.description_calls_attempted.to_string(),
+            "document_bound":self.root.is_some(),
             "failed":self.failed,"cleanup_failed":cleanup_failed || self.cleanup_failed}).to_string();
         emit(&encoded);
         if kind == "closed" {

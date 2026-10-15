@@ -60,7 +60,7 @@ impl Registrations {
                 &serde_json::json!({"kind":"close_requested", "pending":request.pending,
                 "generation":request.generation.to_string()}),
             );
-            state.slot.close();
+            state.close_admission();
         }
         let mut first = None;
         if let Some((token, _)) = self.content.take() {

@@ -131,7 +131,7 @@ chains (at least 52,032 CDP calls); without per-chain timestamps this proves
 additional work, not its timing or input-loss causality.
 
 Private-parent experiment `27cd682d` / run 38766339399 preserves the fixture,
-bounds, runner and actual WebView2 154.0.4258.62/SDK 0.39.1. It passes 33 policy
+bounds, runner and available WebView2 154.0.4258.62/SDK 0.39.1. It passes 33 policy
 and ten installed cases, including real inner focus, sibling/foreign focus,
 resize and destruction. Ordinary mode completes 16/64 in 7.428s; selected mode
 completes 6/24 then retains concentration 2 after admitted input requests 4.
@@ -155,7 +155,7 @@ those calls, and the existing quotas still bound all retained records.
 The same real native client now executes ordinary, controller-only,
 native-only, events-only, startup-only and full selected modes, each with all 16 edits, 64 exact value
 checks and unchanged 30/60/120-second client/nextest/wrapper bounds. Both
-original modes remain fatal and all four run before aggregate failure.
+original modes remain fatal and all six run before aggregate failure.
 Successful isolated modes additionally verify actual receiver identities,
 zero CDP calls for controller/native-only, exactly two activation calls and no
 DOM sampling for events-only, real selected nodes and completed chains
@@ -177,6 +177,37 @@ Runtime/Log activation, with no DOM tick. These additional controls distinguish
 the recurring sampling algorithm from passive subscription and activation;
 the original four modes and every bound remain unchanged.
 
+### Binding-preserving document validation candidate
+
+Six-mode source b6105157 / run 38771351139 completes ordinary, controller,
+native and events controls (all 16/64); startup and full still fail their
+30-second admission bound. The available-runtime record is 153.0.4234.48, unlike the prior 154 record;
+these are not per-controller runtime reads. The recurring DOM algorithm is necessary in that
+controlled comparison; a particular method and installed-runtime internals
+remain unproved. The next candidate replaces repeated document-binding resets
+with a live read of the same document identity, retaining the sampling work.
+
+The first chain in an actual document generation uses DOM.getDocument. Later
+chains use DOM.describeNode with the admitted root NodeId, require the same
+nonzero identity and a present/string/exact current documentURL, then freshly
+query every selector and read each actual outerHTML. For n selectors and p
+present matches both policies issue 1+n+p calls per complete chain (six for
+this fixture). No cached value, timer, input retry or sampling reduction is
+introduced. Navigation/DOM.documentUpdated clears the root, and pending old
+replies retain their slot until settlement; they cannot bind a new generation.
+Common close clears the root and stops admission before native owner teardown.
+Stale identity, malformed response and URI mismatch remain explicit failures.
+
+Only the root identity/generation and fixed counters are Rust-retained. The
+Chromium-owned frontend bindings can persist until document reset/controller
+close; neither selector count nor the Rust quota bounds their allocation.
+Upstream removal/whitespace behavior prevents a live-DOM-only bound, and is
+not a source match to installed Edge. This candidate therefore claims no
+browser allocation bound. Actual controller/browser/profile cleanup and all
+six native modes remain acceptance gates. Primary protocol/source evidence
+supports this ownership policy; only controlled runtime evidence can establish
+whether it corrects input delivery.
+
 The original navigation deadline starts before registration/activation.
 Runtime and Log listeners register first; successful `Runtime.enable` completion
 precedes `Log.enable`, whose successful completion precedes Navigate. Every
@@ -191,10 +222,12 @@ failures remain explicit observations, never absence interpreted as success. A
 failed HRESULT retains its independently supplied bounded reply and decoding
 error; successful malformed/protocol-error replies retain their actual text.
 
-A single request slot owns one DOM chain: getDocument(depth=0), querySelector,
-then getOuterHTML for each selected node. A zero node ID records a missing
-selector. No substitute node is queried. Chromium discards frontend node
-bindings on getDocument, so chains never overlap. Actual NavigationId matching prevents overlapping old completions from changing
+A single request slot owns one DOM chain: the first gets the document at
+depth=0; subsequent chains describe its bound identity. Every chain validates
+the current URI before fresh querySelector/getOuterHTML calls. A zero match
+records a missing selector; no substitute node is queried. Chromium discards
+frontend bindings on getDocument, so that operation occurs once per admitted
+generation and chains never overlap. Actual NavigationId matching prevents overlapping old completions from changing
 the selected document phase. getDocument.documentURL must exactly match the
 selected URI before any node query. Navigation or actual DOM.documentUpdated invalidates the
 current generation; its pending completion retains the slot until it settles.
@@ -216,7 +249,7 @@ new sampling. Two fixed-schema terminal records report quota and close state.
 The selected tracing layer omits time/span context. Its exact JSON envelope
 bound is verified by the portable owner against the existing 1 MiB Metis trace
 limit, including the second JSON-string escaping layer and newline. These
-bounds cover Rust-retained copies, not Chromium allocations before callbacks.
+bounds cover Rust-retained copies, not Chromium allocations or frontend bindings.
 
 The terminal `closed` field refers to request admission, not a claim that a
 failed token removal released the SDK callback. All callback tokens remain

@@ -44,6 +44,11 @@ passes ordinary and controller-only, while startup-only and full selected
 fail before a complete replacement journey. Two more controls distinguish
 native events and CDP activation from DOM sampling; full selected and ordinary
 acceptance remain required, with exact Unicode and every deadline unchanged.
+Those passive controls pass 16/64 while recurring sampling still fails. The
+next candidate retains a document identity per actual generation and uses a
+fresh description to validate its current URI on later chains, then queries
+every selector and value. It retains the same per-chain call count. Native
+correction evidence and both full Metis journeys remain pending.
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The
