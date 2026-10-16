@@ -242,7 +242,7 @@ jobs:
           --manifest-path "$env:GITHUB_WORKSPACE/Cargo.toml"
           --target-dir "$env:GITHUB_WORKSPACE/target"
           --output "$env:GITHUB_WORKSPACE/keyboard-fixture-evidence"
-      - name: Compare untouched and matched-call native browser-key policies
+      - name: Compare native browser-key policies with selected and absent observers
         shell: python
         run: |
           import hashlib
@@ -259,51 +259,144 @@ jobs:
               return {p.name: {"bytes": p.stat().st_size,
                       "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
                       for p in sorted(payload.iterdir())}
-          failures = []
-          for policy in ("default", "enable_s", "skip_s"):
-              environment = os.environ.copy()
-              environment["MOIRAI_WEBVIEW_KEYBOARD_FIXTURE"] = str(payload)
-              environment["MOIRAI_WEBVIEW_KEYBOARD_POLICY"] = policy
-              environment["MOIRAI_WEBVIEW_KEYBOARD_EVIDENCE"] = str(root / (policy + ".json"))
-              environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
-                  "start_uri": "https://metis.invalid/index.html",
-                  "selectors": ["#fixture-status"],
-              }, separators=(",", ":"))
-              command = ["cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
-                  "--no-default-features", "--features", "webview2",
-                  "--config-file", ".config/nextest.toml", "--test-threads", "1",
-                  "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
-                  "--success-output", "immediate", "-E",
-                  "test(=windows::webview::host::keyboard_fixture::installed_runtime_compares_physical_shortcut_browser_policy)"]
-              before = identities()
+
+          def run_process(command, environment, directory, name, observer, timeout_seconds):
+              errors = []
+              def snapshot():
+                  try:
+                      return identities()
+                  except OSError as error:
+                      errors.append({"operation": "payload identity", "error": repr(error)})
+                      return None
+              before = snapshot()
               started = time.monotonic()
               try:
-                  result = subprocess.run(command, env=environment, capture_output=True, timeout=120)
+                  result = subprocess.run(command, env=environment, capture_output=True,
+                                          timeout=timeout_seconds)
                   code, stdout, stderr, timeout = result.returncode, result.stdout, result.stderr, False
               except subprocess.TimeoutExpired as error:
                   code, stdout, stderr, timeout = None, error.stdout or b"", error.stderr or b"", True
-              (root / (policy + ".stdout")).write_bytes(stdout)
-              (root / (policy + ".stderr")).write_bytes(stderr)
+              except OSError as error:
+                  code, stdout, stderr, timeout = None, b"", b"", False
+                  errors.append({"operation": "launch", "error": repr(error)})
+              after = snapshot()
+              for suffix, data in (("stdout", stdout), ("stderr", stderr)):
+                  try:
+                      (directory / (name + "." + suffix)).write_bytes(data)
+                  except OSError as error:
+                      errors.append({"operation": suffix + " retention", "error": repr(error)})
               sys.stdout.buffer.write(stdout)
               sys.stderr.buffer.write(stderr)
-              after = identities()
-              receipt = {"policy": policy, "command": command, "exit": code,
+              receipt = {"policy": name, "observer": observer, "command": command, "exit": code,
                   "timeout": timeout, "seconds": time.monotonic() - started,
-                  "payload_before": before, "payload_after": after,
+                  "payload_before": before, "payload_after": after, "driver_errors": errors,
                   "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
                   "stderr_sha256": hashlib.sha256(stderr).hexdigest()}
-              (root / (policy + ".driver.json")).write_text(json.dumps(receipt, indent=2) + "\n")
-              if code != 0 or timeout or before != after:
+              try:
+                  (directory / (name + ".driver.json")).write_text(
+                      json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+              except OSError as error:
+                  errors.append({"operation": "driver retention", "error": repr(error)})
+              return receipt
+
+          def cross_group_identity():
+              comparisons = []
+              for observer, directory, _ in groups:
+                  path = directory / "comparison.json"
+                  raw = path.read_bytes()
+                  result = json.loads(raw)
+                  if (type(result["schema"]) is not int or result["schema"] != 2
+                          or result["observer"] != observer):
+                      raise ValueError("comparison observer/schema identity differs")
+                  if (len(result["cells"]) != 3
+                          or [cell["policy"] for cell in result["cells"]]
+                          != ["Default", "EnableS", "SkipS"]
+                          or any(cell["observer_selected"] is not (observer == "selected")
+                                 for cell in result["cells"])):
+                      raise ValueError("comparison cell/observer identity differs")
+                  comparisons.append({"result": result, "path": str(path),
+                      "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+              cells = [cell for item in comparisons for cell in item["result"]["cells"]]
+              vectors = [{"runtime": cell["runtime"], "chords": [
+                  {key: chord[key] for key in ("letter", "layout", "strokes")}
+                  for chord in cell["chords"]]} for cell in cells]
+              if len(vectors) != 6 or any(row != vectors[0] for row in vectors[1:]):
+                  raise ValueError("cross-group actual runtime/layout/stroke identity differs")
+              actual_files = identities()
+              builder_path = root / "evidence.json"
+              builder_raw = builder_path.read_bytes()
+              for item in comparisons:
+                  reported = item["result"]["payload"]
+                  files = {row["path"]: {key: row[key] for key in ("bytes", "sha256")}
+                           for row in reported["files"]}
+                  builder = reported["builder_receipt"]
+                  if (not Path(reported["directory"]).samefile(payload)
+                          or len(reported["files"]) != 5 or files != actual_files
+                          or not Path(builder["path"]).samefile(builder_path)
+                          or builder["bytes"] != len(builder_raw)
+                          or builder["sha256"] != hashlib.sha256(builder_raw).hexdigest()):
+                      raise ValueError("cross-group actual compiled payload identity differs")
+              return {"schema": 1, "kind": "cross-group-identity-only", "controls": vectors[0],
+                  "payload": actual_files, "comparisons": [
+                      {key: item[key] for key in ("path", "bytes", "sha256")}
+                      for item in comparisons], "limits": "Identity only; no cross-group causal classification."}
+
+          command = ["cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+              "--success-output", "immediate", "-E",
+              "test(=windows::webview::host::keyboard_fixture::installed_runtime_compares_physical_shortcut_browser_policy)"]
+          groups = []
+          # Each real process owns a fresh profile. All six processes complete
+          # before comparisons or fatal aggregation; selected is still required.
+          for observer, directory in (("selected", root), ("none", root / "observer-none")):
+              failures = []
+              if observer == "none":
+                  try:
+                      directory.mkdir()
+                  except OSError as error:
+                      failures.append({"operation": "group directory", "error": repr(error)})
+              for policy in ("default", "enable_s", "skip_s"):
+                  environment = os.environ.copy()
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_FIXTURE"] = str(payload)
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_POLICY"] = policy
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_OBSERVER"] = observer
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_EVIDENCE"] = str(directory / (policy + ".json"))
+                  if observer == "selected":
+                      environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+                          "start_uri": "https://metis.invalid/index.html",
+                          "selectors": ["#fixture-status"],
+                      }, separators=(",", ":"))
+                  else:
+                      environment.pop("MOIRAI_WEBVIEW_STARTUP_OBSERVATION", None)
+                  receipt = run_process(command, environment, directory, policy, observer, 120)
+                  if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
+                          or receipt["payload_before"] != receipt["payload_after"]):
+                      failures.append(receipt)
+              groups.append((observer, directory, failures))
+          failures = []
+          for observer, directory, native_failures in groups:
+              failures.extend(native_failures)
+              if native_failures:
+                  continue
+              receipt = run_process([sys.executable, "scripts/webview/keyboard_evidence.py",
+                  "--observer", observer, "--default", str(directory / "default.json"),
+                  "--enable-s", str(directory / "enable_s.json"),
+                  "--skip-s", str(directory / "skip_s.json"),
+                  "--payload", str(payload), "--output", str(directory / "comparison.json")],
+                  os.environ.copy(), directory, "comparison", observer, 60)
+              if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
+                      or receipt["payload_before"] != receipt["payload_after"]):
                   failures.append(receipt)
           if failures:
-              raise RuntimeError("Native keyboard cells fail: " + json.dumps(failures))
-          subprocess.run([sys.executable, "scripts/webview/keyboard_evidence.py",
-              "--default", str(root / "default.json"),
-              "--enable-s", str(root / "enable_s.json"),
-              "--skip-s", str(root / "skip_s.json"),
-              "--payload", str(payload), "--output", str(root / "comparison.json")],
-              check=True, timeout=60)
-      - name: Retain real keyboard payload, three cells and original output
+              raise RuntimeError("Native keyboard groups fail: " + json.dumps(failures))
+          # This gate executes only after both independent comparisons succeed.
+          identity = cross_group_identity()
+          with (root / "cross-group-identity.json").open("x", encoding="utf-8") as output:
+              json.dump(identity, output, indent=2, allow_nan=False)
+              output.write("\n")
+      - name: Retain real keyboard payload, six cells and original output
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

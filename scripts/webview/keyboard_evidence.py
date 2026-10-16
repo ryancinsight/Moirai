@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Compare three completed real keyboard cells without inferring delivery absence.
 
-The caller admits all three native process exits before invocation. This reader
+The caller admits all three native process exits in one explicitly selected
+observer group before invocation. This reader
 checks their retained values; it does not run input, a browser, or compiled code.
 For (Default, EnableS, SkipS), reports (0,0,1) support a bounded property-specific
 difference, (0,1,1) a setter-path difference, and (1,1,1) no reproduction. Other
@@ -192,11 +193,20 @@ def fresh_letter(value, letter):
             and held[0] >= 0 and held[1] < 0 and held[2] < 0 and held[3] >= 0 and held[4] >= 0)
 
 
-def cell(path, policy, payload):
+def selected_observer(value, observer):
+    require(type(observer) is str and observer in ("selected", "none"),
+            "explicit selected/none observer group required")
+    require(type(value) is bool and value is (observer == "selected"),
+            "actual observer selection differs")
+    return value
+
+
+def cell(path, policy, payload, observer):
     value, identity = read_json(path)
-    closed(value, "schema policy runtime runtime_error chords controller document operation_error callback_cleanup host_cleanup destroyed profile_cleanup coverage payload_directory payload_files")
-    require(type(value["schema"]) is int and value["schema"] == 1 and value["policy"] == policy,
+    closed(value, "schema policy observer_selected runtime runtime_error chords controller document operation_error callback_cleanup host_cleanup destroyed profile_cleanup coverage payload_directory payload_files")
+    require(type(value["schema"]) is int and value["schema"] == 2 and value["policy"] == policy,
             "native cell schema/policy differs")
+    selected = selected_observer(value["observer_selected"], observer)
     text(value["runtime"])
     for key in ("runtime_error", "operation_error", "callback_cleanup", "host_cleanup", "profile_cleanup"):
         require(value[key] is None, f"native {key} is retained")
@@ -213,9 +223,9 @@ def cell(path, policy, payload):
     require(type(records) is list and 1 <= len(records) <= 64, "controller bounded record count differs")
     for row in records:
         attempt(row)
-    selected = [row for row in records if fresh_letter(row, 83)]
-    require(len(selected) == 1, "one actual fresh S-down intervention domain required")
-    target = selected[0]
+    matching = [row for row in records if fresh_letter(row, 83)]
+    require(len(matching) == 1, "one actual fresh S-down intervention domain required")
+    target = matching[0]
     require(target["handled_before"] is False and target["handled_after"] is False
             and target["browser_before"] is True, "S entry getters differ")
     setters = [row for row in records if row["setter_succeeded"] is not None]
@@ -232,7 +242,8 @@ def cell(path, policy, payload):
         stroke = mapped["strokes"][2]
         require((bits >> 16) & 255 == stroke["scan"]
                 and bool(bits & (1 << 24)) == bool(stroke["flags"] & 1), "native scan differs from actual input")
-    return {"policy": policy, "receipt": identity, "runtime": value["runtime"],
+    return {"policy": policy, "observer_selected": selected,
+            "receipt": identity, "runtime": value["runtime"],
             "chords": chords, "controller_records": len(records), "selected_S_callback": target,
             "document": document(value["document"]), "declared_coverage": value["coverage"],
             "payload_directory": value["payload_directory"], "payload_files": value["payload_files"]}
@@ -246,9 +257,9 @@ def classify(pattern):
             (True, True, True): "NOT_REPRODUCED"}.get(pattern, "INCONCLUSIVE")
 
 
-def compare(default, enabled, skipped, payload_path):
+def compare(default, enabled, skipped, payload_path, observer):
     payload = payload_identity(payload_path)
-    cells = [cell(path, policy, payload) for path, policy in
+    cells = [cell(path, policy, payload, observer) for path, policy in
              zip((default, enabled, skipped), ("Default", "EnableS", "SkipS"))]
     require(len({row["runtime"] for row in cells}) == 1, "actual runtime versions differ")
     vectors = [[{key: row[key] for key in ("letter", "layout", "strokes")} for row in item["chords"]]
@@ -256,9 +267,11 @@ def compare(default, enabled, skipped, payload_path):
     require(vectors[0] == vectors[1] == vectors[2], "actual layouts/stroke vectors differ")
     pattern = tuple(bool(row["document"]["controls"]["KeyS"]) for row in cells)
     require(pattern[2], "SkipS actual document S is required by the native gate")
-    return {"schema": 1, "classification": classify(pattern), "S_notice_pattern": list(pattern),
+    return {"schema": 2, "observer": observer,
+            "classification": classify(pattern), "S_notice_pattern": list(pattern),
             "cells": cells, "payload": payload, "limits": [
                 "The caller admits all three real native process exits; this reader does not rerun them.",
+                "This comparison covers only its explicit observer group; another group's result cannot satisfy it.",
                 "Copied payload identity is an executed native-source byte assertion; copied hashes are not independently archived here.",
                 "The same native filesystem and still-existing original payload paths are required; no path rewriting occurs.",
                 "Absent document notices mean only unobserved in these bounded prefixes, never delivery absence.",
@@ -278,8 +291,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("default", "enable-s", "skip-s", "payload", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--observer", choices=("selected", "none"), required=True)
     args = parser.parse_args()
-    result = compare(args.default, args.enable_s, args.skip_s, args.payload)
+    result = compare(args.default, args.enable_s, args.skip_s, args.payload, args.observer)
     print(json.dumps(publish(result, args.output)))
 
 

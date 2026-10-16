@@ -35,7 +35,16 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
         "skip_s" => Policy::SkipS,
         _ => panic!("unknown keyboard experiment policy"),
     };
-    let _test = tracing::info_span!("actual_keyboard_counterfactual", ?policy).entered();
+    let expected_observer = match std::env::var("MOIRAI_WEBVIEW_KEYBOARD_OBSERVER")
+        .expect("explicit experiment observer")
+        .as_str()
+    {
+        "selected" => true,
+        "none" => false,
+        _ => panic!("unknown keyboard experiment observer"),
+    };
+    let _test =
+        tracing::info_span!("actual_keyboard_counterfactual", ?policy, expected_observer).entered();
     let deadline = Instant::now() + Duration::from_secs(30);
     let (mut package, payload) = tracing::info_span!("arrange").in_scope(session::package);
     let window = NativeWindow::new(
@@ -49,12 +58,18 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
     )
     .expect("actual native window");
     let mut host = WebViewHost::new(window, package.fresh_config()).expect("installed browser");
+    let observer_selected = host.startup.is_some();
     let mut registration =
         Registration::new(host.controller.as_ref().expect("actual controller"), policy);
     let runtime = runtime_version(&host);
     let mut notices = session::Document::default();
     let mut chords = Vec::new();
     let result = tracing::info_span!("act").in_scope(|| {
+        if observer_selected != expected_observer {
+            return Err(io::Error::other(
+                "actual startup observer selection differs",
+            ));
+        }
         exercise(
             &mut host,
             &registration,
@@ -79,7 +94,7 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
         && destroyed.as_ref().is_ok_and(|count| *count == 1);
     package.permit_cleanup(released);
     let profile_cleanup = package.cleanup();
-    let encoded = json!({"schema":1,"policy":policy,"payload_directory":payload.directory,"payload_files":payload.files,"runtime":runtime.as_ref().ok(),"runtime_error":runtime.as_ref().err().map(ToString::to_string),"chords":chords,"controller":records,"document":notices,
+    let encoded = json!({"schema":2,"policy":policy,"observer_selected":observer_selected,"payload_directory":payload.directory,"payload_files":payload.files,"runtime":runtime.as_ref().ok(),"runtime_error":runtime.as_ref().err().map(ToString::to_string),"chords":chords,"controller":records,"document":notices,
         "operation_error":result.as_ref().err().map(ToString::to_string),"callback_cleanup":callback_cleanup.as_ref().err().map(ToString::to_string),
         "host_cleanup":host_cleanup.as_ref().err().map(ToString::to_string),"destroyed":destroyed.as_ref().ok(),
         "profile_cleanup":profile_cleanup.as_ref().err().map(ToString::to_string),

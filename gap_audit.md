@@ -56,12 +56,34 @@ UIA request 194 is pending at node 24 with unknown element identity. Response 19
 contains Dark but has no point timestamp; it cannot be placed after S. Ordinary
 form, final lifecycle and subsequent native/archive/package gates are unreached.
 
-The active private experiment compares Default, EnableS and SkipS with identical
-Rust/WASM and observation selection. Focused 43 portable laws pass, including
-all 64 independent metadata flags and reverse release after partial input.
-Installed policy comparison is unexecuted. No production callback/default/API,
-input domain or 30/60/120-second/20-minute bound changes; full Metis acceptance
-remains open. The verified A retention mechanism does not close that gate.
+Source `2efcc148` / [Windows run 38829030763](https://github.com/ryancinsight/Moirai/actions/runs/38829030763)
+records 24 nextest processes and 98 executions: 95 PASS/3 FAIL. Original 91
+executions (83 distinct IDs) pass, as do four added portable cases; all three
+selected Default/EnableS/SkipS cells exit 100 at host cleanup. Each retains
+12 actual controller rows, matching D/S/P vectors,
+Handled=false, and identical Ready/eight Key/Closed document streams (1,322 bytes).
+SkipS successfully changes the fresh S-down property true→false; D/P reach Rust,
+but no S notice is retained. Callback cleanup succeeds and Destroyed is one.
+The SDK observer matches the browser PID and rejects a non-NORMAL exit kind;
+its 0x80004004 is synthesized E_ABORT, not a captured OS process exit status.
+Actual numeric kind/PID are not archived; failed host close retains profiles.
+Host-close failure precedes native value/stroke assertions; those do not execute.
+The raw payload/vector checks are independent inspection, not executed assertions.
+The eight original modes and separate probe pass schema3 16/64 and entry16/12.
+The probe triggers at weight UIA6/expected64 after50 queries; later timely DOM64
+is a different-time observation, without a same-time staleness or input cause.
+All selected owners close with logical RequestSlot pending=true. That bit can
+also denote a completed reply awaiting pump processing; it does not prove an
+SDK call is in flight. No comparison.json, accepted experiment or Metis cause follows.
+
+The next private comparison retains all three selected cells and adds the same
+three policies with observer selection absent. Schema2 records actual owner
+presence and explicit expected observer mode; browser-exit diagnostics retain the
+existing getters without another SDK call or shutdown-policy change. Every cell
+must run before fatal aggregation; unobserved controls cannot excuse selected failures.
+Successor execution remains pending. Portable 43 laws pass, including all 64
+metadata flags and partial-input reverse release. Original eight modes, inputs,
+quotas and 30/60/120-second/20-minute bounds remain; full Metis acceptance is open.
 
 Source2fcef45d/run38798617700 closes the separately reproduced SDK-admission
 regression (6.837s) and native SDK availability query (0.39.1/154.0.4258.62),

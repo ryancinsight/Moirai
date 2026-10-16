@@ -1,8 +1,9 @@
 # Real document keyboard fixture
 
-The browser payload is identical for the native host's Default, EnableS and
-SkipS policy arms. All three use the same observation selection. The payload
-never reads that selection or implements shortcut policy. The only authored initializer imports the generated module and awaits
+The browser payload is identical for Default, EnableS and SkipS in both native
+host observer groups (selected and none). Selection varies only between groups;
+the payload never reads it or implements shortcut policy. The only authored
+initializer imports the generated module and awaits
 its normal wasm-bindgen initialization. No synthetic event, evaluated script,
 preventDefault, retry, refocus or deadline exists in this payload.
 
@@ -68,6 +69,9 @@ under the original native operation deadline. Compilation or portable tests do
 not establish native delivery, renderer shortcut behavior or Metis acceptance.
 
 The focused 43 portable laws pass: 39 existing startup, three shared-protocol and
-one reverse-partial-release law. Installed execution of all three policy arms
-remains required. This fixture changes no production callback,
-default, public API, input domain or 30/60/120-second/20-minute bound.
+one reverse-partial-release law. In source2efcc148/run38829030763 all three
+selected cells retain Ready/eight Key/Closed with D/P and no S, then fail native
+host cleanup. Closed proves document listener retirement, not normal browser
+exit. No accepted comparison follows; the two-group/six-cell successor remains
+native-pending. This payload leaves passive input callbacks, defaults, public
+APIs, input domains and 30/60/120-second/20-minute bounds unchanged.

@@ -10,12 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - [patch] Add a private installed-keyboard experiment with Default, EnableS and
-  SkipS policy arms. All arms use identical Rust/WASM payloads and observation
-  selection; only the fixture overrides the fresh S-down browser-accelerator
-  property. The shared closed codec retains complete metadata and independent
-  cleanup counts. Focused portable 43/43 laws pass, including three wire laws
-  and reverse release of a partially admitted physical chord. Windows execution
-  remains pending; no production setting, public API or deadline changes.
+  SkipS policy arms and a shared closed codec for actual metadata/owner counts.
+  Focused portable 43/43 laws pass. Source `2efcc148` / Windows run 38829030763
+  passes original gates, but all three selected cells exit 100 at browser close:
+  the SDK reports a matching browser PID and non-NORMAL exit kind, collapsed to
+  a synthetic E_ABORT; the actual numeric kind/PID and OS exit status are absent.
+  SkipS changes the property true→false successfully, but all cells retain eight
+  document Key notices with D/P and no S. No comparison result is accepted.
+  The successor retains the three mandatory selected cells and adds three
+  observer-none controls with the same payload/input/policies; all six outcomes
+  remain fatal gates. Structured exit/actual observer-owner evidence adds no SDK
+  calls or shutdown-policy changes. Successor native execution remains pending;
+  no production input setting, public API or 30/60/120-second/20-minute bound changes.
 
 - [patch] Add a default-off private late controller-input selection. Deferred
   retention arms on an actual configured key-down and preserves every later

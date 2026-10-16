@@ -5,6 +5,8 @@ import importlib.util
 import itertools
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -16,6 +18,43 @@ SPEC.loader.exec_module(evidence)
 
 
 class KeyboardEvidenceTests(unittest.TestCase):
+    def test_observer_selection_requires_the_exact_observed_boolean(self):
+        # Scalar admission vectors do not fabricate a successful native cell.
+        for observer, expected in (("selected", True), ("none", False)):
+            with self.subTest(observer=observer):
+                self.assertIs(evidence.selected_observer(expected, observer), expected)
+                with self.assertRaisesRegex(ValueError, "actual observer selection differs"):
+                    evidence.selected_observer(not expected, observer)
+                for invalid in (0, 1, None, "true", "false"):
+                    with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                        evidence.selected_observer(invalid, observer)
+        for invalid in (None, True, "", "Selected", "unowned", ["selected"]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                evidence.selected_observer(True, invalid)
+
+    def test_real_cli_requires_an_explicit_observer_before_reading_inputs(self):
+        with tempfile.TemporaryDirectory(prefix="keyboard-observer-患者-🦀-") as temporary:
+            root = Path(temporary)
+            required = ["--" + name for name in ("default", "enable-s", "skip-s", "payload", "output")]
+            arguments = [part for name in required for part in (name, str(root / name[2:]))]
+            for option, expected in (([], b"required"),
+                                     (["--observer", "unowned"], b"invalid choice")):
+                result = subprocess.run([sys.executable, str(SCRIPT), *arguments, *option],
+                                        capture_output=True, timeout=5, check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(expected, result.stderr)
+                self.assertIn(b"--observer", result.stderr)
+                self.assertEqual(list(root.iterdir()), [])
+            # Valid selectors reach the real missing-payload error; no input
+            # report or native/browser execution is supplied by this test.
+            for observer in ("selected", "none"):
+                result = subprocess.run([sys.executable, str(SCRIPT), *arguments,
+                                         "--observer", observer],
+                                        capture_output=True, timeout=5, check=False)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(b"FileNotFoundError", result.stderr)
+                self.assertEqual(list(root.iterdir()), [])
+
     def test_every_three_cell_report_pattern_has_the_specified_scope(self):
         expected = {
             (False, False, True): "BOUNDED_PROPERTY_SPECIFIC_DIFFERENCE",

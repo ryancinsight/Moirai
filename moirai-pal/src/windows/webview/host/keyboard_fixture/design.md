@@ -7,11 +7,16 @@ This fixture tests a candidate boundary; it changes no production policy.
 
 ## Controlled variation
 
-One test algorithm runs in three separate fresh-profile invocations. Default
-reads the event property without a setter. EnableS calls the setter with true;
-SkipS calls the same setter with false. The latter two match the extra SDK
-call, so setter timing can be distinguished from its Boolean argument.
-Each invocation keeps the existing30-second operation,60-second nextest and
+One test algorithm runs in two observer groups, each with three separate fresh
+profiles: Default reads the event property without a setter, EnableS sets true,
+and SkipS sets false. The latter two match the extra SDK call, separating setter
+path from Boolean argument. The mandatory selected group preserves its exact
+selection; the none group removes selection explicitly. CLI
+`--observer selected|none` selects the expected group. Per-cell schema2 records actual
+`observer_selected` from host ownership and rejects an unexpected owner state.
+The same payload and complete D/S/P vectors apply to both groups. All six cells
+are attempted before fatal aggregation; unobserved controls cannot excuse
+selected failures. Each keeps the existing30-second operation,60-second nextest and
 120-second CLI bounds. The20-minute workflow bound remains unchanged.
 
 The additional test-owned handler operates synchronously on actual event args.
@@ -19,7 +24,7 @@ It checks fresh key/system-key down, VK_S, Alt+Shift held, Ctrl clear and both
 Win keys clear. It records actual before/after browser policy, Handled, raw
 lParam and five native key states. It never sets Handled or global settings.
 Unsupported Args2 and every getter/setter/removal failure remain failures;
-they cannot pass as missing S. The passive diagnostic callbacks stay exact.
+they cannot pass as missing S. Passive input diagnostic callbacks stay exact.
 Microsoft documents controller→browser-feature→content ordering and that
 false skips browser-feature processing while preserving content propagation:
 [Args2 contract](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2acceleratorkeypressedeventargs2?view=webview2-1.0.4191.47).
@@ -47,8 +52,9 @@ removal. Failed ownership confirmation retains the directories.
 
 ## Interpretation and verification
 
-The comparison requires equal actual runtime versions, recipient layouts,
-all mapped strokes, and archived payload hashes. D/P are positive content
+Within each observer group the comparison requires equal actual runtime
+versions, recipient layouts, mapped strokes and payload hashes; the same payload
+and requested vectors are retained across groups. D/P are positive content
 controls. SkipS requires actual trusted S metadata and one real successful
 property transition with Handled false. Default never assumes S disappears.
 Default/EnableS absent and SkipS present supports a bounded property-specific
@@ -62,3 +68,17 @@ unchanged complete Metis journeys remain required before production promotion.
 Portable wire/release tests and cross-compilation are distinct from installed
 Windows execution. Original eight modes,16/64 assertions and Rust bridge path
 remain unchanged; the new generated payload has separate exact admission.
+
+## Retained negative and successor scope
+
+Source2efcc148/run38829030763 passes original gates, but all selected cells fail
+host cleanup; operation/callback removal succeed and actual Destroyed is one.
+The exit observer matched PID and rejected non-NORMAL kind; synthetic E_ABORT
+is not the OS process exit code. Actual kind/PID were not retained. SkipS records
+a successful true→false property change, but every document has D/P and eight
+Key notices without S. No accepted comparison or Metis cause follows.
+`pending=true` is logical request ownership, including a completed reply waiting
+for pump processing, and does not prove an SDK call remains in flight.
+The production exit callback adds tracing of existing PID/kind/getter errors,
+without extra SDK calls; its decisions and cleanup remain exact, with no
+new waits or changed shutdown policy. Both observer groups remain native-pending.

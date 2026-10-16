@@ -6,7 +6,7 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
 **Target Version**: 0.9.4 (workspace); moirai-webview 0.2.0
 
-- [ ] [patch] Execute the private Default/EnableS/SkipS keyboard experiment with identical compiled Rust payload/selection, exact physical/document metadata and all actual cleanup-owner counts. Focused portable 43/43 laws pass; installed execution remains pending. Original matrix/bridge/full Metis journeys and 30/60/120-second/20-minute bounds remain required.
+- [ ] [patch] Execute Default/EnableS/SkipS in both selected and observer-none groups with identical compiled Rust payload/input vectors and exact physical/document/cleanup evidence. Source2efcc148/run38829030763 passes original gates, but all three selected cells fail host cleanup with no document S; the successful SkipS property change is not an accepted experiment. All six successor outcomes must be attempted/fatal; native execution remains pending. Preserve original matrix/bridge/full Metis journeys and 30/60/120-second/20-minute bounds.
 
 - [x] [patch] Default-off configured-key suffix retention preserves every main observation and uses only copied snapshots. Local39 portable startup tests, strict MSVC diagnostics and formatting pass. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505) passes the installed A-anchor case in 6.981s: exact canonical suffix 5–9, no loss/errors and successful close under the unchanged 1 MiB cap. This verifies the mechanism; actual native S on Metis sources 561189 and f1523a43 does not prove page metadata or consumption, and both complete journeys remain open.
 
