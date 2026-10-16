@@ -7,27 +7,50 @@ This fixture tests a candidate boundary; it changes no production policy.
 
 ## Controlled variation
 
-One test algorithm runs in two observer groups, each with three separate fresh
-profiles: Default reads the event property without a setter, EnableS sets true,
-and SkipS sets false. The latter two match the extra SDK call, separating setter
-path from Boolean argument. The mandatory selected group preserves its exact
-selection; the none group removes selection explicitly. CLI
-`--observer selected|none` selects the expected group. Per-cell schema2 records actual
-`observer_selected` from host ownership and rejects an unexpected owner state.
-The same payload and complete D/S/P vectors apply to both groups. All six cells
-are attempted before fatal aggregation; unobserved controls cannot excuse
-selected failures. Each keeps the existing30-second operation,60-second nextest and
-120-second CLI bounds. The20-minute workflow bound remains unchanged.
+One test algorithm retains both original observer groups, each with three
+fresh-profile invocations: Default reads the per-event property without a setter,
+EnableS sets true and SkipS sets false. The selected group preserves its exact
+selection; none removes selection explicitly. Actual `observer_selected` comes
+from host ownership and must match the explicit expected group. The new two
+controls use observer none and Policy Default, varying only Settings3 true/false.
+
+| Cells | Observer | Per-event policy | Settings3 intervention |
+| --- | --- | --- | --- |
+| Original three | selected | Default / EnableS / SkipS | none |
+| Original three | none | Default / EnableS / SkipS | none |
+| New one | none | Default | true before first navigation |
+| New one | none | Default | false before first navigation |
+
+Only the new two perform actual Settings3 getter-before, setter, getter-after
+and post-navigation readback, with typed SDK failures preserved. Every old cell
+records `global_setting=null` and adds no Settings3 call. The intervention occurs
+before the first configured navigation; no production constructor, setting,
+default, public API or dependency changes. All eight use the same compiled
+payload, D/S/P input vectors and original acceptance/cleanup assertions. All are
+attempted before comparison/fatal aggregation; no new cell can replace an old failure.
+Each original triplet comparator keeps its own three-success prerequisite; the
+new pair comparator may run after its two native successes even if an old cell
+fails. Cross-eight identity requires all three comparisons to succeed. Native
+schema3 keeps old `global_setting=null`; new cells require actual before=true,
+successful setter/after/readback and their unchanged cleanup/content assertions.
+Each keeps the existing30-second operation,60-second nextest,120-second CLI and
+20-minute job bounds. The new false control requires actual trusted KeyS; the
+old SkipS content requirement remains mandatory in both observer groups.
 
 The additional test-owned handler operates synchronously on actual event args.
 It checks fresh key/system-key down, VK_S, Alt+Shift held, Ctrl clear and both
 Win keys clear. It records actual before/after browser policy, Handled, raw
-lParam and five native key states. It never sets Handled or global settings.
+lParam and five native key states. This event handler never sets Handled or
+global settings; only the two pre-navigation fixture controls set Settings3.
 Unsupported Args2 and every getter/setter/removal failure remain failures;
 they cannot pass as missing S. Passive input diagnostic callbacks stay exact.
 Microsoft documents controller→browser-feature→content ordering and that
 false skips browser-feature processing while preserving content propagation:
 [Args2 contract](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2acceleratorkeypressedeventargs2?view=webview2-1.0.4191.47).
+That event property defaults to Settings3's current browser-accelerator value.
+The [Settings3 contract](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2settings3?view=webview2-1.0.4129.50)
+keeps accelerator events enabled and applies setting changes after navigation;
+this is why the two new controls set before navigation and verify both readbacks.
 
 ## Real inputs and observed output
 
@@ -71,14 +94,15 @@ remain unchanged; the new generated payload has separate exact admission.
 
 ## Retained negative and successor scope
 
-Source2efcc148/run38829030763 passes original gates, but all selected cells fail
-host cleanup; operation/callback removal succeed and actual Destroyed is one.
-The exit observer matched PID and rejected non-NORMAL kind; synthetic E_ABORT
-is not the OS process exit code. Actual kind/PID were not retained. SkipS records
-a successful true→false property change, but every document has D/P and eight
-Key notices without S. No accepted comparison or Metis cause follows.
-`pending=true` is logical request ownership, including a completed reply waiting
-for pump processing, and does not prove an SDK call remains in flight.
-The production exit callback adds tracing of existing PID/kind/getter errors,
-without extra SDK calls; its decisions and cleanup remain exact, with no
-new waits or changed shutdown policy. Both observer groups remain native-pending.
+Source `a0467cfe` / run 38831422438 executes all six original cells. Each fails host
+cleanup with matched browser PID, actual SDK exit kind 1/normal=false and no
+getter failure. Synthetic E_ABORT is not the OS process exit code. All document
+prefixes retain D/P/eight Key notices/Closed/zero owners, with no S; both SkipS
+property changes true→false succeed. Host-close panic precedes native value/stroke
+assertions, and no group/cross-group comparison executes. Forensic identity of
+all six runtime/layout/stroke/payload vectors is not accepted classification.
+`pending=true` is logical ownership, including completed replies waiting for
+pump processing, and does not prove SDK-inflight or a shutdown mechanism.
+The production exit callback adds tracing of existing PID/kind/getter errors;
+its original SDK calls, decisions and cleanup remain exact. The eight-cell
+successor is unexecuted and supplies no Metis repair claim.

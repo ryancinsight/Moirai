@@ -260,7 +260,7 @@ jobs:
                       "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
                       for p in sorted(payload.iterdir())}
 
-          def run_process(command, environment, directory, name, observer, timeout_seconds):
+          def run_process(command, environment, directory, name, observer, timeout_seconds, policy, setting):
               errors = []
               def snapshot():
                   try:
@@ -287,7 +287,7 @@ jobs:
                       errors.append({"operation": suffix + " retention", "error": repr(error)})
               sys.stdout.buffer.write(stdout)
               sys.stderr.buffer.write(stderr)
-              receipt = {"policy": name, "observer": observer, "command": command, "exit": code,
+              receipt = {"cell": name, "policy": policy, "observer": observer, "settings_selection": setting, "command": command, "exit": code,
                   "timeout": timeout, "seconds": time.monotonic() - started,
                   "payload_before": before, "payload_after": after, "driver_errors": errors,
                   "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
@@ -301,26 +301,33 @@ jobs:
 
           def cross_group_identity():
               comparisons = []
-              for observer, directory, _ in groups:
-                  path = directory / "comparison.json"
+              reports = [(observer, directory / "comparison.json", "policies",
+                          ["Default", "EnableS", "SkipS"], [None, None, None])
+                         for observer, directory, _ in groups]
+              reports.append(("none", global_directory / "global-comparison.json", "global-settings",
+                              ["Default", "Default"], [True, False]))
+              for observer, path, mode, policies, settings in reports:
                   raw = path.read_bytes()
                   result = json.loads(raw)
-                  if (type(result["schema"]) is not int or result["schema"] != 2
-                          or result["observer"] != observer):
-                      raise ValueError("comparison observer/schema identity differs")
-                  if (len(result["cells"]) != 3
-                          or [cell["policy"] for cell in result["cells"]]
-                          != ["Default", "EnableS", "SkipS"]
-                          or any(cell["observer_selected"] is not (observer == "selected")
-                                 for cell in result["cells"])):
+                  if (type(result["schema"]) is not int or result["schema"] != 3
+                          or result["observer"] != observer or result["comparison"] != mode):
+                      raise ValueError("comparison observer/schema/mode identity differs")
+                  cells = result["cells"]
+                  if (len(cells) != len(policies) or [cell["policy"] for cell in cells] != policies
+                          or any(cell["observer_selected"] is not (observer == "selected") for cell in cells)):
                       raise ValueError("comparison cell/observer identity differs")
+                  for cell, expected in zip(cells, settings):
+                      actual = cell["global_setting"]
+                      if ((expected is None and actual is not None)
+                              or (expected is not None and actual["requested"] is not expected)):
+                          raise ValueError("comparison global-setting identity differs")
                   comparisons.append({"result": result, "path": str(path),
                       "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
               cells = [cell for item in comparisons for cell in item["result"]["cells"]]
               vectors = [{"runtime": cell["runtime"], "chords": [
                   {key: chord[key] for key in ("letter", "layout", "strokes")}
                   for chord in cell["chords"]]} for cell in cells]
-              if len(vectors) != 6 or any(row != vectors[0] for row in vectors[1:]):
+              if len(vectors) != 8 or any(row != vectors[0] for row in vectors[1:]):
                   raise ValueError("cross-group actual runtime/layout/stroke identity differs")
               actual_files = identities()
               builder_path = root / "evidence.json"
@@ -348,21 +355,31 @@ jobs:
               "--success-output", "immediate", "-E",
               "test(=windows::webview::host::keyboard_fixture::installed_runtime_compares_physical_shortcut_browser_policy)"]
           groups = []
-          # Each real process owns a fresh profile. All six processes complete
+          # Each real process owns a fresh profile. All eight processes complete
           # before comparisons or fatal aggregation; selected is still required.
           for observer, directory in (("selected", root), ("none", root / "observer-none")):
-              failures = []
+              failures, global_failures = [], []
               if observer == "none":
                   try:
                       directory.mkdir()
                   except OSError as error:
-                      failures.append({"operation": "group directory", "error": repr(error)})
-              for policy in ("default", "enable_s", "skip_s"):
+                      failure = {"operation": "group directory", "error": repr(error)}
+                      failures.append(failure)
+                      global_failures.append(failure)
+              plans = [(policy, policy, None) for policy in ("default", "enable_s", "skip_s")]
+              if observer == "none":
+                  plans.extend((("global-enabled", "default", "enabled"),
+                                ("global-disabled", "default", "disabled")))
+              for name, policy, setting in plans:
                   environment = os.environ.copy()
                   environment["MOIRAI_WEBVIEW_KEYBOARD_FIXTURE"] = str(payload)
                   environment["MOIRAI_WEBVIEW_KEYBOARD_POLICY"] = policy
                   environment["MOIRAI_WEBVIEW_KEYBOARD_OBSERVER"] = observer
-                  environment["MOIRAI_WEBVIEW_KEYBOARD_EVIDENCE"] = str(directory / (policy + ".json"))
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_EVIDENCE"] = str(directory / (name + ".json"))
+                  if setting is None:
+                      environment.pop("MOIRAI_WEBVIEW_KEYBOARD_SETTINGS", None)
+                  else:
+                      environment["MOIRAI_WEBVIEW_KEYBOARD_SETTINGS"] = setting
                   if observer == "selected":
                       environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
                           "start_uri": "https://metis.invalid/index.html",
@@ -370,33 +387,46 @@ jobs:
                       }, separators=(",", ":"))
                   else:
                       environment.pop("MOIRAI_WEBVIEW_STARTUP_OBSERVATION", None)
-                  receipt = run_process(command, environment, directory, policy, observer, 120)
+                  receipt = run_process(command, environment, directory, name, observer, 120, policy, setting)
                   if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
                           or receipt["payload_before"] != receipt["payload_after"]):
-                      failures.append(receipt)
+                      (failures if setting is None else global_failures).append(receipt)
               groups.append((observer, directory, failures))
+              if observer == "none":
+                  global_directory, pair_failures = directory, global_failures
           failures = []
           for observer, directory, native_failures in groups:
               failures.extend(native_failures)
               if native_failures:
                   continue
               receipt = run_process([sys.executable, "scripts/webview/keyboard_evidence.py",
-                  "--observer", observer, "--default", str(directory / "default.json"),
+                  "--mode", "policies", "--observer", observer, "--default", str(directory / "default.json"),
                   "--enable-s", str(directory / "enable_s.json"),
                   "--skip-s", str(directory / "skip_s.json"),
                   "--payload", str(payload), "--output", str(directory / "comparison.json")],
-                  os.environ.copy(), directory, "comparison", observer, 60)
+                  os.environ.copy(), directory, "comparison", observer, 60, None, None)
+              if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
+                      or receipt["payload_before"] != receipt["payload_after"]):
+                  failures.append(receipt)
+          failures.extend(pair_failures)
+          if not pair_failures:
+              receipt = run_process([sys.executable, "scripts/webview/keyboard_evidence.py",
+                  "--mode", "global-settings", "--observer", "none",
+                  "--global-enabled", str(global_directory / "global-enabled.json"),
+                  "--global-disabled", str(global_directory / "global-disabled.json"),
+                  "--payload", str(payload), "--output", str(global_directory / "global-comparison.json")],
+                  os.environ.copy(), global_directory, "global-comparison", "none", 60, None, None)
               if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
                       or receipt["payload_before"] != receipt["payload_after"]):
                   failures.append(receipt)
           if failures:
               raise RuntimeError("Native keyboard groups fail: " + json.dumps(failures))
-          # This gate executes only after both independent comparisons succeed.
+          # This gate executes only after all three independent comparisons succeed.
           identity = cross_group_identity()
           with (root / "cross-group-identity.json").open("x", encoding="utf-8") as output:
               json.dump(identity, output, indent=2, allow_nan=False)
               output.write("\n")
-      - name: Retain real keyboard payload, six cells and original output
+      - name: Retain real keyboard payload, eight cells and original output
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

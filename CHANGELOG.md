@@ -9,19 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- [patch] Add a private installed-keyboard experiment with Default, EnableS and
-  SkipS policy arms and a shared closed codec for actual metadata/owner counts.
-  Focused portable 43/43 laws pass. Source `2efcc148` / Windows run 38829030763
-  passes original gates, but all three selected cells exit 100 at browser close:
-  the SDK reports a matching browser PID and non-NORMAL exit kind, collapsed to
-  a synthetic E_ABORT; the actual numeric kind/PID and OS exit status are absent.
-  SkipS changes the property true→false successfully, but all cells retain eight
-  document Key notices with D/P and no S. No comparison result is accepted.
-  The successor retains the three mandatory selected cells and adds three
-  observer-none controls with the same payload/input/policies; all six outcomes
-  remain fatal gates. Structured exit/actual observer-owner evidence adds no SDK
-  calls or shutdown-policy changes. Successor native execution remains pending;
-  no production input setting, public API or 30/60/120-second/20-minute bound changes.
+- [patch] Add a private installed-keyboard experiment with Default/EnableS/SkipS
+  across selected and observer-none groups. Source `a0467cfe` / Windows run
+  38831422438 executes all six; each exits 100 at host cleanup with matched SDK
+  browser PID, raw exit kind 1 and normal=false, without getter failures. The
+  observed kind differs from the synthetic E_ABORT and an unretained OS exit code.
+  D/P and eight Key notices/Closed are retained, with no S in any bounded prefix;
+  both SkipS property transitions succeed. Native value/stroke assertions and
+  group/cross-group comparisons do not execute. This establishes no Metis fix.
+  The next test-only controls add Settings3 true/false before first navigation,
+  both observer-none/Default, with actual getter/setter/post-navigation readback
+  and typed failures. Old six retain global_setting=null and make no Settings3
+  calls. All eight are attempted before fatal aggregation; false requires actual
+  trusted KeyS and cannot replace an old failure. Successor execution is pending.
+  Production input callbacks, defaults, public APIs, dependencies and original
+  30/60/120-second/20-minute bounds remain unchanged; production exit tracing is
+  additive and preserves existing SDK calls, classifications and cleanup.
 
 - [patch] Add a default-off private late controller-input selection. Deferred
   retention arms on an actual configured key-down and preserves every later

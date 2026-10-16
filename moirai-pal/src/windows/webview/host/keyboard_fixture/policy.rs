@@ -132,7 +132,10 @@ impl Attempt {
     }
 }
 
-fn checked<T>(operation: &'static str, result: windows::core::Result<T>) -> Result<T, Failure> {
+pub(super) fn checked<T>(
+    operation: &'static str,
+    result: windows::core::Result<T>,
+) -> Result<T, Failure> {
     result.map_err(|error| Failure {
         operation,
         hresult: Some(error.code().0),

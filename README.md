@@ -112,19 +112,23 @@ UIA request 194 is pending at node 24 with unknown identity. Response 193 record
 Dark without a point timestamp and cannot be placed after S. The ordinary
 journey, lifecycle completion and later native/package gates remain unreached.
 
-The private Default/EnableS/SkipS keyboard experiment runs on source `2efcc148`
-[in Windows run 38829030763](https://github.com/ryancinsight/Moirai/actions/runs/38829030763).
-Original gates pass, but all three selected-observer cells exit 100 at browser
-shutdown. SkipS records the successful true→false property change with Handled
-unchanged; all cells retain D/P and eight document Key notices, with no KeyS.
-No accepted comparison or Metis cause follows. The next comparison preserves
-these three mandatory cells and adds the same three policies without the startup
-observer. All six must run before aggregate failure; unobserved cells cannot
-replace failed selected cells. Structured browser-exit and actual observer-owner
-metadata are diagnostic additions; execution of this successor remains pending.
-Input callbacks, defaults, APIs, input domains and 30/60/120-second and
-20-minute job bounds remain unchanged. See the
-[fixture contract](moirai-pal/src/windows/webview/host/keyboard_fixture/design.md).
+The private keyboard experiment on source `a0467cfe` /
+[Windows run 38831422438](https://github.com/ryancinsight/Moirai/actions/runs/38831422438)
+executes all six Default/EnableS/SkipS cells across selected and observer-none
+groups. Each exits 100 at host cleanup with matched browser PID and SDK exit
+kind 1; this is not an OS exit code. Both groups retain D/P, eight document Key
+notices and Closed with zero listener owners, but no KeyS. SkipS successfully
+changes the per-event property true→false. Later native value/stroke assertions
+and both comparators do not execute; no accepted experiment or Metis fix follows.
+The next diagnostic keeps those six mandatory cells and adds two observer-none,
+Default-policy controls setting Settings3 true/false before first navigation.
+Only these two read/set/read and retain a post-navigation readback; old six
+record global_setting=null without added Settings3 calls. All eight outcomes
+remain fatal gates, with trusted KeyS required in the false control. Execution
+of this successor is pending. Production settings/defaults/APIs/dependencies,
+passive input callbacks and original 30/60/120-second/20-minute bounds stay exact.
+The exit callback's additive tracing changes no getter or cleanup decision.
+See the [fixture contract](moirai-pal/src/windows/webview/host/keyboard_fixture/design.md).
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

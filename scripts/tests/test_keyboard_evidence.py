@@ -36,7 +36,8 @@ class KeyboardEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="keyboard-observer-患者-🦀-") as temporary:
             root = Path(temporary)
             required = ["--" + name for name in ("default", "enable-s", "skip-s", "payload", "output")]
-            arguments = [part for name in required for part in (name, str(root / name[2:]))]
+            arguments = ["--mode", "policies", *[
+                part for name in required for part in (name, str(root / name[2:]))]]
             for option, expected in (([], b"required"),
                                      (["--observer", "unowned"], b"invalid choice")):
                 result = subprocess.run([sys.executable, str(SCRIPT), *arguments, *option],
@@ -53,6 +54,66 @@ class KeyboardEvidenceTests(unittest.TestCase):
                                         capture_output=True, timeout=5, check=False)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn(b"FileNotFoundError", result.stderr)
+                self.assertEqual(list(root.iterdir()), [])
+
+    def test_global_observation_validates_values_and_rejects_invalid_metadata(self):
+        # These DTO vectors validate fields, never a fabricated successful native cell.
+        self.assertIsNone(evidence.global_observation(None, None))
+        for expected in (True, False):
+            baseline = {"requested": expected, "before": True, "setter_succeeded": True,
+                        "after": expected, "after_navigation": expected, "failure": None}
+            self.assertEqual(evidence.global_observation(baseline, expected), baseline)
+            invalid = [None, {}, {**baseline, "extra": "unowned"}]
+            invalid.extend({k: v for k, v in baseline.items() if k != missing}
+                           for missing in baseline)
+            for field, value in (("requested", not expected), ("before", False),
+                                 ("setter_succeeded", False), ("after", not expected),
+                                 ("after_navigation", not expected),
+                                 ("failure", {"operation": "actual getter", "hresult": -2147467260})):
+                invalid.append({**baseline, field: value})
+            invalid.extend({**baseline, field: invalid_type}
+                           for field in ("requested", "before", "setter_succeeded", "after", "after_navigation")
+                           for invalid_type in (None, 0, 1, "true"))
+            for value in invalid:
+                with self.subTest(expected=expected, value=value), self.assertRaises(ValueError):
+                    evidence.global_observation(value, expected)
+            with self.assertRaises(ValueError):
+                evidence.global_observation(baseline, None)
+        for invalid in (0, 1, "enabled", [], {}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                evidence.global_observation(None, invalid)
+
+    def test_real_cli_keeps_both_global_controls_in_the_none_group(self):
+        with tempfile.TemporaryDirectory(prefix="keyboard-global-患者-🦀-") as temporary:
+            root = Path(temporary)
+            arguments = ["--mode", "global-settings", "--payload", str(root / "payload"),
+                         "--output", str(root / "comparison.json")]
+            enabled = ["--global-enabled", str(root / "enabled")]
+            disabled = ["--global-disabled", str(root / "disabled")]
+            for observer, controls in (("none", []), ("none", enabled), ("none", disabled),
+                                       ("selected", enabled), ("selected", disabled),
+                                       ("selected", enabled + disabled)):
+                result = subprocess.run([sys.executable, str(SCRIPT), *arguments,
+                                         "--observer", observer, *controls],
+                                        capture_output=True, timeout=5, check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(b"global", result.stderr)
+                self.assertIn(b"none", result.stderr)
+                self.assertEqual(list(root.iterdir()), [])
+            result = subprocess.run([sys.executable, str(SCRIPT), *arguments,
+                                     "--observer", "none", *enabled, *disabled],
+                                    capture_output=True, timeout=5, check=False)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn(b"FileNotFoundError", result.stderr)
+            self.assertEqual(list(root.iterdir()), [])
+            for mode, extra in (("global-settings", ["--default", str(root / "default")]),
+                                ("policies", enabled + disabled)):
+                result = subprocess.run([sys.executable, str(SCRIPT), "--mode", mode,
+                                         "--observer", "none", "--payload", str(root / "payload"),
+                                         "--output", str(root / "comparison.json"), *extra],
+                                        capture_output=True, timeout=5, check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(b"policy", result.stderr)
                 self.assertEqual(list(root.iterdir()), [])
 
     def test_every_three_cell_report_pattern_has_the_specified_scope(self):

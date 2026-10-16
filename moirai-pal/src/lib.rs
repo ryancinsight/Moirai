@@ -61,6 +61,14 @@ mod keyboard_fixture_protocol;
 #[path = "windows/webview/host/keyboard_fixture/input/law.rs"]
 mod keyboard_input_law;
 
+#[cfg(all(
+    test,
+    not(target_arch = "wasm32"),
+    not(all(windows, feature = "webview2"))
+))]
+#[path = "windows/webview/host/keyboard_fixture/settings/selection.rs"]
+mod keyboard_settings_selection;
+
 #[cfg(any(target_arch = "wasm32", test))]
 #[path = "wasm/permission_state.rs"]
 mod permission_state;

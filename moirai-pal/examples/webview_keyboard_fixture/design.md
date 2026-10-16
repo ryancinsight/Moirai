@@ -1,8 +1,9 @@
 # Real document keyboard fixture
 
 The browser payload is identical for Default, EnableS and SkipS in both native
-host observer groups (selected and none). Selection varies only between groups;
-the payload never reads it or implements shortcut policy. The only authored
+host observer groups (selected and none), plus both new observer-none/Default
+Settings3 controls. Selection/global settings vary only in native test owners;
+the payload reads neither and implements no shortcut policy. The only authored
 initializer imports the generated module and awaits
 its normal wasm-bindgen initialization. No synthetic event, evaluated script,
 preventDefault, retry, refocus or deadline exists in this payload.
@@ -69,9 +70,11 @@ under the original native operation deadline. Compilation or portable tests do
 not establish native delivery, renderer shortcut behavior or Metis acceptance.
 
 The focused 43 portable laws pass: 39 existing startup, three shared-protocol and
-one reverse-partial-release law. In source2efcc148/run38829030763 all three
-selected cells retain Ready/eight Key/Closed with D/P and no S, then fail native
-host cleanup. Closed proves document listener retirement, not normal browser
-exit. No accepted comparison follows; the two-group/six-cell successor remains
-native-pending. This payload leaves passive input callbacks, defaults, public
-APIs, input domains and 30/60/120-second/20-minute bounds unchanged.
+one reverse-partial-release law. Source `a0467cfe` / run 38831422438 executes all six
+original policy/observer cells: each retains Ready/eight Key/Closed with D/P and
+no S, then fails native host cleanup. Later native assertions and group/cross-group
+comparisons do not execute. Closed proves document listener retirement, not normal
+browser exit. No accepted comparison follows. The eight-cell successor keeps
+those six mandatory and adds native-only Settings3 true/false before navigation;
+its execution remains pending. This payload leaves passive input callbacks,
+defaults, APIs, dependencies, inputs and 30/60/120-second/20-minute bounds unchanged.

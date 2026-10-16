@@ -56,34 +56,33 @@ UIA request 194 is pending at node 24 with unknown element identity. Response 19
 contains Dark but has no point timestamp; it cannot be placed after S. Ordinary
 form, final lifecycle and subsequent native/archive/package gates are unreached.
 
-Source `2efcc148` / [Windows run 38829030763](https://github.com/ryancinsight/Moirai/actions/runs/38829030763)
-records 24 nextest processes and 98 executions: 95 PASS/3 FAIL. Original 91
-executions (83 distinct IDs) pass, as do four added portable cases; all three
-selected Default/EnableS/SkipS cells exit 100 at host cleanup. Each retains
-12 actual controller rows, matching D/S/P vectors,
-Handled=false, and identical Ready/eight Key/Closed document streams (1,322 bytes).
-SkipS successfully changes the fresh S-down property true→false; D/P reach Rust,
-but no S notice is retained. Callback cleanup succeeds and Destroyed is one.
-The SDK observer matches the browser PID and rejects a non-NORMAL exit kind;
-its 0x80004004 is synthesized E_ABORT, not a captured OS process exit status.
-Actual numeric kind/PID are not archived; failed host close retains profiles.
-Host-close failure precedes native value/stroke assertions; those do not execute.
-The raw payload/vector checks are independent inspection, not executed assertions.
-The eight original modes and separate probe pass schema3 16/64 and entry16/12.
-The probe triggers at weight UIA6/expected64 after50 queries; later timely DOM64
-is a different-time observation, without a same-time staleness or input cause.
-All selected owners close with logical RequestSlot pending=true. That bit can
-also denote a completed reply awaiting pump processing; it does not prove an
-SDK call is in flight. No comparison.json, accepted experiment or Metis cause follows.
+Source `a0467cfe` / [Windows run 38831422438](https://github.com/ryancinsight/Moirai/actions/runs/38831422438)
+executes six selected/none Default/EnableS/SkipS cells. Every cell exits 100 at
+host cleanup; actual observer bools match true/false. All six SDK exit records
+retain matching expected/actual PID, raw kind 1/normal=false and no getter errors.
+This SDK classification is distinct from synthesized E_ABORT and an OS exit code.
+Operation/callback cleanup succeeds, Destroyed is one and failed close retains profiles. All six preserve D/P, eight raw document Key notices (1,322 bytes) and
+Closed with zero listener owners, but no S. Both SkipS true→false setters succeed.
+Host-close panic at native line 121 precedes value/stroke assertions; those do not execute. Group/cross-group comparison files are absent. Independent ZIP inspection
+verifies all 32 members, five payloads/ten producer inputs and all six identical
+runtime/HKL/full stroke vectors; this forensic identity is not accepted comparison.
+The logical pending bit can cover completed replies; it proves neither SDK-inflight nor shutdown cause.
+No retained prefix proves absolute S absence or a Metis input cause/fix.
 
-The next private comparison retains all three selected cells and adds the same
-three policies with observer selection absent. Schema2 records actual owner
-presence and explicit expected observer mode; browser-exit diagnostics retain the
-existing getters without another SDK call or shutdown-policy change. Every cell
-must run before fatal aggregation; unobserved controls cannot excuse selected failures.
-Successor execution remains pending. Portable 43 laws pass, including all 64
-metadata flags and partial-input reverse release. Original eight modes, inputs,
-quotas and 30/60/120-second/20-minute bounds remain; full Metis acceptance is open.
+Earlier 2efcc148/run38829030763 records 24 nextest processes/98 executions:
+95 PASS/3 FAIL, including original 91 executions (83 IDs) all PASS and four portable passes.
+Its three cells fail host close; UIA 6/expected 64 after 50 queries and later DOM 64 differ in time.
+
+The next test-only diagnostic adds Settings3 true/false before first configured
+navigation, both observer-none/Default. Actual getter-before, setter, getter-after
+and post-navigation readback retain typed failures; old six global_setting=null
+and perform no Settings3 calls. False requires actual trusted KeyS. All eight
+are attempted first; each triplet/pair compares on its own successes, even if another fails.
+Cross-eight identity needs all three comparisons; no new success excuses an old failure.
+Original eight modes/bridge, inputs/quotas and 30/60/120-second/20-minute bounds
+remain exact. Production settings/defaults/APIs/dependencies and passive input
+callbacks do not change; existing exit tracing adds no getter/cleanup decision.
+Successor native execution and both complete Metis journeys remain open.
 
 Source2fcef45d/run38798617700 closes the separately reproduced SDK-admission
 regression (6.837s) and native SDK availability query (0.39.1/154.0.4258.62),

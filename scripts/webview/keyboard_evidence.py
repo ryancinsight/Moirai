@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Compare three completed real keyboard cells without inferring delivery absence.
+"""Compare completed real keyboard cells without inferring delivery absence.
 
-The caller admits all three native process exits in one explicitly selected
-observer group before invocation. This reader
-checks their retained values; it does not run input, a browser, or compiled code.
+The caller admits each comparison's native process exits before invocation:
+three policy cells or two global-setting cells. This reader checks retained
+values; it does not run input, a browser, or compiled code.
 For (Default, EnableS, SkipS), reports (0,0,1) support a bounded property-specific
 difference, (0,1,1) a setter-path difference, and (1,1,1) no reproduction. Other
 patterns are inconclusive. No pattern establishes a Metis failure cause.
+The separate global-setting pair reports its two actual prefixes; it cannot
+satisfy or replace either original three-policy group.
 """
 
 import argparse
@@ -201,12 +203,31 @@ def selected_observer(value, observer):
     return value
 
 
-def cell(path, policy, payload, observer):
+def global_observation(value, expected):
+    require(expected is None or type(expected) is bool, "explicit global setting domain differs")
+    if expected is None:
+        require(value is None, "untouched cells must not report a global setting")
+        return None
+    closed(value, "requested before setter_succeeded after after_navigation failure")
+    for field in ("requested", "before", "setter_succeeded", "after", "after_navigation"):
+        require(type(value[field]) is bool, "actual global setting getter/setter is missing")
+    require(value["failure"] is None, "global settings call reports a failure")
+    require(value["requested"] is expected and value["before"] is True
+            and value["setter_succeeded"] is True and value["after"] is expected
+            and value["after_navigation"] is expected, "actual global setting observation differs")
+    return value
+
+
+def cell(path, policy, payload, observer, expected_global):
     value, identity = read_json(path)
-    closed(value, "schema policy observer_selected runtime runtime_error chords controller document operation_error callback_cleanup host_cleanup destroyed profile_cleanup coverage payload_directory payload_files")
-    require(type(value["schema"]) is int and value["schema"] == 2 and value["policy"] == policy,
+    closed(value, "schema policy observer_selected global_setting runtime runtime_error chords controller document operation_error callback_cleanup host_cleanup destroyed profile_cleanup coverage payload_directory payload_files")
+    require(type(value["schema"]) is int and value["schema"] == 3 and value["policy"] == policy,
             "native cell schema/policy differs")
     selected = selected_observer(value["observer_selected"], observer)
+    setting = global_observation(value["global_setting"], expected_global)
+    require(expected_global is None or (observer == "none" and policy == "Default"),
+            "global settings require the observer-none Default policy")
+    expected_default = True if expected_global is None else expected_global
     text(value["runtime"])
     for key in ("runtime_error", "operation_error", "callback_cleanup", "host_cleanup", "profile_cleanup"):
         require(value[key] is None, f"native {key} is retained")
@@ -227,14 +248,18 @@ def cell(path, policy, payload, observer):
     require(len(matching) == 1, "one actual fresh S-down intervention domain required")
     target = matching[0]
     require(target["handled_before"] is False and target["handled_after"] is False
-            and target["browser_before"] is True, "S entry getters differ")
+            and target["browser_before"] is expected_default, "S entry getters differ")
     setters = [row for row in records if row["setter_succeeded"] is not None]
     require((not setters) if policy == "Default" else (len(setters) == 1 and setters[0] is target
             and target["setter_succeeded"] is True), "setter ownership differs")
-    require(target["browser_after"] is (policy != "SkipS"), "selected browser property result differs")
+    expected_after = (policy != "SkipS") if expected_global is None else expected_global
+    require(target["browser_after"] is expected_after, "selected browser property result differs")
     for row in records:
         require(row is target or (row["setter_succeeded"] is None
                 and row["browser_before"] == row["browser_after"]), "other callback property changes")
+        if expected_global is not None:
+            require(row["browser_before"] is expected_global and row["browser_after"] is expected_global,
+                    "per-event default differs from actual global setting")
     for mapped in chords:
         rows = [row for row in records if fresh_letter(row, mapped["letter"])]
         require(len(rows) == 1, "one actual native D/S/P-down control required")
@@ -242,10 +267,13 @@ def cell(path, policy, payload, observer):
         stroke = mapped["strokes"][2]
         require((bits >> 16) & 255 == stroke["scan"]
                 and bool(bits & (1 << 24)) == bool(stroke["flags"] & 1), "native scan differs from actual input")
-    return {"policy": policy, "observer_selected": selected,
+    observed_document = document(value["document"])
+    require(expected_global is not False or bool(observed_document["controls"]["KeyS"]),
+            "global-disabled actual document S is required by the native gate")
+    return {"policy": policy, "observer_selected": selected, "global_setting": setting,
             "receipt": identity, "runtime": value["runtime"],
             "chords": chords, "controller_records": len(records), "selected_S_callback": target,
-            "document": document(value["document"]), "declared_coverage": value["coverage"],
+            "document": observed_document, "declared_coverage": value["coverage"],
             "payload_directory": value["payload_directory"], "payload_files": value["payload_files"]}
 
 
@@ -257,25 +285,48 @@ def classify(pattern):
             (True, True, True): "NOT_REPRODUCED"}.get(pattern, "INCONCLUSIVE")
 
 
-def compare(default, enabled, skipped, payload_path, observer):
-    payload = payload_identity(payload_path)
-    cells = [cell(path, policy, payload, observer) for path, policy in
-             zip((default, enabled, skipped), ("Default", "EnableS", "SkipS"))]
+def same_controls(cells):
     require(len({row["runtime"] for row in cells}) == 1, "actual runtime versions differ")
     vectors = [[{key: row[key] for key in ("letter", "layout", "strokes")} for row in item["chords"]]
                for item in cells]
-    require(vectors[0] == vectors[1] == vectors[2], "actual layouts/stroke vectors differ")
+    require(all(vector == vectors[0] for vector in vectors[1:]), "actual layouts/stroke vectors differ")
+
+
+def compare(default, enabled, skipped, payload_path, observer):
+    payload = payload_identity(payload_path)
+    cells = [cell(path, policy, payload, observer, None) for path, policy in
+             zip((default, enabled, skipped), ("Default", "EnableS", "SkipS"))]
+    same_controls(cells)
     pattern = tuple(bool(row["document"]["controls"]["KeyS"]) for row in cells)
     require(pattern[2], "SkipS actual document S is required by the native gate")
-    return {"schema": 2, "observer": observer,
+    return {"schema": 3, "comparison": "policies", "observer": observer,
             "classification": classify(pattern), "S_notice_pattern": list(pattern),
             "cells": cells, "payload": payload, "limits": [
-                "The caller admits all three real native process exits; this reader does not rerun them.",
+                "The caller admits every mandatory native process exit in this group; this reader does not rerun them.",
+                "The original three-policy classification excludes the separate global-setting controls.",
                 "This comparison covers only its explicit observer group; another group's result cannot satisfy it.",
                 "Copied payload identity is an executed native-source byte assertion; copied hashes are not independently archived here.",
                 "The same native filesystem and still-existing original payload paths are required; no path rewriting occurs.",
                 "Absent document notices mean only unobserved in these bounded prefixes, never delivery absence.",
                 "Setter/property differences do not establish a Metis root cause, renderer-wide behavior or complete keyboard/IPC coverage.",
+                "No private clocks are aligned and no ordered callbacks prove renderer consumption."]}
+
+
+def compare_global(enabled, disabled, payload_path):
+    payload = payload_identity(payload_path)
+    cells = [cell(path, "Default", payload, "none", expected)
+             for path, expected in ((enabled, True), (disabled, False))]
+    same_controls(cells)
+    return {"schema": 3, "comparison": "global-settings", "observer": "none",
+            "classification": "BOUNDED_GLOBAL_SETTING_OBSERVATIONS",
+            "S_notice_pattern": [bool(row["document"]["controls"]["KeyS"]) for row in cells],
+            "cells": cells, "payload": payload, "limits": [
+                "The caller admits both real global-setting native process exits; this reader does not rerun them.",
+                "This pair is independent evidence and cannot satisfy either mandatory original three-policy group.",
+                "Present payload bytes match the retained builder report; copied hashes are not independently archived here.",
+                "The same native filesystem and still-existing original payload paths are required; no path rewriting occurs.",
+                "Absent document notices mean only unobserved bounded prefixes, never delivery absence.",
+                "These observations establish no Metis root cause, renderer-wide behavior or complete keyboard/IPC coverage.",
                 "No private clocks are aligned and no ordered callbacks prove renderer consumption."]}
 
 
@@ -290,10 +341,26 @@ def publish(result, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("default", "enable-s", "skip-s", "payload", "output"):
-        parser.add_argument("--" + name, type=Path, required=True)
+        parser.add_argument("--" + name, type=Path, required=name in ("payload", "output"))
     parser.add_argument("--observer", choices=("selected", "none"), required=True)
+    parser.add_argument("--mode", choices=("policies", "global-settings"), required=True)
+    parser.add_argument("--global-enabled", type=Path)
+    parser.add_argument("--global-disabled", type=Path)
     args = parser.parse_args()
-    result = compare(args.default, args.enable_s, args.skip_s, args.payload, args.observer)
+    policies = (args.default, args.enable_s, args.skip_s)
+    globals_ = (args.global_enabled, args.global_disabled)
+    if args.mode == "policies":
+        if any(path is not None for path in globals_):
+            parser.error("policy comparisons do not accept global controls")
+        if any(path is None for path in policies):
+            parser.error("policy comparison requires --default, --enable-s and --skip-s")
+        result = compare(*policies, args.payload, args.observer)
+    else:
+        if any(path is not None for path in policies):
+            parser.error("global controls do not accept policy comparison inputs")
+        if args.observer != "none" or any(path is None for path in globals_):
+            parser.error("both global controls are required with observer none")
+        result = compare_global(*globals_, args.payload)
     print(json.dumps(publish(result, args.output)))
 
 

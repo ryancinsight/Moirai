@@ -5,6 +5,7 @@ mod policy;
 #[path = "../../../../examples/webview_keyboard_fixture/protocol.rs"]
 mod protocol;
 mod session;
+pub(super) mod settings;
 
 use super::view::WebViewHost;
 use crate::windows::webview::event::WebViewHostEvent;
@@ -43,6 +44,7 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
         "none" => false,
         _ => panic!("unknown keyboard experiment observer"),
     };
+    let expected_global = settings::selected().expect("explicit global-setting experiment scope");
     let _test =
         tracing::info_span!("actual_keyboard_counterfactual", ?policy, expected_observer).entered();
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -59,6 +61,7 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
     .expect("actual native window");
     let mut host = WebViewHost::new(window, package.fresh_config()).expect("installed browser");
     let observer_selected = host.startup.is_some();
+    let mut global_setting = host.keyboard_setting.take();
     let mut registration =
         Registration::new(host.controller.as_ref().expect("actual controller"), policy);
     let runtime = runtime_version(&host);
@@ -69,6 +72,12 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
             return Err(io::Error::other(
                 "actual startup observer selection differs",
             ));
+        }
+        if global_setting.as_ref().map(|attempt| attempt.requested) != expected_global {
+            return Err(io::Error::other("actual global-setting selection differs"));
+        }
+        if let Some(attempt) = global_setting.as_mut() {
+            attempt.verify_after_navigation(host.webview.as_ref().expect("actual webview"))?;
         }
         exercise(
             &mut host,
@@ -94,7 +103,7 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
         && destroyed.as_ref().is_ok_and(|count| *count == 1);
     package.permit_cleanup(released);
     let profile_cleanup = package.cleanup();
-    let encoded = json!({"schema":2,"policy":policy,"observer_selected":observer_selected,"payload_directory":payload.directory,"payload_files":payload.files,"runtime":runtime.as_ref().ok(),"runtime_error":runtime.as_ref().err().map(ToString::to_string),"chords":chords,"controller":records,"document":notices,
+    let encoded = json!({"schema":3,"policy":policy,"observer_selected":observer_selected,"global_setting":global_setting,"payload_directory":payload.directory,"payload_files":payload.files,"runtime":runtime.as_ref().ok(),"runtime_error":runtime.as_ref().err().map(ToString::to_string),"chords":chords,"controller":records,"document":notices,
         "operation_error":result.as_ref().err().map(ToString::to_string),"callback_cleanup":callback_cleanup.as_ref().err().map(ToString::to_string),
         "host_cleanup":host_cleanup.as_ref().err().map(ToString::to_string),"destroyed":destroyed.as_ref().ok(),
         "profile_cleanup":profile_cleanup.as_ref().err().map(ToString::to_string),
@@ -122,7 +131,7 @@ fn installed_runtime_compares_physical_shortcut_browser_policy() {
         assert_eq!(destroyed.expect("actual destruction drain"), 1);
         profile_cleanup.expect("actual profile/package cleanup");
         assert!(!package.directory.exists() && !package.profile.exists());
-        assert_values(policy, &records, &notices);
+        assert_values(policy, expected_global, &records, &notices);
         assert_strokes(&records, &chords);
         for record in trace.observations() {
             assert!(
@@ -232,7 +241,12 @@ fn has_key(rows: &[Notice], code: &str) -> bool {
     rows.iter().any(|row| matches!(row, Notice::Key {keyboard, ..} if keyboard.code == code && !keyboard.ctrl && keyboard.alt && keyboard.shift && !keyboard.meta && !keyboard.repeat && keyboard.trusted))
 }
 
-fn assert_values(policy: Policy, records: &[policy::Attempt], notices: &[Notice]) {
+fn assert_values(
+    policy: Policy,
+    global_setting: Option<bool>,
+    records: &[policy::Attempt],
+    notices: &[Notice],
+) {
     assert!(notices.len() >= 2);
     assert!(matches!(notices.first(), Some(Notice::Ready {})));
     assert!(matches!(notices.last(), Some(Notice::Closed { .. })));
@@ -260,6 +274,10 @@ fn assert_values(policy: Policy, records: &[policy::Attempt], notices: &[Notice]
     }
     for record in records {
         assert_eq!(record.handled_before, record.handled_after);
+        if let Some(expected) = global_setting {
+            assert_eq!(record.browser_before, Some(expected));
+            assert_eq!(record.browser_after, Some(expected));
+        }
     }
     let selected: Vec<_> = records
         .iter()
@@ -270,7 +288,10 @@ fn assert_values(policy: Policy, records: &[policy::Attempt], notices: &[Notice]
         1,
         "the actual fresh S-down intervention domain must execute once"
     );
-    assert_eq!(selected[0].browser_before, Some(true));
+    assert_eq!(
+        selected[0].browser_before,
+        Some(global_setting.unwrap_or(true))
+    );
     let interventions: Vec<_> = records
         .iter()
         .filter(|row| row.setter_succeeded.is_some())
@@ -278,7 +299,10 @@ fn assert_values(policy: Policy, records: &[policy::Attempt], notices: &[Notice]
     match policy {
         Policy::Default => {
             assert!(interventions.is_empty());
-            assert_eq!(selected[0].browser_after, Some(true));
+            assert_eq!(
+                selected[0].browser_after,
+                Some(global_setting.unwrap_or(true))
+            );
         }
         Policy::EnableS | Policy::SkipS => {
             assert_eq!(interventions.len(), 1);
@@ -296,6 +320,12 @@ fn assert_values(policy: Policy, records: &[policy::Attempt], notices: &[Notice]
                 );
             }
         }
+    }
+    if global_setting == Some(false) {
+        assert!(
+            has_key(notices, "KeyS"),
+            "actual S must reach the globally disabled-browser document"
+        );
     }
     match notices.last().expect("actual terminal notice") {
         Notice::Closed {

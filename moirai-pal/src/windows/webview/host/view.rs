@@ -41,6 +41,8 @@ use super::{
 pub struct WebViewHost {
     pub(super) focus: Option<Rc<super::focus::ControllerFocus>>,
     pub(super) startup: Option<super::diagnostics::Startup>,
+    #[cfg(test)]
+    pub(super) keyboard_setting: Option<super::keyboard_fixture::settings::Attempt>,
     pub(super) window: NativeWindow,
     pub(super) callbacks: Callbacks,
     pub(super) webview: Option<ICoreWebView2>,
@@ -115,6 +117,8 @@ impl WebViewHost {
         let mut host = Self {
             focus: None,
             startup: None,
+            #[cfg(test)]
+            keyboard_setting: None,
             window,
             callbacks: Callbacks::empty(),
             webview: Some(webview),
@@ -128,6 +132,13 @@ impl WebViewHost {
             close_error: None,
         };
         host.install_callbacks()?;
+        #[cfg(test)]
+        {
+            host.keyboard_setting = super::keyboard_fixture::settings::before_navigation(
+                &settings,
+                host.config.start_uri(),
+            )?;
+        }
         host.navigate_and_wait(host.config.start_uri().to_owned())?;
         host.focus = Some(super::focus::ControllerFocus::attach(
             &mut host.window,
