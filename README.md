@@ -112,21 +112,24 @@ UIA request 194 is pending at node 24 with unknown identity. Response 193 record
 Dark without a point timestamp and cannot be placed after S. The ordinary
 journey, lifecycle completion and later native/package gates remain unreached.
 
-The private keyboard experiment on source `a0467cfe` /
-[Windows run 38831422438](https://github.com/ryancinsight/Moirai/actions/runs/38831422438)
-executes all six Default/EnableS/SkipS cells across selected and observer-none
-groups. Each exits 100 at host cleanup with matched browser PID and SDK exit
-kind 1; this is not an OS exit code. Both groups retain D/P, eight document Key
-notices and Closed with zero listener owners, but no KeyS. SkipS successfully
-changes the per-event property true→false. Later native value/stroke assertions
-and both comparators do not execute; no accepted experiment or Metis fix follows.
-The next diagnostic keeps those six mandatory cells and adds two observer-none,
-Default-policy controls setting Settings3 true/false before first navigation.
-Only these two read/set/read and retain a post-navigation readback; old six
-record global_setting=null without added Settings3 calls. All eight outcomes
-remain fatal gates, with trusted KeyS required in the false control. Execution
-of this successor is pending. Production settings/defaults/APIs/dependencies,
-passive input callbacks and original 30/60/120-second/20-minute bounds stay exact.
+The private keyboard experiment on source `14cb3fdf` /
+[Windows run 38835227528](https://github.com/ryancinsight/Moirai/actions/runs/38835227528)
+executes all eight cells: selected/none Default/EnableS/SkipS and two
+observer-none/Default Settings3 controls. All exit 100 without timeout. Seven
+fail host close with matched browser PID and SDK kind 1; this is not an OS exit
+code. The false control reads before=true, sets false, and reads false before
+and after navigation. Its 12 controller rows retain false browser properties,
+no event setter and Handled=false; SDK kind 0 is NORMAL, host/profile errors
+are null and Destroyed is one. It then fails the required trusted KeyS assertion.
+Every cell retains Ready, eight trusted Key notices containing D/P but no S,
+and Closed with zero listener owners (1,322 raw document bytes per cell).
+Later Closed/stroke/startup/publication assertions do not execute; independent
+raw verification is separate. All three comparisons and cross-eight identity
+remain unrun. Original 91 executions and six portable checks pass: 105 total,
+97 PASS/8 FAIL. This establishes no accepted experiment, pin promotion or Metis fix.
+The controller-to-Rust-keydown boundary remains unknown; both complete Metis
+journeys stay open. Production settings/defaults/APIs/dependencies, passive
+input callbacks and original 30/60/120-second/20-minute bounds remain unchanged.
 The exit callback's additive tracing changes no getter or cleanup decision.
 See the [fixture contract](moirai-pal/src/windows/webview/host/keyboard_fixture/design.md).
 

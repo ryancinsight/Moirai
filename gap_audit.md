@@ -56,33 +56,30 @@ UIA request 194 is pending at node 24 with unknown element identity. Response 19
 contains Dark but has no point timestamp; it cannot be placed after S. Ordinary
 form, final lifecycle and subsequent native/archive/package gates are unreached.
 
-Source `a0467cfe` / [Windows run 38831422438](https://github.com/ryancinsight/Moirai/actions/runs/38831422438)
-executes six selected/none Default/EnableS/SkipS cells. Every cell exits 100 at
-host cleanup; actual observer bools match true/false. All six SDK exit records
-retain matching expected/actual PID, raw kind 1/normal=false and no getter errors.
-This SDK classification is distinct from synthesized E_ABORT and an OS exit code.
-Operation/callback cleanup succeeds, Destroyed is one and failed close retains profiles. All six preserve D/P, eight raw document Key notices (1,322 bytes) and
-Closed with zero listener owners, but no S. Both SkipS true→false setters succeed.
-Host-close panic at native line 121 precedes value/stroke assertions; those do not execute. Group/cross-group comparison files are absent. Independent ZIP inspection
-verifies all 32 members, five payloads/ten producer inputs and all six identical
-runtime/HKL/full stroke vectors; this forensic identity is not accepted comparison.
-The logical pending bit can cover completed replies; it proves neither SDK-inflight nor shutdown cause.
-No retained prefix proves absolute S absence or a Metis input cause/fix.
-
-Earlier 2efcc148/run38829030763 records 24 nextest processes/98 executions:
-95 PASS/3 FAIL, including original 91 executions (83 IDs) all PASS and four portable passes.
-Its three cells fail host close; UIA 6/expected 64 after 50 queries and later DOM 64 differ in time.
-
-The next test-only diagnostic adds Settings3 true/false before first configured
-navigation, both observer-none/Default. Actual getter-before, setter, getter-after
-and post-navigation readback retain typed failures; old six global_setting=null
-and perform no Settings3 calls. False requires actual trusted KeyS. All eight
-are attempted first; each triplet/pair compares on its own successes, even if another fails.
-Cross-eight identity needs all three comparisons; no new success excuses an old failure.
-Original eight modes/bridge, inputs/quotas and 30/60/120-second/20-minute bounds
-remain exact. Production settings/defaults/APIs/dependencies and passive input
-callbacks do not change; existing exit tracing adds no getter/cleanup decision.
-Successor native execution and both complete Metis journeys remain open.
+Source `14cb3fdf` / [Windows run 38835227528](https://github.com/ryancinsight/Moirai/actions/runs/38835227528)
+executes all eight cells: 105 nextest executions, 97 PASS/8 FAIL in 29 processes.
+Original 91 executions (83 IDs) match a046 in exact order and pass; six new portable checks pass.
+All eight native exits are 100/no timeout. Seven panic at host-close line 130:
+matched browser PID, SDK kind 1/normal=false, no getter failure; this is not an OS exit code.
+Global-false records before=true/set-success/after=false/post-navigation=false;
+all 12 controller rows retain browser properties false, no event setters and Handled=false.
+Its matched PID/kind 0 NORMAL, null host/profile errors and Destroyed=1 precede
+required trusted KeyS assertion failure at line 325. No cell completes assert_values.
+Each retains Ready/eight trusted Keys with D/P/no S/Closed/zero owners (1,322 raw bytes).
+Later Closed/stroke/startup/publication assertions are unexecuted; raw checks are separate.
+Neither triplet nor the new pair compares; cross-eight identity is unrun.
+Independent proofs `f8741098…` (cells) and `aa15167c…` (log/producers) bind the actual
+merge e6b9c43a/tree b3a0fbb2, 40+8 ZIP members, ten payloads and twenty producer inputs.
+Both producers retain source_dirty=true; pre-bindgen/compiler bytes are unarchived declarations.
+Original eight modes and the separate probe pass collected 16/64 and entry 16/12 assertions;
+ordinary retains 15 direct value_completed rows, so no complete-direct-history claim follows.
+Historical a046/run38831422438 has six host-close failures; 2ef/run38829030763
+has three. Their bounded no-S prefixes are not absolute delivery-absence proof.
+The logical pending bit can cover completed replies; it proves no SDK-inflight/shutdown cause.
+The controller-to-Rust-keydown boundary remains unknown; no architecture/input change is approved.
+No accepted experiment, pin promotion or Metis fix follows; both full journeys remain open.
+Settings/defaults/APIs/dependencies, passive input callbacks and original eight modes/bridge,
+inputs/quotas/30/60/120-second/20-minute bounds stay exact; exit tracing changes no decisions.
 
 Source2fcef45d/run38798617700 closes the separately reproduced SDK-admission
 regression (6.837s) and native SDK availability query (0.39.1/154.0.4258.62),

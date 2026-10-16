@@ -9,22 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- [patch] Add a private installed-keyboard experiment with Default/EnableS/SkipS
-  across selected and observer-none groups. Source `a0467cfe` / Windows run
-  38831422438 executes all six; each exits 100 at host cleanup with matched SDK
-  browser PID, raw exit kind 1 and normal=false, without getter failures. The
-  observed kind differs from the synthetic E_ABORT and an unretained OS exit code.
-  D/P and eight Key notices/Closed are retained, with no S in any bounded prefix;
-  both SkipS property transitions succeed. Native value/stroke assertions and
-  group/cross-group comparisons do not execute. This establishes no Metis fix.
-  The next test-only controls add Settings3 true/false before first navigation,
-  both observer-none/Default, with actual getter/setter/post-navigation readback
-  and typed failures. Old six retain global_setting=null and make no Settings3
-  calls. All eight are attempted before fatal aggregation; false requires actual
-  trusted KeyS and cannot replace an old failure. Successor execution is pending.
-  Production input callbacks, defaults, public APIs, dependencies and original
-  30/60/120-second/20-minute bounds remain unchanged; production exit tracing is
-  additive and preserves existing SDK calls, classifications and cleanup.
+- [patch] Add a private installed-keyboard experiment with selected/none
+  Default/EnableS/SkipS and two observer-none/Default Settings3 controls before
+  navigation. Source `14cb3fdf` / Windows run 38835227528 executes all eight:
+  exit 100/no timeout. Seven fail host close with matched SDK PID/kind 1;
+  the false control records before=true, successful set/after/post-navigation
+  false and 12 false-property controller rows with no event setter/Handled change.
+  Its SDK kind 0 is NORMAL, cleanup errors are null and Destroyed is one, then
+  the required trusted KeyS assertion fails. All retain Ready/eight trusted Key
+  notices with D/P/no S/Closed and zero listener owners; later native assertions
+  remain unexecuted. Independent raw checks are not those native assertions.
+  No triplet/pair/cross-eight comparison runs. Original 91 executions plus six
+  portable checks pass (105 total: 97 PASS/8 FAIL). The controller-to-Rust-keydown
+  boundary and both full Metis journeys remain open; no accepted experiment,
+  pin promotion or Metis fix follows. Production input callbacks, defaults,
+  public APIs, dependencies and original 30/60/120-second/20-minute bounds stay
+  unchanged; additive exit tracing preserves SDK calls, decisions and cleanup.
 
 - [patch] Add a default-off private late controller-input selection. Deferred
   retention arms on an actual configured key-down and preserves every later

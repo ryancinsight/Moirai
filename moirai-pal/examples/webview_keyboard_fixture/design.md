@@ -69,12 +69,16 @@ sequences, complete named metadata, matching Closed counts and zero owner counts
 under the original native operation deadline. Compilation or portable tests do
 not establish native delivery, renderer shortcut behavior or Metis acceptance.
 
-The focused 43 portable laws pass: 39 existing startup, three shared-protocol and
-one reverse-partial-release law. Source `a0467cfe` / run 38831422438 executes all six
-original policy/observer cells: each retains Ready/eight Key/Closed with D/P and
-no S, then fails native host cleanup. Later native assertions and group/cross-group
-comparisons do not execute. Closed proves document listener retirement, not normal
-browser exit. No accepted comparison follows. The eight-cell successor keeps
-those six mandatory and adds native-only Settings3 true/false before navigation;
-its execution remains pending. This payload leaves passive input callbacks,
-defaults, APIs, dependencies, inputs and 30/60/120-second/20-minute bounds unchanged.
+The focused original 43 portable laws remain separate from installed execution.
+Source `14cb3fdf` / run 38835227528 executes all eight native cells: all exit 100,
+seven at host close and global-false at the required trusted KeyS assertion.
+The false control has actual Settings3 before=true/set-success/after=false/
+post-navigation=false, false properties in all 12 SDK rows and NORMAL kind 0
+cleanup with no host/profile errors. Each document retains Ready/eight trusted
+Keys with D/P/no S/Closed/zero owners and 1,322 raw bytes. Later native assertions
+and all three comparators/cross-eight are unrun; independent raw verification is
+separate. Original 91 executions and six portable checks pass (105 total, 97 PASS/8 FAIL).
+Closed establishes listener retirement, not renderer-input delivery or a Metis fix.
+The controller-to-Rust-keydown boundary and both complete Metis journeys stay open.
+No input/protocol/lifecycle, production callback decision/default/API/dependency,
+quota or 30/60/120-second/20-minute bound changes follow from this result.

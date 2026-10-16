@@ -92,17 +92,26 @@ Portable wire/release tests and cross-compilation are distinct from installed
 Windows execution. Original eight modes,16/64 assertions and Rust bridge path
 remain unchanged; the new generated payload has separate exact admission.
 
-## Retained negative and successor scope
+## Retained execution and limits
 
-Source `a0467cfe` / run 38831422438 executes all six original cells. Each fails host
-cleanup with matched browser PID, actual SDK exit kind 1/normal=false and no
-getter failure. Synthetic E_ABORT is not the OS process exit code. All document
-prefixes retain D/P/eight Key notices/Closed/zero owners, with no S; both SkipS
-property changes true→false succeed. Host-close panic precedes native value/stroke
-assertions, and no group/cross-group comparison executes. Forensic identity of
-all six runtime/layout/stroke/payload vectors is not accepted classification.
-`pending=true` is logical ownership, including completed replies waiting for
-pump processing, and does not prove SDK-inflight or a shutdown mechanism.
-The production exit callback adds tracing of existing PID/kind/getter errors;
-its original SDK calls, decisions and cleanup remain exact. The eight-cell
-successor is unexecuted and supplies no Metis repair claim.
+Source `14cb3fdf` / [run 38835227528](https://github.com/ryancinsight/Moirai/actions/runs/38835227528)
+executes all eight under the unchanged contract. All exit 100/no timeout; seven
+fail host-close line 130 with matched PID/SDK kind 1/normal=false and no getter
+failure. This SDK kind and synthetic E_ABORT are not OS process exit codes.
+The global-false control records before=true, successful set/after/readback
+false; every one of its 12 controller rows retains browser properties false,
+no event setter and Handled=false. Matched PID/kind 0 NORMAL, null host/profile
+errors and Destroyed=1 precede its required trusted KeyS failure at line 325.
+All cells retain Ready/eight trusted Keys with D/P but no S/Closed/zero owners
+(1,322 original document bytes each). Later Closed/stroke/startup/publication
+assertions do not execute; independent raw checks do not relabel them executed.
+Both triplet comparators, the pair comparator and cross-eight identity are unrun.
+Original 91 executions and six portable checks pass: 105 total, 97 PASS/8 FAIL.
+The earlier a046 six-cell host-close failure remains historical. The pending
+bit is logical ownership, not proof of an SDK-inflight operation or shutdown cause.
+No retained prefix proves absolute S absence, a Metis cause/fix or pin promotion.
+The controller-to-Rust-keydown boundary and both full consumer journeys stay
+open; this result approves no architecture or input change. Passive callbacks,
+inputs/protocol/lifecycle/quotas and deadlines remain exact. Existing exit tracing
+adds no SDK call, decision or cleanup change. Independent cell/log-producer
+proofs `f8741098…`/`aa15167c…` retain the source and actual original artifacts.
