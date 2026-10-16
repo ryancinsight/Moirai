@@ -12,10 +12,56 @@ separate quota. No callback read, registration, COM, Handled/focus operation,
 input, wait or scheduling changes. Progress checkpoints spend its quota;
 missing closure, an absent anchor or any loss prevents an absence conclusion.
 See the [co-located design](moirai-pal/src/webview_startup/late_input/design.md).
-All39 portable startup tests, strict MSVC all-target diagnostics and workspace
-formatting pass. The installed late-input fixture is implemented; local
-cross-compilation does not execute it. Native execution and the remaining
-Metis shortcut/full journeys stay open.
+All39 portable startup tests, strict MSVC diagnostics and workspace formatting
+pass. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505)
+records 91 PASS test executions. The installed A-anchor case passes in 6.981s.
+Its exact five-key canonical suffix is sequences 5–9: A-down/up, Control-up,
+Escape-down/up. Eleven budgeted records consume 3,384 encoded bytes; including
+the close record, reconstructed prefix-removed LF formatter output is 5,894
+bytes. Original native LF bytes are not directly archived by GitHub transport.
+The initial checkpoint time is null; own/shared loss, errors and cleanup failure
+are zero, with one complete close. The original main quota is not exhausted in
+this A case. It proves suffix retention, not Metis D/S or renderer consumption.
+
+All eight original modes and the separate probe pass 16 replacements/64 checks;
+collected schema3 asserts 16 parent entries/12 non-first entries each. The log
+separately retains 16 entered and 16 same-field-focused events per invocation;
+the private completion JSON is not directly archived. The actual Rust bridge
+passes in 6.835s and SDK admission in 6.858s. Selected/main and independent probe
+controller quotas leave partial histories; no final-edit observer coverage follows.
+This run's separate probe triggers at scope2/weight: returned UIA is 6 rather
+than expected 64 after 85 queries. A later within-deadline DOMSnapshot completes
+with SDK HRESULT 0 and weight 64. These are different point observations, not
+same-time UIA staleness or an input-delivery cause.
+
+The complete d165 job log and source binding attribute checkout e7bb40b5 to
+source d1658acc/tree e4682394 and 1,127 committed blobs. Artifact 12008602645
+verifies eight members, five payloads and ten producer source identities.
+The producer writes its in-checkout payload, build.jsonl and bindgen.log before
+querying Git status. Under default status rules these paths suffice to explain
+source_dirty=true. The discarded status output and unretained global excludes
+leave the exclusive dirty paths and whole-checkout cleanliness unproved.
+Pre-bindgen/compiler binary hashes remain declarations because those bytes are
+unarchived.
+
+Metis source 561189 retains native S-down/up. [f1523a43/run 38821192294/job 116717939267](https://github.com/ryancinsight/metis/actions/runs/38821192294/job/116717939267)
+passes 503/504 script cases with one Apple-only skip in 43.301s and all four exact
+form submissions, then the selected worker times out at 60.1114402s. Native
+sequences 335/336 carry S scan 31/nonextended, Alt+Shift held, Control clear and
+Handled=false. The Rust stream has nine valid records: Selected; D/KeyD with
+ThemeDark/Ok; Alt/AltLeft and Shift/ShiftLeft with Ignored/Ok. No S metadata,
+System decision, quota or terminal is retained. Missing closure leaves coverage
+unknown; native receipt does not establish interception or renderer rejection.
+UIA request 194 is pending at node 24 with unknown element identity. Response 193
+contains Dark but has no point timestamp; it cannot be placed after S. Ordinary
+form, final lifecycle and subsequent native/archive/package gates are unreached.
+
+The active private experiment compares Default, EnableS and SkipS with identical
+Rust/WASM and observation selection. Focused 43 portable laws pass, including
+all 64 independent metadata flags and reverse release after partial input.
+Installed policy comparison is unexecuted. No production callback/default/API,
+input domain or 30/60/120-second/20-minute bound changes; full Metis acceptance
+remains open. The verified A retention mechanism does not close that gate.
 
 Source2fcef45d/run38798617700 closes the separately reproduced SDK-admission
 regression (6.837s) and native SDK availability query (0.39.1/154.0.4258.62),
@@ -169,7 +215,8 @@ owned focus and active sampler. The requested value is absent from the live fiel
 that point; stale UIA alone is insufficient. Its exact routing cause and both
 full consumer journeys remain unverified. The next opt-in variant adds
 canonical controller receipt with a separate existing-size quota/INFO sink;
-all original modes stay untouched. Native execution remains pending.
+subsequent aa532b88 execution above retains the actual result without changing
+any original mode or establishing complete consumer acceptance.
 
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 

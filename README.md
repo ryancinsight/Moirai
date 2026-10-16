@@ -88,11 +88,37 @@ or complete-sampler proof. Both full Metis journeys remain open under the
 [entry contract](moirai-pal/src/windows/webview/host/focus/tests/client/design.md).
 
 A separate default-off [late-input diagnostic](moirai-pal/src/webview_startup/late_input/design.md)
-retains copied controller snapshots after an actual configured key-down,
-including later layout-dependent keys outside the exhausted startup quota.
-Portable and strict MSVC checks pass; installed execution and both complete
-Metis journeys remain required. No additional input or callback work supplies
-this evidence.
+retains copied controller snapshots after an actual configured key-down under
+its own quota. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505)
+records 91 PASS test executions. The installed A-anchor case passes in 6.981s
+with the exact five-key canonical suffix, zero loss/errors and successful close.
+All eight original modes and the separate probe pass 16/64 with collected
+schema3 entry counts 16/12; direct entered/focused events remain distinct evidence.
+The Rust bridge passes in 6.835s and SDK admission in 6.858s. In this run the
+separate probe returns UIA weight 6 for requested 64 after 85 queries; a later
+timely DOMSnapshot returns 64. These are different times and establish no
+same-time UIA-staleness or input-delivery cause. Main diagnostic histories stay
+quota-limited. The A fixture proves retention, not renderer consumption.
+
+Metis source 561189 retains actual native S-down/up after its D anchor. The
+[f1523a43 Windows run 38821192294](https://github.com/ryancinsight/metis/actions/runs/38821192294/job/116717939267)
+passes 503 of 504 scripts with one Apple-only skip in 43.301s and all four exact
+form submissions, then the selected worker reaches its 60.1114402s outer timeout.
+Native S sequences 335/336 carry scan 31, Alt+Shift held, Control clear and
+Handled=false. Nine Rust records retain Selected, D→ThemeDark/Ok and
+Alt/Shift→Ignored/Ok. No S metadata, System decision or terminal is retained;
+coverage remains unknown, without interception or renderer-rejection attribution.
+UIA request 194 is pending at node 24 with unknown identity. Response 193 records
+Dark without a point timestamp and cannot be placed after S. The ordinary
+journey, lifecycle completion and later native/package gates remain unreached.
+
+A private three-arm keyboard experiment is implemented for Default, EnableS
+and SkipS. Each arm uses identical compiled Rust/WASM and observation selection;
+only the fixture's synchronous S browser-accelerator policy differs. Focused
+portable laws pass 43/43; installed three-arm execution remains unverified.
+Production callbacks, defaults, APIs, input domains and 30/60/120-second and
+20-minute job bounds remain unchanged. See the
+[shared fixture contract](moirai-pal/examples/webview_keyboard_fixture/design.md).
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The

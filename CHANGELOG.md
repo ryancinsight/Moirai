@@ -9,12 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- [patch] Add a private installed-keyboard experiment with Default, EnableS and
+  SkipS policy arms. All arms use identical Rust/WASM payloads and observation
+  selection; only the fixture overrides the fresh S-down browser-accelerator
+  property. The shared closed codec retains complete metadata and independent
+  cleanup counts. Focused portable 43/43 laws pass, including three wire laws
+  and reverse release of a partially admitted physical chord. Windows execution
+  remains pending; no production setting, public API or deadline changes.
+
 - [patch] Add a default-off private late controller-input selection. Deferred
   retention arms on an actual configured key-down and preserves every later
   canonical snapshot under an independent quota. Original callbacks and main
   observations remain unchanged; bounded checkpoints and terminal metadata
-  report incomplete evidence. This diagnoses the remaining Metis System-theme
-  shortcut; it does not establish a functional correction or native acceptance.
+  report incomplete evidence. Source `d1658acc` / Windows run 38811126505
+  records 91 PASS executions, including the installed A-anchor case in 6.981s:
+  canonical sequences 5–9 match exactly, with no own/shared loss or cleanup error.
+  The bridge passes in 6.835s and SDK admission in 6.858s; all eight original
+  modes and the separate probe pass collected schema3 16/64 and entry 16/12
+  assertions; directly retained events remain separate evidence.
+  The probe's UIA weight 6 and later timely DOM weight 64 are different-time
+  observations. Metis source 561189 and f1523a43 retain native S-down/up; native
+  receipt does not establish page metadata, renderer consumption or complete
+  ordinary/selected acceptance. The f152 selected worker times out after four
+  exact submissions; its nine Rust command records end after Alt/Shift returns,
+  with no retained S/System decision or terminal.
 
 - [patch] The actual MTA UIA fixture enters the known native parent once after
   its original UIA field selection. Legitimate input-queue attachment and
@@ -105,8 +123,10 @@ selected mode retains concentration 2 after input requests 4. That candidate
 is withdrawn; complete form acceptance remains open. Four-mode source 4e7b1968
 / run 38769791520 completes ordinary and controller-only 16/64, while startup
 and full selected modes retain earlier values after admitted input. Native
-event and CDP-activation controls now isolate the recurring DOM work; their
-Windows execution remains pending. All seventeen portable contracts pass.
+event and CDP-activation controls isolate recurring DOM work. Subsequent
+b6105157 execution passes ordinary/controller/native/events16/64 and fails
+startup/full; the later d165 retention gate remains distinct. All seventeen
+portable contracts pass.
 
 - [patch] Native parent focus synchronously enters its hosted WebView2
   controller with PROGRAMMATIC restoration of the previous page element.

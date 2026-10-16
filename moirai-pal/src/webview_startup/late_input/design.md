@@ -1,9 +1,15 @@
 # Selected late controller input (0.9.4)
 
-Metis add41427/run38804568395 completes four exact submissions, but the
-selected journey stops while awaiting System theme after Alt+Shift+S. Its
-256-record main observation quota expires before that chord. Native insertion
-and owned focus do not establish a browser keyboard event or command outcome.
+Metis source 561189 and f1523a43 retain actual late native S-down/up. On
+[f1523a43/run 38821192294](https://github.com/ryancinsight/metis/actions/runs/38821192294/job/116717939267),
+503/504 scripts pass with one Apple-only skip in 43.301s and all four exact form
+submissions pass, but the selected worker reaches its 60.1114402s outer timeout.
+Native sequences 335/336 carry scan 31, Alt+Shift held, Control clear and
+Handled=false. Nine Rust observations retain Selected, D→ThemeDark/Ok and
+Alt/Shift→Ignored/Ok, without S metadata, System decision or terminal.
+Coverage remains unknown; native receipt does not establish renderer rejection.
+UIA request 194/node 24 has unknown identity; untimed Dark response 193 cannot be
+placed after S. Ordinary form and final lifecycle/later gates remain unreached.
 
 The private `late_input_after_key` selection is absent by default. A nonzero
 Windows virtual key is accepted only with an existing controller composition.
@@ -51,7 +57,20 @@ anchor and exact suffix order, shared loss before/after arming, independent
 quota exhaustion, terminal bounds and actual formatted output. Installed
 fixture reuses the original six physical Ctrl+A/Escape strokes with A as
 its configured anchor and compares the actual five-key suffix with canonical
-snapshots. Its native execution remains pending. All39 portable startup tests
-and strict MSVC all-target diagnostics pass; compilation does not execute
-Windows callbacks. Portable state tests establish retention semantics only. Complete Metis selected/ordinary
-journeys and any later document-level diagnostic remain separate gates.
+snapshots. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505)
+records 91 PASS test executions; this case passes in 6.981s. Canonical sequences
+5–9 match exactly (A-down/up, Control-up, Escape-down/up). Eleven budgeted records
+retain 3,384 encoded bytes; the stream plus close is 5,894 reconstructed logical
+LF formatter bytes after removing GitHub transport prefixes/CRLF. Initial time
+is null; own/shared loss, error and cleanup counts are zero and close is complete.
+This case does not exhaust the main quota. All39 portable startup tests and
+strict MSVC diagnostics also pass. The fixture establishes native retention,
+not Metis D/S or renderer consumption. All original eight modes and the separate
+probe pass 16/64 with collected schema3 entry counts 16/12; diagnostic histories
+remain quota-limited. The probe's returned UIA weight 6 after 85 queries precedes
+a timely HRESULT-0 DOM weight 64; distinct times establish no stale-only or
+delivery cause. Native S receipt in the later Metis runs does not complete
+consumer acceptance. A separate Default/EnableS/SkipS fixture now uses identical
+compiled Rust/WASM and observation selection to compare browser policy. Its
+focused 43 portable laws pass; installed execution and both complete Metis
+journeys remain required. Production callbacks/defaults and all bounds remain.

@@ -45,6 +45,22 @@ mod webview_limits;
 #[cfg(any(test, all(windows, feature = "webview2")))]
 mod webview_startup;
 
+#[cfg(all(
+    test,
+    not(target_arch = "wasm32"),
+    not(all(windows, feature = "webview2"))
+))]
+#[path = "../examples/webview_keyboard_fixture/protocol.rs"]
+mod keyboard_fixture_protocol;
+
+#[cfg(all(
+    test,
+    not(target_arch = "wasm32"),
+    not(all(windows, feature = "webview2"))
+))]
+#[path = "windows/webview/host/keyboard_fixture/input/law.rs"]
+mod keyboard_input_law;
+
 #[cfg(any(target_arch = "wasm32", test))]
 #[path = "wasm/permission_state.rs"]
 mod permission_state;

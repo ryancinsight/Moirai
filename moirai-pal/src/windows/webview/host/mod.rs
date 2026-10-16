@@ -14,4 +14,7 @@ mod text;
 mod tray;
 mod view;
 
+#[cfg(test)]
+mod keyboard_fixture;
+
 pub use view::WebViewHost;

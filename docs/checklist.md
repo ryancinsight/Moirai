@@ -6,7 +6,9 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
 **Target Version**: 0.9.4 (workspace); moirai-webview 0.2.0
 
-- [ ] [patch] Default-off configured-key suffix retention preserves every main observation and uses only copied snapshots. Verify strict selection, arming/order/loss/quota/closure laws, actual INFO envelope, unchanged 1 MiB consumer cap and installed native key receipt. Both complete Metis journeys remain separate gates. Local39 portable startup tests, strict MSVC all-target diagnostics and formatting pass; installed execution remains required.
+- [ ] [patch] Execute the private Default/EnableS/SkipS keyboard experiment with identical compiled Rust payload/selection, exact physical/document metadata and all actual cleanup-owner counts. Focused portable 43/43 laws pass; installed execution remains pending. Original matrix/bridge/full Metis journeys and 30/60/120-second/20-minute bounds remain required.
+
+- [x] [patch] Default-off configured-key suffix retention preserves every main observation and uses only copied snapshots. Local39 portable startup tests, strict MSVC diagnostics and formatting pass. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505) passes the installed A-anchor case in 6.981s: exact canonical suffix 5–9, no loss/errors and successful close under the unchanged 1 MiB cap. This verifies the mechanism; actual native S on Metis sources 561189 and f1523a43 does not prove page metadata or consumption, and both complete journeys remain open.
 
 - [x] [patch] Runtime availability queries use the actual checked native SDK artifact under the original60-second bound. Source2fcef45d/run38798617700 passes the native API with SDK0.39.1 and available runtime154.0.4258.62.
 

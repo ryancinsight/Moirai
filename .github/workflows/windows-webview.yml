@@ -234,6 +234,82 @@ jobs:
               "--success-output", "immediate", "-E",
               "test(=windows::webview::tests::bridge::installed_runtime_roundtrips_rust_bridge_and_retires_closed_listeners)",
           ], env=environment, check=True, timeout=120)
+      - name: Compile the separate actual Rust keyboard payload
+        shell: pwsh
+        run: >-
+          python scripts/webview/build_bridge.py
+          --fixture keyboard
+          --manifest-path "$env:GITHUB_WORKSPACE/Cargo.toml"
+          --target-dir "$env:GITHUB_WORKSPACE/target"
+          --output "$env:GITHUB_WORKSPACE/keyboard-fixture-evidence"
+      - name: Compare untouched and matched-call native browser-key policies
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import time
+
+          root = Path("keyboard-fixture-evidence").resolve(strict=True)
+          payload = root / "payload"
+          def identities():
+              return {p.name: {"bytes": p.stat().st_size,
+                      "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+                      for p in sorted(payload.iterdir())}
+          failures = []
+          for policy in ("default", "enable_s", "skip_s"):
+              environment = os.environ.copy()
+              environment["MOIRAI_WEBVIEW_KEYBOARD_FIXTURE"] = str(payload)
+              environment["MOIRAI_WEBVIEW_KEYBOARD_POLICY"] = policy
+              environment["MOIRAI_WEBVIEW_KEYBOARD_EVIDENCE"] = str(root / (policy + ".json"))
+              environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+                  "start_uri": "https://metis.invalid/index.html",
+                  "selectors": ["#fixture-status"],
+              }, separators=(",", ":"))
+              command = ["cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+                  "--no-default-features", "--features", "webview2",
+                  "--config-file", ".config/nextest.toml", "--test-threads", "1",
+                  "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+                  "--success-output", "immediate", "-E",
+                  "test(=windows::webview::host::keyboard_fixture::installed_runtime_compares_physical_shortcut_browser_policy)"]
+              before = identities()
+              started = time.monotonic()
+              try:
+                  result = subprocess.run(command, env=environment, capture_output=True, timeout=120)
+                  code, stdout, stderr, timeout = result.returncode, result.stdout, result.stderr, False
+              except subprocess.TimeoutExpired as error:
+                  code, stdout, stderr, timeout = None, error.stdout or b"", error.stderr or b"", True
+              (root / (policy + ".stdout")).write_bytes(stdout)
+              (root / (policy + ".stderr")).write_bytes(stderr)
+              sys.stdout.buffer.write(stdout)
+              sys.stderr.buffer.write(stderr)
+              after = identities()
+              receipt = {"policy": policy, "command": command, "exit": code,
+                  "timeout": timeout, "seconds": time.monotonic() - started,
+                  "payload_before": before, "payload_after": after,
+                  "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+                  "stderr_sha256": hashlib.sha256(stderr).hexdigest()}
+              (root / (policy + ".driver.json")).write_text(json.dumps(receipt, indent=2) + "\n")
+              if code != 0 or timeout or before != after:
+                  failures.append(receipt)
+          if failures:
+              raise RuntimeError("Native keyboard cells fail: " + json.dumps(failures))
+          subprocess.run([sys.executable, "scripts/webview/keyboard_evidence.py",
+              "--default", str(root / "default.json"),
+              "--enable-s", str(root / "enable_s.json"),
+              "--skip-s", str(root / "skip_s.json"),
+              "--payload", str(payload), "--output", str(root / "comparison.json")],
+              check=True, timeout=60)
+      - name: Retain real keyboard payload, three cells and original output
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-rust-keyboard-counterfactual
+          path: keyboard-fixture-evidence/
+          if-no-files-found: ignore
       - name: Retain the original generated Rust bridge payload and provenance
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
