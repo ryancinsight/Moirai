@@ -65,7 +65,7 @@ jobs:
           cargo nextest run --locked -p moirai-pal --lib
           --no-default-features --features webview2
           --config-file .config/nextest.toml --test-threads 1 --retries 0
-          --no-tests fail --no-fail-fast -E 'test(windows::webview::) | test(windows::window::tests::destruction::)'
+          --no-tests fail --no-fail-fast -E 'test(windows::webview::) | test(windows::window::tests::destruction::) | test(webview_startup::late_input::) | test(webview_startup::config::late_input_tests::)'
       # Each nextest process owns its COM apartment and native message pump.
       # The two stress tests retain their real 100-host concurrent scenarios;
       # nextest runs those scenarios sequentially with a 60-second test limit.
@@ -105,6 +105,105 @@ jobs:
               "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
               "test(=windows::webview::tests::startup::installed_runtime_observes_selected_dom_and_owned_shutdown)",
           ], env=environment, check=True, timeout=120)
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
+              "test(=windows::webview::host::diagnostics::input::tests::installed_runtime_observes_controller_input_without_handling)",
+          ], env=environment, check=True, timeout=120)
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
+              "test(=windows::webview::host::diagnostics::input::tests::installed_runtime_restores_controller_input_after_native_parent_focus)",
+          ], env=environment, check=True, timeout=120)
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail", "-E",
+              "test(=windows::webview::host::diagnostics::session::tests::admission::installed_runtime_prioritizes_native_events_and_expired_admission)",
+          ], env=environment, check=True, timeout=120)
+          late_environment = environment.copy()
+          late_selection = json.loads(late_environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"])
+          late_selection["late_input_after_key"] = 65
+          late_environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps(late_selection, separators=(",", ":"))
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+              "--success-output", "immediate", "-E",
+              "test(=windows::webview::host::diagnostics::input::tests::late::installed_runtime_retains_selected_late_controller_input)",
+          ], env=late_environment, check=True, timeout=120)
+      - name: Require ordinary, isolated and selected native UIA field delivery
+        id: uia-matrix
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+
+          failures = []
+          for mode in ("ordinary", "controller", "native", "events", "domain", "snapshot", "startup", "selected"):
+              environment = os.environ.copy()
+              environment.pop("MOIRAI_NATIVE_UIA_RENDERER_PROBE", None)
+              environment["MOIRAI_NATIVE_UIA_OBSERVATION_MODE"] = mode
+              if mode != "ordinary":
+                  selection = {
+                      "start_uri": "https://metis.invalid/index.html",
+                      "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
+                  }
+                  if mode != "selected":
+                      selection["components"] = mode
+                  environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps(selection, separators=(",", ":"))
+              else:
+                  environment.pop("MOIRAI_WEBVIEW_STARTUP_OBSERVATION", None)
+              # Run every mode even if an earlier one fails; each retains the same
+              # sixteen edits, sixty-four value checks and 30s client deadline.
+              print(json.dumps({"native_uia_mode": mode, "stage": "start"}), flush=True)
+              try:
+                  result = subprocess.run([
+                      "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+                      "--no-default-features", "--features", "webview2",
+                      "--config-file", ".config/nextest.toml", "--test-threads", "1",
+                      "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+                      "--success-output", "immediate", "-E",
+                      "test(=windows::webview::host::focus::tests::installed_runtime_delivers_uia_focused_unicode_replacements)",
+                  ], env=environment, check=False, timeout=120)
+                  print(json.dumps({"native_uia_mode": mode, "exit": result.returncode}), flush=True)
+                  if result.returncode != 0:
+                      failures.append({"mode": mode, "exit": result.returncode})
+              except subprocess.TimeoutExpired as error:
+                  failures.append({"mode": mode, "timeout_seconds": error.timeout})
+          if failures:
+              raise RuntimeError("Native UIA modes failed: " + json.dumps(failures, sort_keys=True))
+      - name: Observe live renderer values after a returned persistent UIA mismatch
+        if: ${{ always() && steps.uia-matrix.outcome != 'skipped' }}
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+
+          environment = os.environ.copy()
+          environment["MOIRAI_NATIVE_UIA_OBSERVATION_MODE"] = "startup"
+          environment["MOIRAI_NATIVE_UIA_RENDERER_PROBE"] = "1"
+          environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+              "start_uri": "https://metis.invalid/index.html",
+              "selectors": ["#host-status", "#result", "#missing-observer-fixture"],
+              "components": "startup",
+          }, separators=(",", ":"))
+          subprocess.run([
+              "cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+              "--success-output", "immediate", "-E",
+              "test(=windows::webview::host::focus::tests::installed_runtime_delivers_uia_focused_unicode_replacements)",
+          ], env=environment, check=True, timeout=120)
       - name: Compile the actual Rust native bridge payload
         shell: pwsh
         run: >-
@@ -135,6 +234,205 @@ jobs:
               "--success-output", "immediate", "-E",
               "test(=windows::webview::tests::bridge::installed_runtime_roundtrips_rust_bridge_and_retires_closed_listeners)",
           ], env=environment, check=True, timeout=120)
+      - name: Compile the separate actual Rust keyboard payload
+        shell: pwsh
+        run: >-
+          python scripts/webview/build_bridge.py
+          --fixture keyboard
+          --manifest-path "$env:GITHUB_WORKSPACE/Cargo.toml"
+          --target-dir "$env:GITHUB_WORKSPACE/target"
+          --output "$env:GITHUB_WORKSPACE/keyboard-fixture-evidence"
+      - name: Compare native browser-key policies with selected and absent observers
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import time
+
+          root = Path("keyboard-fixture-evidence").resolve(strict=True)
+          payload = root / "payload"
+          def identities():
+              return {p.name: {"bytes": p.stat().st_size,
+                      "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+                      for p in sorted(payload.iterdir())}
+
+          def run_process(command, environment, directory, name, observer, timeout_seconds, policy, setting):
+              errors = []
+              def snapshot():
+                  try:
+                      return identities()
+                  except OSError as error:
+                      errors.append({"operation": "payload identity", "error": repr(error)})
+                      return None
+              before = snapshot()
+              started = time.monotonic()
+              try:
+                  result = subprocess.run(command, env=environment, capture_output=True,
+                                          timeout=timeout_seconds)
+                  code, stdout, stderr, timeout = result.returncode, result.stdout, result.stderr, False
+              except subprocess.TimeoutExpired as error:
+                  code, stdout, stderr, timeout = None, error.stdout or b"", error.stderr or b"", True
+              except OSError as error:
+                  code, stdout, stderr, timeout = None, b"", b"", False
+                  errors.append({"operation": "launch", "error": repr(error)})
+              after = snapshot()
+              for suffix, data in (("stdout", stdout), ("stderr", stderr)):
+                  try:
+                      (directory / (name + "." + suffix)).write_bytes(data)
+                  except OSError as error:
+                      errors.append({"operation": suffix + " retention", "error": repr(error)})
+              sys.stdout.buffer.write(stdout)
+              sys.stderr.buffer.write(stderr)
+              receipt = {"cell": name, "policy": policy, "observer": observer, "settings_selection": setting, "command": command, "exit": code,
+                  "timeout": timeout, "seconds": time.monotonic() - started,
+                  "payload_before": before, "payload_after": after, "driver_errors": errors,
+                  "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+                  "stderr_sha256": hashlib.sha256(stderr).hexdigest()}
+              try:
+                  (directory / (name + ".driver.json")).write_text(
+                      json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+              except OSError as error:
+                  errors.append({"operation": "driver retention", "error": repr(error)})
+              return receipt
+
+          def cross_group_identity():
+              comparisons = []
+              reports = [(observer, directory / "comparison.json", "policies",
+                          ["Default", "EnableS", "SkipS"], [None, None, None])
+                         for observer, directory, _ in groups]
+              reports.append(("none", global_directory / "global-comparison.json", "global-settings",
+                              ["Default", "Default"], [True, False]))
+              for observer, path, mode, policies, settings in reports:
+                  raw = path.read_bytes()
+                  result = json.loads(raw)
+                  if (type(result["schema"]) is not int or result["schema"] != 3
+                          or result["observer"] != observer or result["comparison"] != mode):
+                      raise ValueError("comparison observer/schema/mode identity differs")
+                  cells = result["cells"]
+                  if (len(cells) != len(policies) or [cell["policy"] for cell in cells] != policies
+                          or any(cell["observer_selected"] is not (observer == "selected") for cell in cells)):
+                      raise ValueError("comparison cell/observer identity differs")
+                  for cell, expected in zip(cells, settings):
+                      actual = cell["global_setting"]
+                      if ((expected is None and actual is not None)
+                              or (expected is not None and actual["requested"] is not expected)):
+                          raise ValueError("comparison global-setting identity differs")
+                  comparisons.append({"result": result, "path": str(path),
+                      "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+              cells = [cell for item in comparisons for cell in item["result"]["cells"]]
+              vectors = [{"runtime": cell["runtime"], "chords": [
+                  {key: chord[key] for key in ("letter", "layout", "strokes")}
+                  for chord in cell["chords"]]} for cell in cells]
+              if len(vectors) != 8 or any(row != vectors[0] for row in vectors[1:]):
+                  raise ValueError("cross-group actual runtime/layout/stroke identity differs")
+              actual_files = identities()
+              builder_path = root / "evidence.json"
+              builder_raw = builder_path.read_bytes()
+              for item in comparisons:
+                  reported = item["result"]["payload"]
+                  files = {row["path"]: {key: row[key] for key in ("bytes", "sha256")}
+                           for row in reported["files"]}
+                  builder = reported["builder_receipt"]
+                  if (not Path(reported["directory"]).samefile(payload)
+                          or len(reported["files"]) != 5 or files != actual_files
+                          or not Path(builder["path"]).samefile(builder_path)
+                          or builder["bytes"] != len(builder_raw)
+                          or builder["sha256"] != hashlib.sha256(builder_raw).hexdigest()):
+                      raise ValueError("cross-group actual compiled payload identity differs")
+              return {"schema": 1, "kind": "cross-group-identity-only", "controls": vectors[0],
+                  "payload": actual_files, "comparisons": [
+                      {key: item[key] for key in ("path", "bytes", "sha256")}
+                      for item in comparisons], "limits": "Identity only; no cross-group causal classification."}
+
+          command = ["cargo", "nextest", "run", "--locked", "-p", "moirai-pal", "--lib",
+              "--no-default-features", "--features", "webview2",
+              "--config-file", ".config/nextest.toml", "--test-threads", "1",
+              "--retries", "0", "--run-ignored", "only", "--no-tests", "fail",
+              "--success-output", "immediate", "-E",
+              "test(=windows::webview::host::keyboard_fixture::installed_runtime_compares_physical_shortcut_browser_policy)"]
+          groups = []
+          # Each real process owns a fresh profile. All eight processes complete
+          # before comparisons or fatal aggregation; selected is still required.
+          for observer, directory in (("selected", root), ("none", root / "observer-none")):
+              failures, global_failures = [], []
+              if observer == "none":
+                  try:
+                      directory.mkdir()
+                  except OSError as error:
+                      failure = {"operation": "group directory", "error": repr(error)}
+                      failures.append(failure)
+                      global_failures.append(failure)
+              plans = [(policy, policy, None) for policy in ("default", "enable_s", "skip_s")]
+              if observer == "none":
+                  plans.extend((("global-enabled", "default", "enabled"),
+                                ("global-disabled", "default", "disabled")))
+              for name, policy, setting in plans:
+                  environment = os.environ.copy()
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_FIXTURE"] = str(payload)
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_POLICY"] = policy
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_OBSERVER"] = observer
+                  environment["MOIRAI_WEBVIEW_KEYBOARD_EVIDENCE"] = str(directory / (name + ".json"))
+                  if setting is None:
+                      environment.pop("MOIRAI_WEBVIEW_KEYBOARD_SETTINGS", None)
+                  else:
+                      environment["MOIRAI_WEBVIEW_KEYBOARD_SETTINGS"] = setting
+                  if observer == "selected":
+                      environment["MOIRAI_WEBVIEW_STARTUP_OBSERVATION"] = json.dumps({
+                          "start_uri": "https://metis.invalid/index.html",
+                          "selectors": ["#fixture-status"],
+                      }, separators=(",", ":"))
+                  else:
+                      environment.pop("MOIRAI_WEBVIEW_STARTUP_OBSERVATION", None)
+                  receipt = run_process(command, environment, directory, name, observer, 120, policy, setting)
+                  if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
+                          or receipt["payload_before"] != receipt["payload_after"]):
+                      (failures if setting is None else global_failures).append(receipt)
+              groups.append((observer, directory, failures))
+              if observer == "none":
+                  global_directory, pair_failures = directory, global_failures
+          failures = []
+          for observer, directory, native_failures in groups:
+              failures.extend(native_failures)
+              if native_failures:
+                  continue
+              receipt = run_process([sys.executable, "scripts/webview/keyboard_evidence.py",
+                  "--mode", "policies", "--observer", observer, "--default", str(directory / "default.json"),
+                  "--enable-s", str(directory / "enable_s.json"),
+                  "--skip-s", str(directory / "skip_s.json"),
+                  "--payload", str(payload), "--output", str(directory / "comparison.json")],
+                  os.environ.copy(), directory, "comparison", observer, 60, None, None)
+              if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
+                      or receipt["payload_before"] != receipt["payload_after"]):
+                  failures.append(receipt)
+          failures.extend(pair_failures)
+          if not pair_failures:
+              receipt = run_process([sys.executable, "scripts/webview/keyboard_evidence.py",
+                  "--mode", "global-settings", "--observer", "none",
+                  "--global-enabled", str(global_directory / "global-enabled.json"),
+                  "--global-disabled", str(global_directory / "global-disabled.json"),
+                  "--payload", str(payload), "--output", str(global_directory / "global-comparison.json")],
+                  os.environ.copy(), global_directory, "global-comparison", "none", 60, None, None)
+              if (receipt["exit"] != 0 or receipt["timeout"] or receipt["driver_errors"]
+                      or receipt["payload_before"] != receipt["payload_after"]):
+                  failures.append(receipt)
+          if failures:
+              raise RuntimeError("Native keyboard groups fail: " + json.dumps(failures))
+          # This gate executes only after all three independent comparisons succeed.
+          identity = cross_group_identity()
+          with (root / "cross-group-identity.json").open("x", encoding="utf-8") as output:
+              json.dump(identity, output, indent=2, allow_nan=False)
+              output.write("\n")
+      - name: Retain real keyboard payload, eight cells and original output
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-rust-keyboard-counterfactual
+          path: keyboard-fixture-evidence/
+          if-no-files-found: ignore
       - name: Retain the original generated Rust bridge payload and provenance
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -148,43 +446,13 @@ jobs:
         if: ${{ always() }}
         shell: python
         run: |
-          import ctypes
-          import json
           import subprocess
-          from pathlib import Path
+          import sys
 
-          metadata = json.loads(subprocess.check_output([
-              "cargo", "metadata", "--locked", "--format-version", "1",
-              "--no-default-features", "--features", "moirai-pal/webview2",
-          ], timeout=60))
-          packages = [package for package in metadata["packages"]
-                      if package["name"] == "webview2-com-sys"]
-          if len(packages) != 1:
-              raise RuntimeError("expected one authoritative WebView2 SDK package")
-          package = packages[0]
-          loader_path = Path(package["manifest_path"]).parent / "x64" / "WebView2Loader.dll"
-          loader = ctypes.WinDLL(str(loader_path))
-          available = loader.GetAvailableCoreWebView2BrowserVersionString
-          available.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_void_p)]
-          available.restype = ctypes.c_long
-          allocator = ctypes.WinDLL("ole32")
-          allocator.CoTaskMemFree.argtypes = [ctypes.c_void_p]
-          allocator.CoTaskMemFree.restype = None
-          version_pointer = ctypes.c_void_p()
-          result = available(None, ctypes.byref(version_pointer))
-          try:
-              if result < 0:
-                  raise OSError(f"native WebView2 version query failed: HRESULT {result:#x}")
-              if not version_pointer.value:
-                  raise RuntimeError("native WebView2 version query returned no runtime")
-              version = ctypes.wstring_at(version_pointer.value)
-              if not version:
-                  raise RuntimeError("native WebView2 version query returned an empty version")
-              print(json.dumps({
-                  "native_api": "GetAvailableCoreWebView2BrowserVersionString",
-                  "runtime_version": version,
-                  "sdk_version": package["version"],
-                  "loader_path": str(loader_path),
-              }, sort_keys=True))
-          finally:
-              allocator.CoTaskMemFree(version_pointer)
+          subprocess.run([
+              sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests",
+              "-p", "test_webview_runtime_version.py",
+          ], check=True, timeout=60)
+          subprocess.run([
+              sys.executable, "scripts/webview/runtime_version.py",
+          ], check=True, timeout=60)

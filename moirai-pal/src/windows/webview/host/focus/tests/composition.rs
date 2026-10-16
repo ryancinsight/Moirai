@@ -1,0 +1,139 @@
+//! Actual installed owners and issued SDK commands identify each intervention.
+
+use super::{ObservationMode, WebViewHost};
+use serde_json::Value;
+
+impl ObservationMode {
+    pub(super) fn verify_installed(self, host: &WebViewHost, observations: &[Value]) {
+        let mut raw = windows::core::PWSTR::null();
+        // This is the environment that created this controller, rather than
+        // a later query of whichever runtime is currently available.
+        unsafe {
+            host.environment
+                .as_ref()
+                .expect("actual environment")
+                .BrowserVersionString(&mut raw)
+        }
+        .expect("actual environment browser version");
+        let version = unsafe { super::super::super::text::read_task_mem_message(raw) }
+            .expect("bounded native browser version");
+        assert!(!version.is_empty());
+        tracing::info!(event="uia_fixture_runtime", mode=self.as_str(), browser_version=%version, "actual controller environment");
+        assert_eq!(host.startup.is_some(), self != Self::Ordinary);
+        let registered: Vec<_> = observations
+            .iter()
+            .filter(|v| v["kind"] == "registered")
+            .collect();
+        if self == Self::Ordinary {
+            assert!(registered.is_empty());
+            return;
+        }
+        assert_eq!(registered.len(), 1, "one actual diagnostic owner");
+        let (components, native, cdp, input) = match self {
+            Self::Selected => ("full", 6, 3, 4),
+            Self::Controller => ("controller", 0, 0, 4),
+            Self::Native => ("native", 6, 0, 0),
+            Self::Events => ("events", 6, 3, 0),
+            Self::Domain => ("domain", 6, 3, 0),
+            Self::Snapshot => ("snapshot", 6, 3, 0),
+            Self::Startup => ("startup", 6, 3, 0),
+            Self::Ordinary => unreachable!("ordinary returned before selected-owner checks"),
+        };
+        let actual = registered[0];
+        assert_eq!(actual["components"], components);
+        assert_eq!(actual["native_receivers"], native);
+        assert_eq!(actual["cdp_receivers"], cdp);
+        assert_eq!(actual["controller_receivers"], input);
+    }
+
+    pub(super) fn verify_closed(self, observations: &[Value]) {
+        if self == Self::Ordinary {
+            assert!(
+                observations.is_empty(),
+                "ordinary mode installs no observations"
+            );
+            return;
+        }
+        let closed = observations
+            .last()
+            .expect("actual closed diagnostic metadata");
+        assert_eq!(closed["kind"], "closed");
+        assert_eq!(closed["closed"], true);
+        assert_eq!(closed["cleanup_failed"], false);
+        let count = |field: &str| {
+            closed[field]
+                .as_str()
+                .expect("exact counter")
+                .parse::<u64>()
+                .expect("native call count")
+        };
+        let activation = match self {
+            Self::Controller | Self::Native => 0,
+            Self::Domain => 3,
+            Self::Events | Self::Snapshot | Self::Startup | Self::Selected => 2,
+            Self::Ordinary => unreachable!("ordinary has no owner"),
+        };
+        assert_eq!(count("activation_calls_attempted"), activation);
+        if matches!(
+            self,
+            Self::Controller | Self::Native | Self::Events | Self::Domain
+        ) {
+            assert_eq!(count("samples"), 0);
+            assert_eq!(count("dom_calls_attempted"), 0);
+            assert_eq!(count("document_calls_attempted"), 0);
+            assert_eq!(count("description_calls_attempted"), 0);
+            assert!(!observations.iter().any(|v| v["kind"] == "dom_status"));
+        } else {
+            assert!(count("samples") > 0, "a complete real DOM chain");
+            assert!(
+                count("document_calls_attempted") > 0,
+                "real initial document binding"
+            );
+            assert_eq!(count("description_calls_attempted"), 0);
+            assert!(count("document_calls_attempted") >= count("samples"));
+            if self == Self::Snapshot {
+                assert_eq!(count("samples"), 1, "one actual complete chain");
+                assert_eq!(closed["pending"], false, "snapshot settled before close");
+                assert_eq!(count("wait_turns_attempted"), 0);
+            } else {
+                // Two complete samples are the minimum that exercises
+                // recurring admission; one initial snapshot is insufficient.
+                assert!(
+                    count("samples") > 1,
+                    "continuous observation remains active"
+                );
+                let turns = count("wait_turns_attempted");
+                assert!(turns > 0);
+                assert!(
+                    count("document_calls_attempted") <= turns,
+                    "fixture starts at most one chain per caller wait"
+                );
+                // Three selectors admit at most 1 + 2*3 native calls/chain;
+                // include one chain already pending at a measured boundary.
+                assert!(u128::from(count("dom_calls_attempted")) <= 7 * (u128::from(turns) + 1));
+            }
+            assert!(
+                count("dom_calls_attempted") >= 6,
+                "all three actual selectors"
+            );
+            for (selector, expected) in [
+                (
+                    "#host-status",
+                    Value::String("<p id=\"host-status\">native UIA focus</p>".into()),
+                ),
+                (
+                    "#result",
+                    Value::String("<output id=\"result\">unsubmitted</output>".into()),
+                ),
+                ("#missing-observer-fixture", Value::Null),
+            ] {
+                assert!(
+                    observations.iter().any(|v| v["kind"] == "dom_status"
+                        && v["selector"] == selector
+                        && v["value"] == expected),
+                    "actual selected node {selector}"
+                );
+            }
+        }
+    }
+}

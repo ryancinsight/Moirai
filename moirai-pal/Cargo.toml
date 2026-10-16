@@ -150,6 +150,10 @@ png = "0.18.1"
 criterion = { workspace = true }
 proptest = { workspace = true }
 
+[target.'cfg(windows)'.dev-dependencies]
+# The native focus regression uses the real UI Automation client from an MTA.
+windows = { version = "0.62", features = ["Win32_UI_Accessibility"] }
+
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
@@ -158,6 +162,10 @@ proptest = { version = "1.9", default-features = false, features = ["std", "bit-
 
 [[example]]
 name = "webview_bridge_fixture"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "webview_keyboard_fixture"
 crate-type = ["cdylib"]
 
 [features]

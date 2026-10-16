@@ -125,6 +125,21 @@ impl Registrations {
         first.map_or(Ok(()), Err)
     }
 
+    pub(super) fn counts(&self) -> (usize, usize) {
+        let native = [
+            self.content.is_some(),
+            self.dom.is_some(),
+            self.process.is_some(),
+            self.response.is_some(),
+            self.starting.is_some(),
+            self.completed.is_some(),
+        ]
+        .into_iter()
+        .filter(|present| *present)
+        .count();
+        (native, self.cdp.len())
+    }
+
     fn removed(
         &self,
         operation: &str,

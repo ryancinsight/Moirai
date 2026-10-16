@@ -5,7 +5,172 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.3] - Unreleased
+## [0.9.4] - Unreleased
+
+### Fixed
+
+- [patch] Add a private installed-keyboard experiment with selected/none
+  Default/EnableS/SkipS and two observer-none/Default Settings3 controls before
+  navigation. Source `14cb3fdf` / Windows run 38835227528 executes all eight:
+  exit 100/no timeout. Seven fail host close with matched SDK PID/kind 1;
+  the false control records before=true, successful set/after/post-navigation
+  false and 12 false-property controller rows with no event setter/Handled change.
+  Its SDK kind 0 is NORMAL, cleanup errors are null and Destroyed is one, then
+  the required trusted KeyS assertion fails. All retain Ready/eight trusted Key
+  notices with D/P/no S/Closed and zero listener owners; later native assertions
+  remain unexecuted. Independent raw checks are not those native assertions.
+  No triplet/pair/cross-eight comparison runs. Original 91 executions plus six
+  portable checks pass (105 total: 97 PASS/8 FAIL). The controller-to-Rust-keydown
+  boundary and both full Metis journeys remain open; no accepted experiment,
+  pin promotion or Metis fix follows. Production input callbacks, defaults,
+  public APIs, dependencies and original 30/60/120-second/20-minute bounds stay
+  unchanged; additive exit tracing preserves SDK calls, decisions and cleanup.
+
+- [patch] Add a default-off private late controller-input selection. Deferred
+  retention arms on an actual configured key-down and preserves every later
+  canonical snapshot under an independent quota. Original callbacks and main
+  observations remain unchanged; bounded checkpoints and terminal metadata
+  report incomplete evidence. Source `d1658acc` / Windows run 38811126505
+  records 91 PASS executions, including the installed A-anchor case in 6.981s:
+  canonical sequences 5–9 match exactly, with no own/shared loss or cleanup error.
+  The bridge passes in 6.835s and SDK admission in 6.858s; all eight original
+  modes and the separate probe pass collected schema3 16/64 and entry 16/12
+  assertions; directly retained events remain separate evidence.
+  The probe's UIA weight 6 and later timely DOM weight 64 are different-time
+  observations. Metis source 561189 and f1523a43 retain native S-down/up; native
+  receipt does not establish page metadata, renderer consumption or complete
+  ordinary/selected acceptance. The f152 selected worker times out after four
+  exact submissions; its nine Rust command records end after Alt/Shift returns,
+  with no retained S/System decision or terminal.
+
+- [patch] The actual MTA UIA fixture enters the known native parent once after
+  its original UIA field selection. Legitimate input-queue attachment and
+  unconditional cleanup precede a same-field focus check; no focus/input retry
+  or deadline change is added. The existing 16 replacements/64 preservation
+  checks now also verify 16 real entries, including 12 non-first fields.
+  Source `6343610d` / Windows run 38803044085 records 69 PASS executions.
+  All eight original modes and the separate probe pass the original 16/64;
+  their collected schema3 completions verify 16 entries/12 non-first entries.
+  The actual Rust bridge passes in 7.232s; SDK admission and availability pass.
+  The snapshot probe is untriggered and retained histories remain quota-limited.
+  Complete ordinary/selected Metis acceptance remains open.
+
+- [patch] Resolve the Windows runtime-query loader from the already-checked
+  native SDK compiler/build-script records. Offline checking retains the
+  60-second bound and original native availability query while avoiding an
+  all-platform metadata fetch. Three parser rejection/identity tests pass;
+  actual MSVC artifacts select a byte-identical SDK loader. Windows execution
+  passes on source2fcef45d/run38798617700 with SDK0.39.1 and available
+  runtime154.0.4258.62; availability remains distinct from a controller version.
+
+- [patch] Check the original selected wait deadline and ready public events
+  after command/callback preparation, before outgoing diagnostic SDK work.
+  Deferred stages retain their original request identity and parameters;
+  stale, quota-exhausted and closed unissued work retires without a native
+  attempt. Real native resize, expired admission and continuation regressions
+  cover this separate scheduling contract. Baseline source44184f40/run38795557575
+  fails the ready-event assertion: DOM counters advance before returning the
+  real resize. Source2fcef45d/run38798617700 passes the actual corrected
+  regression in6.837s and50 policy cases. Ordinary/startup field delivery and
+  the separate live-value probe still fail; this does not close form acceptance.
+
+- [patch] Add an opt-in native fixture probe for one live DOMSnapshot after a
+  returned persistent UIA mismatch. Exact sparse inputValue, node/frame
+  ownership, UTF-16 values, native admission/errors and unobserved replies
+  remain distinct. Bounded incremental stdout preserves the original computed
+  completion; the independent Weak callback retires before host Close.
+  A separate Windows invocation retains all original modes and time limits.
+  Windows9aca validates43 policy cases and all eight original modes, but the
+  separate probe fails concentration4 after6/24: timely liveDOM and UIA both
+  report2. This rules out stale UIA alone at that point. The diagnostic can
+  flush layout; it is not a text-delivery correction.
+- [patch] The opt-in probe now also reuses canonical controller callbacks with
+  an independent64KiB state/256-entry queue and separate INFO sink. Default
+  production emission and the original matrix remain unchanged. Parent clock
+  origins/sequence checkpoints permit correlation without aligning child
+  clocks; all-token cleanup and controller-reference release precede host
+  Close. Source aa532b88/run38788877397 passes45 policy cases, but original
+  startup fails concentration0 after10/40 (UIA4). The separate16/64 pass never
+  triggers a snapshot; its independent controller quota omits7 callbacks.
+  This supplies no joint observation of the original failed replacement.
+
+- [patch] Coalesce continuous diagnostic completions within the caller's
+  existing native wait. Pending stages still advance; observation-only wakes
+  cannot start another chain or reset the deadline. Ordinary and zero-duration
+  paths preserve their native pump behavior. The later admission correction
+  carries one entry deadline through all positive selected waits.
+  Fresh selector/HTML reads, original bindings and every input/assertion/budget
+  remain. The native gate verifies recurring samples and derived admission/call
+  bounds. Domain activation and one snapshot already pass all16/64, isolating
+  continuous work. Run38779895376 still fails startup-only15/60; full16/64
+  exhausts the observer quota. No full-form correction is established.
+
+- [patch] Add real DOM-domain-only and single-complete-snapshot input controls.
+  Original full/ordinary and prior controls remain fatal, with the exact
+  sixteen replacements, sixty-four preservation checks and every deadline.
+  Actual environment and attempted-method counters distinguish execution from
+  availability. The document-binding reuse candidate 8c49630c fails first
+  reference replacement under startup/full sampling and is withdrawn; it is
+  not a form correction. Eighteen portable selection/ownership contracts and
+  strict Windows diagnostics pass; the eight-mode native gate remains red.
+
+- [patch] The native UIA isolation now runs ordinary, controller-only,
+  native-only, events-only, domain-only, snapshot-only, startup-only and full selected observation
+  modes, retaining bounded operation-start/return, admitted physical input and
+  exact value evidence. It preserves all sixteen replacements and sixty-four
+  field-preservation checks. Native collection and successful host shutdown
+  explicitly admit fixture-directory removal; unresolved ownership retains
+  the real directories and fails acceptance. The private closed component
+  selection defaults to full observation; actual token and SDK call counts
+  identify each intervention. The original two acceptance modes remain fatal.
+  The shared native-input fixture also defers removal until proved shutdown.
+
+Controlled source 23561b59 / run 38763941253 passes ordinary 16/64 and fails
+selected weight replacement. Private-parent experiment 27cd682d / run
+38766339399 passes ownership/focus/resize/lifetime and ordinary 16/64, but
+selected mode retains concentration 2 after input requests 4. That candidate
+is withdrawn; complete form acceptance remains open. Four-mode source 4e7b1968
+/ run 38769791520 completes ordinary and controller-only 16/64, while startup
+and full selected modes retain earlier values after admitted input. Native
+event and CDP-activation controls isolate recurring DOM work. Subsequent
+b6105157 execution passes ordinary/controller/native/events16/64 and fails
+startup/full; the later d165 retention gate remains distinct. All seventeen
+portable contracts pass.
+
+- [patch] Native parent focus synchronously enters its hosted WebView2
+  controller with PROGRAMMATIC restoration of the previous page element.
+  A private weak binding avoids borrowed state across native reentrancy and
+  revokes admission before controller Close; errors retain their typed SDK
+  source, HRESULT and focus operation. The real unchanged-host regression
+  fails because the recipient remains the parent HWND. Corrected Windows
+  source `bd88d2c5` passes that regression in 7.028s, including real key receipt,
+  Handled/scan/release, shutdown and closed-controller error assertions.
+  Full Metis form acceptance remains open: run 38750658426 still fails the
+  second dose replacement. A native MTA UIA fixture now isolates actual field
+  focus, physical input and exact UTF-16 ValuePattern data, preserving every
+  other field after each replacement. No additional production focus policy
+  follows from that incomplete consumer result.
+- [patch] The explicitly selected private Windows diagnostic observes actual
+  controller focus and eligible accelerator keys. Native callbacks preserve
+  Handled and input, retain fixed bounded records and defer formatting/tracing
+  until callback return. Capacity loss, raw key/focus state and token-removal
+  failures stay explicit. Ordinary hosts install no diagnostic callbacks;
+  supported APIs and every input/acceptance deadline remain unchanged.
+
+The exact diagnostic source `924dd8ac` passes the actual Windows gate in
+[run 38743789587](https://github.com/ryancinsight/Moirai/actions/runs/38743789587):
+31 policy/frame cases, seven existing installed-runtime fixtures and the new
+real Ctrl+A/Escape fixture (7.306s), preserving Handled and owned cleanup.
+The later full-workspace run rejects the preceding Rustls 0.23.45 locks; the
+targeted correction `499ed39e` passes its full Rust Workspace gate. A real
+native-parent focus regression now reproduces the missing entry contract in
+run 38748681812 (1.957s). [Corrected run 38749728275](https://github.com/ryancinsight/Moirai/actions/runs/38749728275)
+passes all 31 policy/frame cases and nine installed-runtime fixtures. All 16
+active checks pass on `bd88d2c5`; Miri and release SemVer are skipped, and the
+informational API check is not release compatibility proof. A fresh external
+consumer resolves the exact Git candidate with WebView2 and no local overrides.
+
+## [0.9.3] - 2026-10-15
 
 ### Changed
 

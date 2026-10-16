@@ -23,6 +23,116 @@ the dependency owner.
 
 ## Browser I/O
 
+Workspace 0.9.4 extends the default-off private Windows diagnostic with bounded
+controller focus and accelerator observations. Synchronous input callbacks
+retain values and return before tracing; they never change Handled, focus,
+input or deadlines. Installed-runtime and Metis form acceptance remain separate
+checks under the [diagnostic contract](moirai-pal/src/windows/webview/host/diagnostics/design.md).
+The same patch restores synchronous native-parent focus entry through
+MoveFocus(PROGRAMMATIC), with weak callback ownership and typed native errors.
+The unchanged-host Windows regression leaves focus at the parent and fails;
+[corrected provider Windows execution](https://github.com/ryancinsight/Moirai/actions/runs/38749728275)
+passes the real parent-entry regression and all nine installed fixtures.
+Full Metis form acceptance remains open: run 38750658426 still retains the
+second dose after a Lost/Got/Lost controller transition. A real MTA UIA fixture
+isolates field delivery; it does not replace the complete Metis actor/journey.
+Its controlled ordinary baseline completes 16 replacements/64 preservation
+checks while selected mode fails. The private-parent experiment also fails
+selected delivery and is withdrawn. The next native comparison isolates actual
+controller callbacks from startup/CDP observers. Four-mode Windows execution
+passes ordinary and controller-only, while startup-only and full selected
+fail before a complete replacement journey. Two more controls distinguish
+native events and CDP activation from DOM sampling; full selected and ordinary
+acceptance remain required, with exact Unicode and every deadline unchanged.
+The document-binding reuse experiment also fails and is withdrawn. Two more
+controls distinguish DOM domain activation and one complete snapshot from
+continuous sampling. These controls retain the whole native field journey;
+full observation and both Metis form journeys remain required.
+The domain/snapshot controls pass. Caller-owned wait coalescing in source
+9cf4d47a bounds recurring work, but Windows run 38779895376 still fails the
+last startup-only dose (15 edits/60 preservation checks). Full selected mode
+completes 16/64; its observer exhausts its quota during the run. That does not prove
+observation stays active through the journey. The root cause remains open.
+An opt-in, fixture-only one-shot DOMSnapshot now separates live input values
+from UIA reports without injected JavaScript. Its separate diagnostic run
+preserves every original gate and deadline. Run38785314523 passes all eight
+original modes (128 edits/512 preservation checks), but the separate probe
+fails concentration4 after6/24. UIA and a timely live snapshot both report2;
+the renderer responds while the original sampler remains active. This point
+rules out stale UIA alone, without identifying the delivery cause. The next
+opt-in variant reuses canonical controller callbacks with their own quota.
+Source aa532b88/run38788877397 passes45 policy cases and seven original modes,
+but startup fails concentration0 after10/40 (UIA4). Its separate16/64 pass
+never triggers a snapshot;254 retained controller callbacks exhaust their own
+quota with7 omissions. These different invocations do not establish a cause.
+The private correction checks the original wait deadline and ready public
+events at outgoing SDK admission, retaining an unissued stage for a later
+caller turn. Baseline source44184f40/run38795557575 reproduces outgoing DOM
+work before a ready resize returns. Source2fcef45d/run38798617700 passes the
+corrected native regression in6.837s, all50 policy cases, and the native runtime
+query. Ordinary mode still fails the last dose, startup fails the first weight,
+and the separate probe retains the first patient in both UIA and timely live DOM
+after requesting the second. Its complete controller history ends in LostFocus;
+failed input targets a different owned HWND from prior key callbacks, on the
+same browser process/thread/layout. The fixture now enters the known native
+parent once after UIA selection and checks preservation of that same field.
+[Windows run 38803044085](https://github.com/ryancinsight/Moirai/actions/runs/38803044085)
+on source `6343610d` records 69 PASS test executions. Each of the eight original
+modes and the separate probe passes 16 replacements/64 preservation checks;
+its collected schema3 completion also verifies 16 entries/12 non-first entries.
+The log separately retains 16 entered and 16 same-field-focused observations
+per invocation. SDK admission and runtime availability pass, as does the actual
+Rust bridge in 7.232s. The separate snapshot probe never triggers; UIA and
+diagnostic quotas leave partial histories, so this supplies no new live-DOM
+or complete-sampler proof. Both full Metis journeys remain open under the
+[entry contract](moirai-pal/src/windows/webview/host/focus/tests/client/design.md).
+
+A separate default-off [late-input diagnostic](moirai-pal/src/webview_startup/late_input/design.md)
+retains copied controller snapshots after an actual configured key-down under
+its own quota. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505)
+records 91 PASS test executions. The installed A-anchor case passes in 6.981s
+with the exact five-key canonical suffix, zero loss/errors and successful close.
+All eight original modes and the separate probe pass 16/64 with collected
+schema3 entry counts 16/12; direct entered/focused events remain distinct evidence.
+The Rust bridge passes in 6.835s and SDK admission in 6.858s. In this run the
+separate probe returns UIA weight 6 for requested 64 after 85 queries; a later
+timely DOMSnapshot returns 64. These are different times and establish no
+same-time UIA-staleness or input-delivery cause. Main diagnostic histories stay
+quota-limited. The A fixture proves retention, not renderer consumption.
+
+Metis source 561189 retains actual native S-down/up after its D anchor. The
+[f1523a43 Windows run 38821192294](https://github.com/ryancinsight/metis/actions/runs/38821192294/job/116717939267)
+passes 503 of 504 scripts with one Apple-only skip in 43.301s and all four exact
+form submissions, then the selected worker reaches its 60.1114402s outer timeout.
+Native S sequences 335/336 carry scan 31, Alt+Shift held, Control clear and
+Handled=false. Nine Rust records retain Selected, D→ThemeDark/Ok and
+Alt/Shift→Ignored/Ok. No S metadata, System decision or terminal is retained;
+coverage remains unknown, without interception or renderer-rejection attribution.
+UIA request 194 is pending at node 24 with unknown identity. Response 193 records
+Dark without a point timestamp and cannot be placed after S. The ordinary
+journey, lifecycle completion and later native/package gates remain unreached.
+
+The private keyboard experiment on source `14cb3fdf` /
+[Windows run 38835227528](https://github.com/ryancinsight/Moirai/actions/runs/38835227528)
+executes all eight cells: selected/none Default/EnableS/SkipS and two
+observer-none/Default Settings3 controls. All exit 100 without timeout. Seven
+fail host close with matched browser PID and SDK kind 1; this is not an OS exit
+code. The false control reads before=true, sets false, and reads false before
+and after navigation. Its 12 controller rows retain false browser properties,
+no event setter and Handled=false; SDK kind 0 is NORMAL, host/profile errors
+are null and Destroyed is one. It then fails the required trusted KeyS assertion.
+Every cell retains Ready, eight trusted Key notices containing D/P but no S,
+and Closed with zero listener owners (1,322 raw document bytes per cell).
+Later Closed/stroke/startup/publication assertions do not execute; independent
+raw verification is separate. All three comparisons and cross-eight identity
+remain unrun. Original 91 executions and six portable checks pass: 105 total,
+97 PASS/8 FAIL. This establishes no accepted experiment, pin promotion or Metis fix.
+The controller-to-Rust-keydown boundary remains unknown; both complete Metis
+journeys stay open. Production settings/defaults/APIs/dependencies, passive
+input callbacks and original 30/60/120-second/20-minute bounds remain unchanged.
+The exit callback's additive tracing changes no getter or cleanup decision.
+See the [fixture contract](moirai-pal/src/windows/webview/host/keyboard_fixture/design.md).
+
 Workspace 0.9.2 corrects native WebView2 method admission after an installed
 Rust consumer rejects the host object through a DOM `EventTarget` cast. The
 private interface checks real callable methods and preserves their original

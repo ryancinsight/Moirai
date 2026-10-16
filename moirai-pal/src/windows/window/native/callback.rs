@@ -92,7 +92,11 @@ pub(super) unsafe extern "system" fn window_proc(
             WM_COMMAND => state.with(|state| state.push_menu_command(wparam.0, lparam.0)),
             TRAY_CALLBACK_MESSAGE => state.with(|state| state.push_tray(wparam.0, lparam.0)),
             WM_DESTROY => {}
-            WM_SETFOCUS => state.with(|state| state.push(WindowEvent::FocusGained)),
+            WM_SETFOCUS => {
+                state.with(|state| state.push(WindowEvent::FocusGained));
+                #[cfg(feature = "webview2")]
+                super::super::focus::forward(&state);
+            }
             WM_KILLFOCUS => state.with(|state| {
                 state.clear_modifiers();
                 state.push(WindowEvent::FocusLost);

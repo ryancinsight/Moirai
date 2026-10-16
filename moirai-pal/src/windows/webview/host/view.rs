@@ -1,7 +1,7 @@
 //! The host handle: its WebView2 interfaces, the operations over them,
 //! and the teardown that keeps COM alive until the last one is gone.
 
-use std::{cell::RefCell, io, rc::Rc, sync::mpsc, time::Duration};
+use std::{cell::RefCell, io, rc::Rc, sync::mpsc};
 
 use webview2_com::CapturePreviewCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -15,10 +15,7 @@ use windows::{
     Win32::{
         Foundation::{HWND, RECT},
         System::Com::{STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET},
-        UI::{
-            Shell::SHCreateMemStream,
-            WindowsAndMessaging::{GetClientRect, MSG},
-        },
+        UI::{Shell::SHCreateMemStream, WindowsAndMessaging::GetClientRect},
     },
     core::{BOOL, HSTRING, Interface, PCWSTR},
 };
@@ -29,9 +26,8 @@ use super::super::super::window::{NativeWindow, WindowPlacement};
 use super::super::{
     capture::MAX_WEBVIEW_CAPTURE_BYTES,
     config::{MAX_WEBVIEW_URI_UNITS, WebViewConfig},
-    event::WebViewHostEvent,
     folder::FolderMapping,
-    pump::{dispatch_pending, wait_for, wait_for_messages},
+    pump::wait_for,
     state::WebViewState,
 };
 
@@ -43,7 +39,10 @@ use super::{
 
 /// A thread-affine WebView2 controller hosted inside one [`NativeWindow`].
 pub struct WebViewHost {
+    pub(super) focus: Option<Rc<super::focus::ControllerFocus>>,
     pub(super) startup: Option<super::diagnostics::Startup>,
+    #[cfg(test)]
+    pub(super) keyboard_setting: Option<super::keyboard_fixture::settings::Attempt>,
     pub(super) window: NativeWindow,
     pub(super) callbacks: Callbacks,
     pub(super) webview: Option<ICoreWebView2>,
@@ -116,7 +115,10 @@ impl WebViewHost {
         let state = Rc::new(RefCell::new(WebViewState::new()?));
         let current_uri = Rc::new(RefCell::new(String::new()));
         let mut host = Self {
+            focus: None,
             startup: None,
+            #[cfg(test)]
+            keyboard_setting: None,
             window,
             callbacks: Callbacks::empty(),
             webview: Some(webview),
@@ -130,7 +132,18 @@ impl WebViewHost {
             close_error: None,
         };
         host.install_callbacks()?;
+        #[cfg(test)]
+        {
+            host.keyboard_setting = super::keyboard_fixture::settings::before_navigation(
+                &settings,
+                host.config.start_uri(),
+            )?;
+        }
         host.navigate_and_wait(host.config.start_uri().to_owned())?;
+        host.focus = Some(super::focus::ControllerFocus::attach(
+            &mut host.window,
+            host.controller.as_ref().ok_or_else(closed_error)?,
+        )?);
         Ok(host)
     }
 
@@ -363,40 +376,6 @@ impl WebViewHost {
                 })?;
         }
         Ok(bytes)
-    }
-
-    /// Pumps pending owner-thread messages and returns native and WebView2
-    /// events in one bounded batch.
-    ///
-    /// # Errors
-    /// Returns queue overflow, callback decoding, native window or controller
-    /// errors.
-    pub fn poll_events(&mut self) -> io::Result<Vec<WebViewHostEvent>> {
-        if self.closed {
-            return self.collect_events();
-        }
-        let mut message = MSG::default();
-        dispatch_pending(&mut message);
-        self.collect_events()
-    }
-
-    /// Waits for owner-thread input or a WebView2 callback for a finite duration.
-    ///
-    /// # Errors
-    /// Returns queue overflow, callback decoding, native window or controller
-    /// errors, or an invalid duration.
-    pub fn wait_events(&mut self, timeout: Duration) -> io::Result<Vec<WebViewHostEvent>> {
-        if self.closed {
-            return self.poll_events();
-        }
-        let events = self.poll_events()?;
-        if !events.is_empty() {
-            return Ok(events);
-        }
-        if !wait_for_messages(timeout)? {
-            return Ok(Vec::new());
-        }
-        self.poll_events()
     }
 }
 

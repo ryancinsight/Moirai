@@ -9,6 +9,8 @@ use crate::{
 use serde_json::json;
 use std::{cell::RefCell, rc::Rc};
 
+mod admission;
+
 fn trace() -> tracing::subscriber::DefaultGuard {
     tracing::subscriber::set_default(
         tracing_subscriber::fmt()
@@ -25,6 +27,8 @@ fn request() -> (
     ICoreWebView2CallDevToolsProtocolMethodCompletedHandler,
 ) {
     let state = Rc::new(RefCell::new(State::new(Selection {
+        components: crate::webview_startup::Components::Full,
+        late_input_after_key: None,
         start_uri: "https://startup.invalid/index.html".to_owned(),
         selectors: vec!["#status".to_owned()],
     })));

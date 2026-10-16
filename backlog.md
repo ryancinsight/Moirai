@@ -6,6 +6,40 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-WEBVIEW-KEYBOARD-POLICY-2026-10-15"></a>
+## MOI-WEBVIEW-KEYBOARD-POLICY-2026-10-15 — Compare native browser accelerator policy [patch]
+- status: todo
+- priority: correctness
+- target: 0.9.4; no public API, version bump or release.
+- outcome: Compare actual per-event and Settings3 browser policy against complete native/document metadata using one compiled payload, without treating fixture results as Metis acceptance.
+- scope: Preserve selected/none Default/EnableS/SkipS; add only two observer-none/Default Settings3 true/false controls before first navigation. Production defaults/APIs/dependencies and passive input callbacks are unchanged; existing exit tracing is diagnostic only.
+- acceptance: Attempt all eight before comparisons/fatal aggregation; new controls cannot replace old six. Each old triplet and the new pair compare on their own native-success prerequisites; cross-eight identity needs all three comparisons. Retain actual Settings3 before/set/after/post-navigation readback with typed failures; old six global_setting=null and no extra SDK calls. False and every SkipS require trusted KeyS. Preserve complete chords, Closed/cleanup owners, original eight-mode matrix/bridge/inputs/quotas and 30/60/120-second/20-minute bounds.
+- verification: Source `14cb3fdf` / [Windows run 38835227528](https://github.com/ryancinsight/Moirai/actions/runs/38835227528) executes all eight: exit 100/no timeout. Seven fail host close at native line 130 with matched SDK PID/kind 1. The false control retains successful true→false Settings3/post-navigation readback, all 12 browser-property rows false/no event setter/Handled change, NORMAL kind 0, null host/profile errors and Destroyed=1; it then fails required trusted KeyS at line 325. Every cell retains D/P, eight trusted Key notices/Closed with zero owners and no S (1,322 raw bytes); later native assertions and all three comparisons/cross-eight remain unrun. Raw verification is separate. Original 91 executions and six portable checks pass: 105 total, 97 PASS/8 FAIL.
+- next step: Attribute the still-unknown controller-to-Rust-keydown boundary under the existing input, protocol and lifecycle contracts; no architecture or input change is approved by this result. The logical pending bit does not prove SDK-inflight or a shutdown cause. Both complete Metis journeys and real consumer A/B stay open; no accepted experiment, pin promotion or Metis fix follows.
+- basis: [Metis run 38821192294/job 116717939267](https://github.com/ryancinsight/metis/actions/runs/38821192294/job/116717939267) retains native S and nine Rust command observations but times out before System/closure. [Shared payload contract](moirai-pal/examples/webview_keyboard_fixture/design.md).
+
+<a id="MOI-WEBVIEW-UIA-PARENT-ENTRY-2026-10-15"></a>
+## MOI-WEBVIEW-UIA-PARENT-ENTRY-2026-10-15 — Enter the selected field through its native parent [patch]
+- status: todo
+- priority: correctness
+- outcome: One real native-parent focus entry after UIA selection preserves that same field before physical input.
+- scope: Actual child-MTA fixture, legitimate queue attachment/cleanup, computed completion counters and [co-located contract](moirai-pal/src/windows/webview/host/focus/tests/client/design.md). Production focus ownership remains unchanged.
+- acceptance: All8 modes retain16 replacements/64 preservation checks plus16 verified entries/12 non-first entries. Native focus delegates to an owned non-root descendant and the same UIA element remains focused; no focus/input retry, class guess, ALT tap, sleep or budget change.
+- verification: [Windows run 38803044085](https://github.com/ryancinsight/Moirai/actions/runs/38803044085) on source `6343610d` records 69 PASS executions. All eight original modes and the separate probe pass 16 edits/64 preservation checks; collected schema3 completion verifies 16 entries/12 non-first entries per invocation. Direct log retention separately shows 16 entered and 16 same-field-focused observations each. SDK admission and availability pass; the actual Rust bridge passes in 7.232s. The snapshot probe is untriggered; UIA and diagnostic quotas retain partial histories. Baseline `2fcef45d` failures remain retained.
+- next step: Verify both complete Metis journeys after the private policy experiment. Metis source f1523a43 retains native S receipt but no S document metadata/System decision or terminal before its selected-worker timeout; ordinary and later lifecycle gates are unreached. The provider fixture pass and four correct submissions do not establish complete consumer acceptance.
+
+<a id="MOI-WEBVIEW-INPUT-OBSERVATION-2026-10-15"></a>
+## MOI-WEBVIEW-INPUT-OBSERVATION-2026-10-15 — Attribute Metis native text delivery [patch]
+- status: todo
+- priority: correctness
+- outcome: Bound actual controller focus and accelerator receipt separately from UIA values, renderer consumption and Rust submission.
+- scope: Default-off private Windows startup owner; deferred callback records and exact token cleanup. Synchronous private native-parent focus delegation follows the reproduced host contract; supported APIs, Handled, input and deadlines stay unchanged.
+- acceptance: Portable capacity/order/loss laws, strict Windows SDK diagnostics, installed real Ctrl+A/Escape observations and the unchanged Metis full-form/script gates.
+- verification: Fifteen portable observation tests and strict Windows SDK diagnostics pass. Baseline Windows run 38748681812 fails native parent entry in 1.957s (recipient remains parent). Corrected source bd88d2c5 passes all 16 active checks; Windows run 38749728275 passes 31 policy/frame cases and nine installed fixtures, including parent entry in 7.028s, original input in 7.378s and actual typed closed-controller failure. Miri/release SemVer remain skipped; informational API checks are not release compatibility proof. Both Rustls records select 0.23.46 with all other records exact. Fresh external consumer metadata resolves the exact Git candidate and WebView2 without local overrides.
+- candidate checks: All39 portable startup tests, strict MSVC diagnostics and formatting pass. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505) records 91 PASS executions; the installed A-anchor case passes in 6.981s with exact canonical suffix 5–9, 11 budgeted records/3,384 bytes, no loss/errors and successful close. All eight original modes plus the separate probe pass 16/64 and collected schema3 entry counts 16/12. This verifies the diagnostic mechanism, not Metis D/S or page consumption.
+- next step: Attribute the controller-to-Rust-keydown boundary after the failed eight-cell diagnostic, then verify both complete Metis journeys. Metis source 561189 and [f1523a43/run 38821192294](https://github.com/ryancinsight/metis/actions/runs/38821192294/job/116717939267) retain native S sequences 335/336 with scan 31/Alt+Shift/Control clear/Handled=false. The selected worker still times out after four exact submissions; nine Rust observations end after D→Dark/Ok and Alt/Shift→Ignored/Ok, with no retained S/System decision or terminal. Do not infer interception, renderer rejection or timed UIA staleness. In d165's probe, UIA 6 and later DOM 64 are different-time observations. Preserve passive input callbacks, inputs, quotas and deadlines. [Design](moirai-pal/src/webview_startup/late_input/design.md).
+- basis: Moirai protected default `2b189f0a`; Metis PR 504 final-head run 38685234146 reaches Ready, accepts earlier fields and retains dose 0.2 after requested 0.25. Its 502 scripts pass in 40.796s.
+
 <a id="MOI-MNEMOSYNE-010-CONSUMER"></a>
 ## MOI-MNEMOSYNE-010-CONSUMER — admit the compatible allocator cohort [patch]
 - status: todo

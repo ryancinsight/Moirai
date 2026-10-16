@@ -26,12 +26,25 @@
 //! These are point observations under the existing native deadline, never a
 //! manufactured Ready event or a guarantee that a browser callback completes.
 
+mod components;
 mod config;
+#[cfg(any(all(windows, feature = "webview2"), test))]
+mod deferred;
+#[cfg(any(all(windows, feature = "webview2"), test))]
+mod late_input;
 mod quota;
 mod state;
 
+#[cfg(all(windows, feature = "webview2", test))]
+pub(crate) use components::Components;
 #[cfg(all(windows, feature = "webview2"))]
 pub(crate) use config::Selection;
+#[cfg(all(windows, feature = "webview2"))]
+pub(crate) use deferred::Deferred;
+#[cfg(all(windows, feature = "webview2", test))]
+pub(crate) use late_input::LATE_INPUT_TERMINAL_BYTES;
+#[cfg(all(windows, feature = "webview2"))]
+pub(crate) use late_input::{LATE_INPUT_EVENT, LATE_INPUT_TARGET, LateInput, LateInputFailure};
 #[cfg(test)]
 pub(crate) use quota::BudgetSnapshot;
 pub(crate) use quota::{RecordAdmission, TraceBudget};

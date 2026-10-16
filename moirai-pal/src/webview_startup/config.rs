@@ -1,5 +1,6 @@
 //! Closed selection data belongs to the fixture, not the native mechanism.
 
+use super::components::Components;
 use crate::webview_limits::{
     MAX_WEBVIEW_EVENTS, MAX_WEBVIEW_MESSAGE_BYTES, MAX_WEBVIEW_MESSAGE_UNITS, validate_message,
 };
@@ -12,6 +13,12 @@ use std::{collections::BTreeSet, io};
 pub(crate) struct Selection {
     pub(crate) start_uri: String,
     pub(crate) selectors: Vec<String>,
+    #[serde(default)]
+    pub(crate) components: Components,
+    /// Absent or null disables this private selection; positive values require
+    /// controller observations. The byte representation admits at most 255.
+    #[serde(default)]
+    pub(crate) late_input_after_key: Option<u8>,
 }
 
 impl Selection {
@@ -54,6 +61,14 @@ impl Selection {
                 return Err(invalid("Startup selectors must be unique"));
             }
         }
+        if selection.late_input_after_key == Some(0) {
+            return Err(invalid("Startup late input key must be nonzero"));
+        }
+        if selection.late_input_after_key.is_some() && !selection.components.controller() {
+            return Err(invalid(
+                "Startup late input requires controller observations",
+            ));
+        }
         Ok(selection)
     }
 }
@@ -61,6 +76,9 @@ impl Selection {
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
+
+#[cfg(test)]
+mod late_input_tests;
 
 #[cfg(test)]
 mod tests {
@@ -90,8 +108,149 @@ mod tests {
         tracing::info_span!("assert").in_scope(|| {
             assert_eq!(value.start_uri, "https://example.invalid/index.html");
             assert_eq!(value.selectors, selectors);
+            assert_eq!(value.components, Components::Full);
+            assert_eq!(value.late_input_after_key, None);
             assert_eq!(SELECTION_ENV, "MOIRAI_WEBVIEW_STARTUP_OBSERVATION");
         });
+    }
+
+    #[test]
+    fn selection_admits_exact_named_observer_components() {
+        let _trace = trace();
+        let _test = tracing::info_span!("startup_component_selection").entered();
+        for (components, expected, controller, native, cdp, dom, first, later) in [
+            (
+                "full",
+                Components::Full,
+                true,
+                true,
+                true,
+                false,
+                true,
+                true,
+            ),
+            (
+                "controller",
+                Components::Controller,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+            ),
+            (
+                "native",
+                Components::Native,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+            ),
+            (
+                "events",
+                Components::Events,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false,
+            ),
+            (
+                "domain",
+                Components::Domain,
+                false,
+                true,
+                true,
+                true,
+                false,
+                false,
+            ),
+            (
+                "snapshot",
+                Components::Snapshot,
+                false,
+                true,
+                true,
+                false,
+                true,
+                false,
+            ),
+            (
+                "startup",
+                Components::Startup,
+                false,
+                true,
+                true,
+                false,
+                true,
+                true,
+            ),
+        ] {
+            let text = tracing::info_span!("arrange", components).in_scope(|| {
+                json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
+                    .to_string()
+            });
+            let actual = tracing::info_span!("act")
+                .in_scope(|| Selection::decode(&text, "x").expect("real component selection"));
+            tracing::info_span!("assert").in_scope(|| {
+                assert_eq!(actual.start_uri, "x");
+                assert_eq!(actual.selectors, ["#状態-🦀"]);
+                assert_eq!(actual.components, expected);
+                assert_eq!(actual.late_input_after_key, None);
+                assert_eq!(actual.components.as_str(), components);
+                assert_eq!(actual.components.controller(), controller);
+                assert_eq!(actual.components.native(), native);
+                assert_eq!(actual.components.cdp(), cdp);
+                assert_eq!(actual.components.enables_dom(), dom);
+                assert_eq!(actual.components.admits_sample(0), first);
+                assert_eq!(actual.components.admits_sample(1), later);
+                assert_eq!(actual.components.admits_sample(u64::MAX), later);
+            });
+        }
+    }
+
+    #[test]
+    fn selection_admits_native_and_event_controls_without_changing_selectors() {
+        let _trace = trace();
+        let _test = tracing::info_span!("startup_passive_controls").entered();
+        for components in ["native", "events"] {
+            let text = tracing::info_span!("arrange", components).in_scope(|| {
+                json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
+                    .to_string()
+            });
+            let selected = tracing::info_span!("act").in_scope(|| {
+                Selection::decode(&text, "x").expect("real passive component control")
+            });
+            tracing::info_span!("assert").in_scope(|| {
+                assert_eq!(selected.start_uri, "x");
+                assert_eq!(selected.selectors, ["#状態-🦀"]);
+                assert_eq!(selected.components.as_str(), components);
+                assert!(!selected.components.controller());
+            });
+        }
+    }
+
+    #[test]
+    fn selection_admits_domain_and_single_snapshot_controls() {
+        let _trace = trace();
+        let _test = tracing::info_span!("startup_sampling_controls").entered();
+        for components in ["domain", "snapshot"] {
+            let text = tracing::info_span!("arrange", components).in_scope(|| {
+                json!({"start_uri":"x", "selectors":["#状態-🦀"], "components":components})
+                    .to_string()
+            });
+            let selected = tracing::info_span!("act").in_scope(|| {
+                Selection::decode(&text, "x").expect("real activation/sampling control")
+            });
+            tracing::info_span!("assert").in_scope(|| {
+                assert_eq!(selected.components.as_str(), components);
+                assert_eq!(selected.selectors, ["#状態-🦀"]);
+            });
+        }
     }
 
     #[test]
@@ -114,6 +273,9 @@ mod tests {
                 ),
                 (r#"{"start_uri":"x","selectors":false}"#, "invalid type"),
                 (r#"{"start_uri":"x"}"#, "missing field"),
+                (r#"{"start_uri":"x","selectors":["p"],"components":"other"}"#, "unknown variant"),
+                (r#"{"start_uri":"x","selectors":["p"],"components":null}"#, "expected value"),
+                (r#"{"start_uri":"x","selectors":["p"],"components":"full","components":"controller"}"#, "duplicate field"),
                 (
                     r#"{"start_uri":"x","selectors":["p"]} true"#,
                     "trailing characters",

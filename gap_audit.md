@@ -3,6 +3,239 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Native text-consumption attribution — 2026-10-15 [patch]
+
+The active late-input diagnostic adds one private default-off configured-key
+anchor. It reuses canonical snapshots during deferred flush, after every
+unchanged main record, and retains all subsequent keys/focus/errors under a
+separate quota. No callback read, registration, COM, Handled/focus operation,
+input, wait or scheduling changes. Progress checkpoints spend its quota;
+missing closure, an absent anchor or any loss prevents an absence conclusion.
+See the [co-located design](moirai-pal/src/webview_startup/late_input/design.md).
+All39 portable startup tests, strict MSVC diagnostics and workspace formatting
+pass. [Source `d1658acc` / Windows run 38811126505](https://github.com/ryancinsight/Moirai/actions/runs/38811126505)
+records 91 PASS test executions. The installed A-anchor case passes in 6.981s.
+Its exact five-key canonical suffix is sequences 5–9: A-down/up, Control-up,
+Escape-down/up. Eleven budgeted records consume 3,384 encoded bytes; including
+the close record, reconstructed prefix-removed LF formatter output is 5,894
+bytes. Original native LF bytes are not directly archived by GitHub transport.
+The initial checkpoint time is null; own/shared loss, errors and cleanup failure
+are zero, with one complete close. The original main quota is not exhausted in
+this A case. It proves suffix retention, not Metis D/S or renderer consumption.
+
+All eight original modes and the separate probe pass 16 replacements/64 checks;
+collected schema3 asserts 16 parent entries/12 non-first entries each. The log
+separately retains 16 entered and 16 same-field-focused events per invocation;
+the private completion JSON is not directly archived. The actual Rust bridge
+passes in 6.835s and SDK admission in 6.858s. Selected/main and independent probe
+controller quotas leave partial histories; no final-edit observer coverage follows.
+This run's separate probe triggers at scope2/weight: returned UIA is 6 rather
+than expected 64 after 85 queries. A later within-deadline DOMSnapshot completes
+with SDK HRESULT 0 and weight 64. These are different point observations, not
+same-time UIA staleness or an input-delivery cause.
+
+The complete d165 job log and source binding attribute checkout e7bb40b5 to
+source d1658acc/tree e4682394 and 1,127 committed blobs. Artifact 12008602645
+verifies eight members, five payloads and ten producer source identities.
+The producer writes its in-checkout payload, build.jsonl and bindgen.log before
+querying Git status. Under default status rules these paths suffice to explain
+source_dirty=true. The discarded status output and unretained global excludes
+leave the exclusive dirty paths and whole-checkout cleanliness unproved.
+Pre-bindgen/compiler binary hashes remain declarations because those bytes are
+unarchived.
+
+Metis source 561189 retains native S-down/up. [f1523a43/run 38821192294/job 116717939267](https://github.com/ryancinsight/metis/actions/runs/38821192294/job/116717939267)
+passes 503/504 script cases with one Apple-only skip in 43.301s and all four exact
+form submissions, then the selected worker times out at 60.1114402s. Native
+sequences 335/336 carry S scan 31/nonextended, Alt+Shift held, Control clear and
+Handled=false. The Rust stream has nine valid records: Selected; D/KeyD with
+ThemeDark/Ok; Alt/AltLeft and Shift/ShiftLeft with Ignored/Ok. No S metadata,
+System decision, quota or terminal is retained. Missing closure leaves coverage
+unknown; native receipt does not establish interception or renderer rejection.
+UIA request 194 is pending at node 24 with unknown element identity. Response 193
+contains Dark but has no point timestamp; it cannot be placed after S. Ordinary
+form, final lifecycle and subsequent native/archive/package gates are unreached.
+
+Source `14cb3fdf` / [Windows run 38835227528](https://github.com/ryancinsight/Moirai/actions/runs/38835227528)
+executes all eight cells: 105 nextest executions, 97 PASS/8 FAIL in 29 processes.
+Original 91 executions (83 IDs) match a046 in exact order and pass; six new portable checks pass.
+All eight native exits are 100/no timeout. Seven panic at host-close line 130:
+matched browser PID, SDK kind 1/normal=false, no getter failure; this is not an OS exit code.
+Global-false records before=true/set-success/after=false/post-navigation=false;
+all 12 controller rows retain browser properties false, no event setters and Handled=false.
+Its matched PID/kind 0 NORMAL, null host/profile errors and Destroyed=1 precede
+required trusted KeyS assertion failure at line 325. No cell completes assert_values.
+Each retains Ready/eight trusted Keys with D/P/no S/Closed/zero owners (1,322 raw bytes).
+Later Closed/stroke/startup/publication assertions are unexecuted; raw checks are separate.
+Neither triplet nor the new pair compares; cross-eight identity is unrun.
+Independent proofs `f8741098…` (cells) and `aa15167c…` (log/producers) bind the actual
+merge e6b9c43a/tree b3a0fbb2, 40+8 ZIP members, ten payloads and twenty producer inputs.
+Both producers retain source_dirty=true; pre-bindgen/compiler bytes are unarchived declarations.
+Original eight modes and the separate probe pass collected 16/64 and entry 16/12 assertions;
+ordinary retains 15 direct value_completed rows, so no complete-direct-history claim follows.
+Historical a046/run38831422438 has six host-close failures; 2ef/run38829030763
+has three. Their bounded no-S prefixes are not absolute delivery-absence proof.
+The logical pending bit can cover completed replies; it proves no SDK-inflight/shutdown cause.
+The controller-to-Rust-keydown boundary remains unknown; no architecture/input change is approved.
+No accepted experiment, pin promotion or Metis fix follows; both full journeys remain open.
+Settings/defaults/APIs/dependencies, passive input callbacks and original eight modes/bridge,
+inputs/quotas/30/60/120-second/20-minute bounds stay exact; exit tracing changes no decisions.
+
+Source2fcef45d/run38798617700 closes the separately reproduced SDK-admission
+regression (6.837s) and native SDK availability query (0.39.1/154.0.4258.62),
+but fails ordinary scope16/dose, startup scope2/weight and separate probe
+scope5/reference. Continuous diagnostic traffic is not a necessary cause.
+The probe's UIA and timely live DOM both retain patient-one after requesting
+patient-two. All failed input records are admitted at owned HWND0x13059c;
+prior successful callbacks use0x1009ae, on the same browserPID10916/TID2796/HKL.
+Complete independent callbacks1–68 end in LostFocus before the snapshot, with
+no later accelerator and no quota/omissions. This establishes a controller
+receipt boundary, not renderer key-consumption or exact HWND-class identity.
+Source `6343610d` / [Windows run 38803044085](https://github.com/ryancinsight/Moirai/actions/runs/38803044085)
+records 69 PASS test executions. All eight original modes and the separate
+probe pass 16 replacements/64 preservation checks. The collected schema3
+completion verifies 16 parent entries/12 non-first entries per invocation;
+these are assertion evidence, not a directly archived completion JSON object.
+The raw log separately retains 16 entered and 16 same-field-focused events
+per invocation. The actual Rust bridge passes in 7.232s, SDK admission in
+7.453s, and native availability reports SDK 0.39.1/runtime 154.0.4258.62.
+
+The separate probe closes with triggered/attempted/admitted/completed all false:
+its PASS supplies no live snapshot or renderer-consumption result. UIA scope
+quotas omit later observations. Selected-mode sampling exhausts its quota, and
+the independent probe controller retains 255 callbacks with 36 omissions.
+Thus the fixture pass does not prove a complete active diagnostic history.
+Metis source `add41427` / [Windows run 38804568395](https://github.com/ryancinsight/metis/actions/runs/38804568395)
+runs 504 script cases: 503 pass and one existing Apple-only skip in 40.426s.
+Both new native-parent focus cases pass. All four form submissions produce
+the expected results or rejection. The selected journey then times out after
+Alt+Shift+S requests System, while the latest UIA still reports Dark.
+The ordinary journey is unreached. Late-shortcut receipt remains unattributed;
+both complete journeys remain open, with no general text-input repair claim.
+
+The raw job log (`06da3684…`) and source binding (`234274d0…`) bind actual
+checkout `bb4d6962` to feature `6343610d`/tree `69dfdd78` and 1,117 Git blobs.
+The [bridge artifact 12005212167](https://github.com/ryancinsight/Moirai/actions/runs/38803044085/artifacts/12005212167)
+(`3857bcaa…`) verifies eight members, five payloads and ten producer source
+hashes against Git; independent artifact binding is `63c834bd…`.
+Producer `source_dirty=true` remains unexplained by the archived data.
+Packaged post-bindgen WASM is independently hashed; pre-bindgen module and
+compiler executable hashes remain declarations because their bytes are absent.
+Metis ad328f61 adopts2fcef45d with only15/11 lock source substitutions and keeps
+all515 Rust/173 acceptance files and original deadlines unchanged.
+
+Earlier source aa532b88/run38788877397 fails original startup-only
+concentration0 after10/40 (UIA4), while seven other modes complete16/64. Its
+separate controller diagnostic completes16/64 without triggering any snapshot;
+254 callbacks exhaust the independent quota with7 omissions. No joint failed
+scope, modifier or renderer-consumption attribution follows. The active backlog
+also owns two source-established SDK deadline/event-priority corrections; their
+ability to repair input remains unverified. Both Metis locks now resolve the
+aa532 provider with its necessary compatible cohort; full consumer runtime
+acceptance remains required.
+
+Baseline source44184f40/run38795557575 proves the ready-event scheduling
+defect: a real resize returns after document/DOM counters advance1/6 to2/7.
+The regression fails in7.097s; original45 policy and8 installed cases pass.
+Its corrected regression now passes on2fcef45d. The controlled aa532 replay38791481506
+passes the original matrix and actual Rust bridge, but its final availability
+metadata query exceeds60s downloading unrelated platform dependencies. Metis
+source5e5c4e2/run38792889172 completes four exact Unicode submissions and passes
+502 scripts in37.299s, then stalls on Alt+Shift+S with UIA still reporting Dark.
+Its controller quota exhausts before the fourth submit, so it cannot attribute
+the late shortcut. These are separate functional and environmental results.
+
+The availability correction joins public native compiler/build-script records
+by opaque package ID and reads the actual SDK manifest. It uses an offline
+check of the already-built Windows host feature graph, retaining60s and the
+original native API/error handling. It does not infer Cargo cache hashes or
+claim a platform filter restricts all metadata downloads. Three parser cases
+pass; a real MSVC check selects a loader byte-identical to SDK0.39.1 source.
+Source2fcef45d executes the actual availability API successfully, separately
+from form acceptance and each controller's actual environment version.
+
+Metis PR 504 retains unchanged UIA values after physical input at different
+fields across actual Windows runs. Owned focus and successful SendInput do not
+prove renderer consumption. The active controller-observation item in backlog
+owns this bounded investigation. No functional cause or focus correction is
+established by the source capability gap alone.
+
+The source-924dd8ac installed Windows gate passes 31 policy/frame cases and
+eight installed-runtime fixtures, including the new Ctrl+A/Escape receipt and
+cleanup case. The broader ready-for-review gate rejects Rustls 0.23.45. Both
+canonical locks now select 0.23.46, with every other record unchanged; the exact
+isolated 1,089-file source copy passes advisories, bans, licenses and sources.
+The corrected provider source `499ed39e` passes its full Rust Workspace gate.
+Metis run 38745314161 passes 501 scripts with an Apple-only skip in 34.004s and completes the first
+Unicode calculation, then retains controller LostFocus and no further key
+callbacks before the second patient replacement. The new installed regression
+requires native SetFocus(parent) to restore controller receipt synchronously;
+baseline Windows run 38748681812 fails in 1.957s because the keyboard recipient
+remains the parent HWND, while original direct-controller receipt passes.
+The private synchronous Weak/Rc focus correction preserves native reentrancy,
+typed errors and clear-before-Close ownership. Corrected source bd88d2c5 passes
+all 16 active checks and Windows run 38749728275: 31 policy/frame cases and nine
+installed fixtures, including parent entry in 7.028s and real closed-controller
+error retention. Miri/release SemVer remain skipped. A fresh external consumer
+resolves the exact Git candidate with no local overrides. Independent receipts
+bind the actual merge tree, eight artifact members, five payload originals and
+ten producer inputs; the producer's source_dirty=true remains explicit and
+does not establish a clean whole checkout. Full Metis run 38750658426 remains
+fails functionally after 501 script passes and one Apple-only skip in 44.777s:
+the second dose remains 0.25 after requested 0.5. The controller emits
+Lost/Got/Lost (last two 5.5us apart) while the actual focus remains on an owned
+renderer, then no further eligible key callbacks. This refutes full form closure
+from synchronous parent entry alone. A real MTA UIA/physical-input/ValuePattern
+fixture now isolates that remaining path; it changes no production behavior.
+Its first cde46135 execution fails the immediate UIA focus-property assertion
+before any input, in 2.225s. Refined completion observation retains the same
+deadline and exact input/value assertions; no persistent-focus or complete
+form mechanism follows from the first isolated result.
+Refined fadaeaaa / run 38758440683 confirms all first-row UIA focus properties
+and reaches dose after the preceding three exact replacements, then fails the
+30-second admission bound (31.721s including cleanup). The final phase record
+does not distinguish unconsumed input from a blocked native getter. Both
+ordinary and selected modes now retain bounded actual operation/input/value
+receipts. Controlled baseline 23561b59 / run 38763941253 passes ordinary 16/64
+but selected mode admits weight 64 input while the last changed value remains 60.
+Private-parent experiment 27cd682d / run 38766339399 passes 33 policy and ten
+installed cases, including focus ownership, resize and native lifetime, plus
+ordinary 16/64; selected mode fails after 6 edits/24 checks at concentration 4
+while UIA retains 2. The candidate is withdrawn. Its quota-bound tail does not
+identify the final active getter. The next real-component comparison keeps
+all eight ordinary/controller/native/events/domain/snapshot/startup/full selected modes fatal with computed
+token/command identities and unchanged input/value/deadline gates. It does
+not substitute for the full managed STA actor's acceptance evidence.
+Four-mode source 4e7b1968 / run 38769791520 completes ordinary and controller-only
+16/64 but startup-only/full retain weight 60/demo after admitted 64/Unicode input.
+Their 112,555/120,681 actual DOM attempts establish recurring work, not the
+particular failed method. Six-mode b610 completes all passive controls but
+startup/full still fail. Document-binding experiment 8c49630c gets the document
+once per mode and still fails after thousands of descriptions, ruling out
+repeated binding reset as a necessary condition. The candidate is withdrawn.
+All six actual owning environments report154.0.4258.62. Eight-mode controls
+now distinguish domain activation, one complete original snapshot and
+continuous work, with every original input/assertion/deadline unchanged.
+Source197924cd domain and snapshot controls both complete16/64; only
+continuous modes fail under actual154.0.4258.62. Coalescing9cf4d47a /
+run38779895376 enforces the work bound, but active startup-only observation
+still fails the final dose0.125 (UIA0.5), after15/60 checks. Full selected16/64
+passes; shared observer quota exhausts during the run. This cannot prove active
+observation for every edit. No renderer live value is retained by outerHTML.
+The opt-in fixture probe requests one DOMSnapshot after a returned post-quota
+UIA mismatch, using a separate Weak callback and the same absolute deadline.
+Layout flushing may affect timing; it is an observation experiment, not a
+repair. Original eight-mode assertions remain fatal. Strict MSVC compilation
+passes. Run38785314523/source9aca passes original128 edits/512 checks and43
+policy cases, but the independent probe fails concentration4 after6/24. All
+physical records admit; UIA and the timely live snapshot both report2, with
+owned focus and active sampler. The requested value is absent from the live field at
+that point; stale UIA alone is insufficient. Its exact routing cause and both
+full consumer journeys remain unverified. The next opt-in variant adds
+canonical controller receipt with a separate existing-size quota/INFO sink;
+subsequent aa532b88 execution above retains the actual result without changing
+any original mode or establishing complete consumer acceptance.
+
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 
 Moirai main `2b189f0a` requires allocator facade 0.9 while the reviewed Eunomia

@@ -19,7 +19,8 @@ impl WebViewHost {
     pub(super) fn navigate_and_wait(&mut self, uri: String) -> io::Result<()> {
         let observation_started = Instant::now();
         let webview = self.webview.as_ref().ok_or_else(closed_error)?.clone();
-        self.startup = super::diagnostics::Startup::selected(&webview, &self.config)?;
+        let controller = self.controller.as_ref().ok_or_else(closed_error)?;
+        self.startup = super::diagnostics::Startup::selected(&webview, controller, &self.config)?;
         let deadline = if let Some(startup) = &self.startup {
             let deadline = observation_started
                 .checked_add(self.config.wait())
@@ -146,11 +147,44 @@ impl WebViewHost {
         Ok(())
     }
 
-    pub(super) fn collect_events(&mut self) -> io::Result<Vec<WebViewHostEvent>> {
+    pub(super) fn collect_events(
+        &mut self,
+        admit_new_sample: bool,
+        deadline: Option<Instant>,
+    ) -> io::Result<Vec<WebViewHostEvent>> {
         let window_events = self.window.poll_events()?;
+        let mut events = self.collect_public_events(window_events)?;
         if let Some(startup) = &self.startup {
-            startup.tick();
+            // Preparation and deferred trace emission can spend the caller's
+            // budget. Recheck both queues and time at actual SDK admission;
+            // no state borrow survives this predicate into COM.
+            startup.tick(admit_new_sample, || {
+                events.is_empty()
+                    && !self.window.has_pending_events()
+                    && !self.state.borrow().has_pending_events()
+                    && deadline.is_none_or(|deadline| Instant::now() < deadline)
+            });
+            // A synchronous subscriber or COM call can produce events while
+            // the tick runs. Return those without another dispatch or wait.
+            if self.window.has_pending_events() || self.state.borrow().has_pending_events() {
+                let window_events = self.window.drain_events()?;
+                let ready = self.collect_public_events(window_events)?;
+                events.try_reserve_exact(ready.len()).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::OutOfMemory,
+                        "WebView2 event batch reservation failed",
+                    )
+                })?;
+                events.extend(ready);
+            }
         }
+        Ok(events)
+    }
+
+    fn collect_public_events(
+        &mut self,
+        window_events: Vec<crate::windows::window::WindowEvent>,
+    ) -> io::Result<Vec<WebViewHostEvent>> {
         let (webview_events, overflowed) = self
             .state
             .try_borrow_mut()
