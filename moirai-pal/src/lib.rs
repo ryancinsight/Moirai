@@ -39,7 +39,7 @@ pub mod timer;
 
 mod frame;
 
-#[cfg(any(windows, target_arch = "wasm32", test))]
+#[cfg(any(all(windows, feature = "webview2"), target_arch = "wasm32", test))]
 mod webview_limits;
 
 #[cfg(any(test, all(windows, feature = "webview2")))]
