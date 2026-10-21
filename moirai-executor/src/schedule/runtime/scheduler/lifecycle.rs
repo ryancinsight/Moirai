@@ -23,6 +23,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// worker drains and releases its scheduler ownership after its current
     /// task returns.
     pub fn shutdown(&self) {
+        // SeqCst: the producer half of the parking handshake (wait.rs pairs
+        // this store with its `pending_tasks` recheck), so a shutdown cannot
+        // hide behind a worker that parks between the two observations.
         if !self.inner.shutdown.swap(true, Ordering::SeqCst) {
             wake_all_workers(&self.inner);
         }
