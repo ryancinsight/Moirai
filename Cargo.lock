@@ -599,7 +599,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -933,7 +933,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1161,7 +1161,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "futures",
@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async-macros"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-crypto"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -1256,7 +1256,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-executor"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "loom",
@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-gpu"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "mnemosyne-memory-core",
@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-http"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "http",
  "httparse",
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-iter"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "futures",
@@ -1313,7 +1313,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-metrics"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "moirai-core",
@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-pal"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -1352,7 +1352,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-parallel"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "melinoe",
@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-python"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "moirai-runtime",
  "pyo3",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-runtime"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "fastrand",
@@ -1398,7 +1398,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-scheduler"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "loom",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-sync"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "libc",
@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tests"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "fastrand",
  "futures",
@@ -1436,7 +1436,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tls"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "futures-io",
  "futures-rustls",
@@ -1444,12 +1444,12 @@ dependencies = [
  "moirai-crypto",
  "moirai-runtime",
  "rustls-pki-types",
- "webpki-roots 0.26.11",
+ "webpki-roots",
 ]
 
 [[package]]
 name = "moirai-transport"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-utils"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "criterion",
  "proptest",
@@ -2279,7 +2279,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2307,9 +2307,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2568,7 +2568,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2922,18 +2922,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.11"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.9",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -2978,7 +2969,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
