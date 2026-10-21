@@ -28,6 +28,8 @@ pub const MAX_CLIPBOARD_UNITS: usize = 1 << 20;
 /// rather than an unbounded allocation from the reported global size.
 ///
 /// # Errors
+/// An OS refusal to open the clipboard session surfaces as its mapped
+/// `io::ErrorKind` -- access denied is `ErrorKind::PermissionDenied`.
 /// Returns `ErrorKind::Unsupported` when the text exceeds the bound,
 /// `ErrorKind::Interrupted` when another application wrote to the clipboard
 /// during the read, and an OS error when the clipboard or its memory could
@@ -206,7 +208,17 @@ fn os_error(error: windows::core::Error) -> io::Error {
 }
 
 fn io_os_error(error: &windows::core::Error) -> io::Error {
-    io::Error::from_raw_os_error(error.code().0)
+    // `HRESULT_FROM_WIN32` carries the original Win32 error in the low word
+    // under facility 7. Extracting it lets `io::Error::kind` report the
+    // refusal (access denied becomes `PermissionDenied`) instead of an
+    // unmapped HRESULT kind.
+    let hresult = error.code().0.cast_unsigned();
+    let win32 = (hresult & 0xFFFF).cast_signed();
+    if (hresult >> 16) & 0x1FFF == 7 {
+        io::Error::from_raw_os_error(win32)
+    } else {
+        io::Error::from_raw_os_error(error.code().0)
+    }
 }
 
 #[cfg(test)]
@@ -230,7 +242,10 @@ mod tests {
             Err(error) => assert!(
                 matches!(
                     error.kind(),
-                    ErrorKind::Unsupported | ErrorKind::Interrupted | ErrorKind::Other
+                    ErrorKind::Unsupported
+                        | ErrorKind::Interrupted
+                        | ErrorKind::PermissionDenied
+                        | ErrorKind::Other
                 ),
                 "unexpected read error: {error}"
             ),
