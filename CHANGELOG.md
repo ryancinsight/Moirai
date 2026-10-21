@@ -5,7 +5,22 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.0] - Unreleased
+## [0.10.1] - Unreleased
+
+### Fixed
+
+- [patch] `moirai-pal`: `webview_limits` now compiles only where its
+  consumers do — windows with the `webview2` feature, wasm, and tests — so
+  a default-feature clippy pass no longer reports six dead items and the
+  workspace gate had been red on main since 2026-10-19.
+
+### Security
+
+- [patch] `rustls-webpki` >= 0.103.16 and `webpki-roots` >= 1.0.10, past
+  RUSTSEC-2026-0382 and RUSTSEC-2026-0381 (distrusted emSign intermediates
+  in the bundled roots).
+
+## [0.10.0] - 2026-10-16
 
 ### Added
 
