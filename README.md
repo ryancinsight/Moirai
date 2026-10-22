@@ -15,6 +15,12 @@ or fabricating execution.
 The facade crate publishes as **`moirai-runtime`** (the `moirai` registry name
 belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
+Workspace 0.9.3 aligns its private allocator edge with Mnemosyne-memory 0.10.
+The public GPU budget remains on mnemosyne-memory-core 0.3; scheduler, bridge,
+feature and Rust API behavior stay unchanged. The lock records the reviewed
+integrated Mnemosyne 0.10 provider; downstream publication remains ordered by
+the dependency owner.
+
 ## Browser I/O
 
 Workspace 0.9.2 corrects native WebView2 method admission after an installed

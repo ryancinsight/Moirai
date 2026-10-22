@@ -32,6 +32,16 @@ belong in [gap_audit.md](gap_audit.md).
 - [patch] Focused handshake evidence: all six early Linux competing failures retain 634 queued client Handshake CRYPTO bytes, zero Handshake flight and Data PTOs; the server consumes 2246/2880 bytes. A real maximum-workload single-datagram-loss experiment completes 17/27 baseline versus 27/27 with a focused experimental recovery patch; all 23 native QUIC tests pass against the isolated candidate. The patch remains an artifact, not the canonical dependency. Its full Linux policy/fairness/latency/queue matrix and a reviewed supported production path remain required. Established throughput remains separate.
 - next step: measure the focused handshake candidate across the full Linux domain and competing flows and establish a supported reviewed production path before adoption. Continue the distinct established-session throughput investigation using the archived flight/flow-credit/pacing timelines. Retain all complete, unsuccessful and canceled studies; preserve original deadlines and the independent full CUBIC promotion gate. No tolerance, window enlargement or unreviewed upstream fix establishes acceptance.
 - [patch] Security prerequisite verified: required CI reports four Rustls 0.23.45 advisories (RUSTSEC-2026-0346/0347/0348/0349). The shared dependency and independently consumed QUIC provider require released 0.23.46; both locks update only Rustls's external identity. The fresh complete policy/shared-queue study and independent original CUBIC gate retain separate source inventories. Every applicable non-performance CI job passes, including Linux/Windows, workspace, supply-chain and lockfile integrity; the original CUBIC performance gate still fails.
+<a id="MOI-MNEMOSYNE-010-CONSUMER"></a>
+## MOI-MNEMOSYNE-010-CONSUMER — admit the compatible allocator cohort [patch]
+- status: todo
+- priority: correctness
+- owner: Apollo provider-integration increment, exported base `2b189f0a`.
+- outcome: Moirai 0.9.3 accepts Mnemosyne-memory 0.10 without public API or Rust implementation changes.
+- acceptance: one canonical provider identity; locked all-feature Clippy, native values, API comparison, package verification and applicable CI.
+- scope: workspace/internal versions, private allocator requirement, source/fuzz locks, patched rustls floor, exact-source API verdict and these records; existing safety, QUIC and WebView work remains independently owned.
+- dependency: Mnemosyne PR #237 is merged and allocator 0.10 is published; its native guard, ARM, Miri, Loom and sanitizer gates pass. The lock selects integrated default `b7e0e1e3`.
+- next step: complete exact-source API/package checks, submit an independent PR and verify the clean downstream consumer.
 
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
