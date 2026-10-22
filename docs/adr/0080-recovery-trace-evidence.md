@@ -72,7 +72,7 @@ with retained uninstrumented studies and keep unsuccessful experiments.
 ## Complete evidence and remaining decision
 
 The [October 14 archive](../../moirai-quic/measurements/recovery/2026-10-14/README.md)
-retains security-patched 140d60cf's complete 108 cases per policy, all 30 shared-queue
+retains security-patched [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf)'s complete 108 cases per policy, all 30 shared-queue
 experiments and independently audited child preflights/traces. CUBIC/NewReno
 remain 105/108; experimental BBR remains 108/108. The independent uninstrumented
 original gate has the same source tree and reproduces the three deadlines.
@@ -87,7 +87,7 @@ Driver dispatch lateness does not measure later protocol execution, and event
 counts do not identify the dominant blocked duration.
 
 BBR reaches a sampled 10,313,912-byte congestion window in the patched original
-loss workload; preceding 733afc9f records 133,608,526 bytes. A congestion window
+loss workload; preceding [this commit](https://github.com/ryancinsight/Moirai/commit/733afc9fcce3b70b4ceef512914e83f6e6142841) records 133,608,526 bytes. A congestion window
 is an allowed flight limit, not actual flight or allocated memory.
 Pinned BBR compares dimensionless cwnd_gain with a byte-valued target window in
 its startup growth guard. While that branch repeats, w(n)=w(0)+sum(acked bytes).
@@ -100,7 +100,7 @@ and pacing timelines before selecting and measuring a focused correction.
 
 ## Security-patch revalidation boundary
 
-Completed required CI at 733afc9f rejects Rustls 0.23.45 for four published
+Completed required CI at [this commit](https://github.com/ryancinsight/Moirai/commit/733afc9fcce3b70b4ceef512914e83f6e6142841) rejects Rustls 0.23.45 for four published
 advisories. Adopt the released 0.23.46 security patch through one shared minimum;
 the standalone QUIC provider depends on and exposes that same Rustls crate.
 Caller trust, TLS/ALPN, early-data policy, resource bounds and deadlines remain
@@ -110,7 +110,7 @@ crypto dependency changes. No advisory suppression or cross-source case splicing
 can establish acceptance. Public API compatibility is verified with the patch
 override; transport security tests exercise actual peers.
 
-Revalidation at 140d60cf repeats all six shards and the independent original
+Revalidation at [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf) repeats all six shards and the independent original
 CUBIC gate without substituting preceding-stack cases. CUBIC/NewReno remain
 105/108 and BBR 108/108. Every applicable non-performance required job passes,
 including Linux/Windows native QUIC, workspace, supply-chain and lock integrity.

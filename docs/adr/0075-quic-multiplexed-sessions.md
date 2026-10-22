@@ -133,8 +133,8 @@ have five seconds. Loss admits finite failure, never partial successful output.
 No speed threshold, payload truncation or disabled validation makes a run pass.
 Configured rate, kernel timer granularity and packet aggregation affect netem;
 controlled profiles do not establish a wide-area or TCP comparison.
-The CI tool is iproute2 6.17 at commit
-`d2a8ffe85ac64f91ee2aa7679a5046f321b54127`; the runner's stock 6.1 CLI lacks
+The CI tool is iproute2 6.17 at the
+[pinned tool commit](https://github.com/iproute2/iproute2/commit/d2a8ffe85ac64f91ee2aa7679a5046f321b54127); the runner's stock 6.1 CLI lacks
 the seeded-netem option. The tool and kernel versions remain recorded inputs.
 Reference: [iproute2 netem contract](https://github.com/iproute2/iproute2/blob/main/man/man8/tc-netem.8).
 

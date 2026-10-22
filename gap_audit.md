@@ -10,7 +10,7 @@ ACK/CRYPTO, actual flight, credit and timer observations. The original transport
 locks and CUBIC gate remain unchanged. All 81 corrected local original-domain
 policy pairs validate bytes and state invariants. The preceding observer calls
 the PTO selector without timer/flight preconditions; retain that unsuccessful
-capture and reject its selected-space claims. The corrected full Linux matched study completes at 03dcc4a3: CUBIC/NewReno
+capture and reject its selected-space claims. The corrected full Linux matched study completes at [this commit](https://github.com/ryancinsight/Moirai/commit/03dcc4a31d7f793e4cb1cb7d96ff74f47033946c): CUBIC/NewReno
 105/108, BBR 108/108; independent pristine CUBIC remains 105/108 at the same
 tree. All six shards and every engine-state invariant pass independent audit. Instrumented measurements do not certify pristine-engine
 performance or establish a causal correction by themselves.
@@ -25,17 +25,17 @@ handshake confirmation. It is not adopted: full candidate Linux competing/rate/
 latency/queue evidence and a supported reviewed production dependency remain
 required, and established-session congestion throughput remains unresolved.
 
-The completed supply-chain job at 733afc9f reports four Rustls 0.23.45
+The completed supply-chain job at [this commit](https://github.com/ryancinsight/Moirai/commit/733afc9fcce3b70b4ceef512914e83f6e6142841) reports four Rustls 0.23.45
 advisories. The shared dependency and standalone QUIC boundary require released
 Rustls 0.23.46; both canonical locks change only Rustls's external identity.
-At patched 140d60cf, all 23 local QUIC/trace checks, strict transport diagnostics,
+At patched [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf), all 23 local QUIC/trace checks, strict transport diagnostics,
 223 patch-level API checks and 1,341 workspace tests pass (nine existing ignored
 probes). Every applicable non-performance CI job passes, including Linux/Windows,
 workspace, supply-chain and lockfile integrity. The unchanged executor retention
 test emits one process-output leak diagnostic in the workspace run; its focused
 rerun passes without that diagnostic. No heap-leak inference follows.
 
-The patched October 14 study at 140d60cf repeats the full original domain per
+The patched October 14 study at [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf) repeats the full original domain per
 policy and all 30 competing experiments with actual peer traces and verified
 preflights: CUBIC/NewReno 105/108, experimental BBR 108/108. Independent
 uninstrumented CUBIC CI reproduces the same three deadlines. Controlled-loss and
@@ -48,7 +48,7 @@ lateness is 85,146 ns. Fifteen other competing pairs reach the pair deadline.
 Established failures show congestion, pacing and stream-flow-credit notifications;
 counts do not resolve wall-time costs. BBR's mixed-policy sampled Jain indices
 0.557124–0.581728, larger queues and sampled 10,313,912-byte congestion window
-prevent default adoption. Preceding 733afc9f records a 133,608,526-byte window;
+prevent default adoption. Preceding [this commit](https://github.com/ryancinsight/Moirai/commit/733afc9fcce3b70b4ceef512914e83f6e6142841) records a 133,608,526-byte window;
 a window is neither allocated memory nor actual flight. Upstream PR 2798 remains
 open/unmerged, and internal BBR mode/target state is unobserved. Pending CRYPTO,
 ACK, flight and flow-credit timelines remain the next evidence requirement.
@@ -70,7 +70,7 @@ its async timer. That diagnostic path is rejected; actual shared-driver wake
 lateness includes QUIC, operation and observation timers and excludes subsequent
 protocol scheduling. It cannot establish pacing duration or complete flight
 history. Concurrent server-output draining prevents diagnostic pipe pressure.
-The first Linux trace study at d946459c exposes sudo environment filtering:
+The first Linux trace study at [this commit](https://github.com/ryancinsight/Moirai/commit/d946459c30f405c5c6ee904a633019b25d8167b8) exposes sudo environment filtering:
 controller opt-in metadata is true but both child traces are absent. Independent
 auditing rejects that diagnostic evidence. Explicit namespace-local forwarding
 of the single public switch and a real two-peer trace preflight close collection;
@@ -85,7 +85,7 @@ and obscure those pair outcomes. They remain failed experiments. All three
 maximum loss cases fail under CUBIC/NewReno and complete under experimental
 BBR, whose mixed-policy sampled fairness and larger queues prevent default
 selection. The collector joins its observer before namespace cleanup and checks
-actual absence after a raced kill. The fresh complete study at 8e9dd137 records
+actual absence after a raced kill. The fresh complete study at [this commit](https://github.com/ryancinsight/Moirai/commit/8e9dd137e7cbf37c643b67b724c4f1a945bb6021) records
 CUBIC 105/108, NewReno 105/108 and experimental BBR 108/108, with no collector
 errors and zero UDP-error deltas in every matrix/competing role. BBR's large
 loss median is 74.241825 Mbit/s and 181.234076 ms client RTT p95; mixed-policy
@@ -97,7 +97,7 @@ failures retain zero error deltas. No root-cause closure follows from that
 unshaped observation. Both complete studies and all failures remain archived.
 The recovery gap and protected promotion gate remain open.
 
-Fresh Linux native validation passes at 03d640b8. The fresh Windows QUIC job
+Fresh Linux native validation passes at [this commit](https://github.com/ryancinsight/Moirai/commit/03d640b890af232616a9dc85ffbddc38b3d8d4f8). The fresh Windows QUIC job
 fails six unused-WebView diagnostics because the shared-limits module compiles
 without its optional WebView2 consumer. Installed MSVC cross-compilation
 reproduces the same failure. The corrected module predicate is
@@ -105,7 +105,7 @@ reproduces the same failure. The corrected module predicate is
 without suppression. Default, minimal and WebView2-enabled Windows PAL
 cross-compilation and strict browser PAL diagnostics pass. The complete native
 workspace still passes 1,329 tests with its nine existing ignored probes.
-Actual Windows WebView2/capture execution passes at 03d640b8; the final native
+Actual Windows WebView2/capture execution passes at [this commit](https://github.com/ryancinsight/Moirai/commit/03d640b890af232616a9dc85ffbddc38b3d8d4f8); the final native
 QUIC runtime must still pass at the corrected revision.
 
 Current-main integration uses 7828f5df and preserves PR 617 capture admission

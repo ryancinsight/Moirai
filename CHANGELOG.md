@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   study and independent original CUBIC gate. Preserve 105/108 CUBIC/NewReno,
   108/108 experimental BBR and all competing outcomes; distinguish early
   server-handshake failures from established congestion/pacing/flow-credit
-  pressure. Repeat the complete study on security-patched 140d60cf: six early
+  pressure. Repeat the complete study on security-patched [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf): six early
   server-handshake failures and 15 shared-queue pair deadlines remain. Retain
   unsuccessful/canceled inputs and keep promotion blocked.
 - [patch] Add opt-in load-probe aggregation of pinned Quinn recovery/PTO events,
