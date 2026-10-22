@@ -28,7 +28,8 @@ fn upstream_peer_observes_exact_frame_bytes_and_eof() {
                     let mut prefix = [0; 4];
                     recv.read_exact(&mut prefix).await.expect("wire prefix");
                     assert_eq!(u32::from_be_bytes(prefix), length);
-                    let mut bytes = vec![0; length as usize];
+                    let mut bytes =
+                        vec![0; usize::try_from(length).expect("test length fits in usize")];
                     recv.read_exact(&mut bytes).await.expect("wire bytes");
                     messages.push(bytes);
                 }

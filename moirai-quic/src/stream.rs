@@ -63,9 +63,10 @@ impl QuicStream {
     /// invalidate the stream.
     pub async fn send_message(&mut self, bytes: &[u8]) -> Result<(), QuicError> {
         self.health.check()?;
-        if bytes.len() as u64 > u64::from(self.max_frame_bytes) {
+        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if size > u64::from(self.max_frame_bytes) {
             return Err(QuicError::MessageTooLarge {
-                size: bytes.len() as u64,
+                size,
                 limit: self.max_frame_bytes,
             });
         }
@@ -79,7 +80,7 @@ impl QuicStream {
         };
         let operation = async {
             let length = u32::try_from(bytes.len()).map_err(|_| QuicError::MessageTooLarge {
-                size: bytes.len() as u64,
+                size,
                 limit: guard.stream.max_frame_bytes,
             })?;
             guard
@@ -149,13 +150,15 @@ impl QuicStream {
                     limit: guard.stream.max_frame_bytes,
                 });
             }
+            let capacity = usize::try_from(length).map_err(|_| QuicError::MessageTooLarge {
+                size: u64::from(length),
+                limit: guard.stream.max_frame_bytes,
+            })?;
             let mut payload = Vec::new();
-            payload
-                .try_reserve_exact(length as usize)
-                .map_err(|error| {
-                    QuicError::Io(std::io::Error::new(std::io::ErrorKind::OutOfMemory, error))
-                })?;
-            payload.resize(length as usize, 0);
+            payload.try_reserve_exact(capacity).map_err(|error| {
+                QuicError::Io(std::io::Error::new(std::io::ErrorKind::OutOfMemory, error))
+            })?;
+            payload.resize(capacity, 0);
             guard
                 .stream
                 .recv

@@ -105,7 +105,7 @@ impl QuicEndpoint {
             .map_err(|_| QuicError::InvalidConfig("QUIC Initial cipher suite is absent"))?;
         let mut server = quinn::ServerConfig::with_crypto(Arc::new(crypto));
         server.transport_config(config.transport()?);
-        server.max_incoming(config.max_connections as usize);
+        server.max_incoming(usize::try_from(config.max_connections).unwrap_or(usize::MAX));
         server.incoming_buffer_size(u64::from(config.max_handshake_bytes));
         server.incoming_buffer_size_total(
             u64::from(config.max_handshake_bytes) * u64::from(config.max_connections),
@@ -206,7 +206,9 @@ impl QuicEndpoint {
 
     fn check_capacity(&self) -> Result<(), QuicError> {
         self.health.check()?;
-        if self.endpoint.open_connections() >= self.config.max_connections as usize {
+        if self.endpoint.open_connections()
+            >= usize::try_from(self.config.max_connections).unwrap_or(usize::MAX)
+        {
             Err(QuicError::ConnectionCapacity)
         } else {
             Ok(())
