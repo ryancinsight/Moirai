@@ -10,7 +10,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-QUIC-PROMOTION-001 — Promote verified native QUIC [minor]
 - status: todo
 - priority: feature
-- outcome: Moirai 0.10.0 and moirai-quic 0.1.0 are available at the canonical provider revision; Metis resolves its Git lock from that published source.
+- outcome: Moirai 0.11.0 and moirai-quic 0.1.0 are available at the canonical provider revision; Metis resolves its Git lock from that published source. (0.10.0 was taken by main's clipboard release while this PR was in flight.)
 - acceptance: ADR 0075, real UDP interoperability/loss/bounds/cancellation tests, clean native diagnostics, compatibility checks and canonical Git lock pass before promotion. Windows/Linux transport evidence remains a platform gate.
 - scope: provider publication and consumer revision adoption; no credentials or trust-store configuration.
 - current increment: native QUIC, shared readiness, fallible facade spawning, bounded framing and fresh-key Metis sessions are implemented in [PR 618](https://github.com/ryancinsight/Moirai/pull/618). QUIC is required in native facade builds: 187 default tests, the minimal authenticated session, browser facade compilation, strict diagnostics and 892 applicable compatibility checks pass. CI checks default/minimal native sessions. Metis's prior 176-test canonical verification passes; the dependent consumer review adopts the updated provider Git pin. Default-branch promotion remains pending.
