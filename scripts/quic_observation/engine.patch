@@ -1,0 +1,150 @@
+--- a/src/connection/mod.rs
++++ b/src/connection/mod.rs
+@@ -59,6 +59,7 @@
+ mod packet_crypto;
+ use packet_crypto::{PrevCrypto, ZeroRttCrypto};
+ 
++mod observation;
+ mod paths;
+ pub use paths::RttEstimator;
+ use paths::{PathData, PathResponses};
+@@ -384,6 +385,7 @@
+     /// - a call was made to `handle_timeout`
+     #[must_use]
+     pub fn poll_timeout(&mut self) -> Option<Instant> {
++        self.observe_recovery("driver");
+         self.timers.next_timeout()
+     }
+ 
+@@ -1468,6 +1470,11 @@
+         space: SpaceId,
+         ack: frame::Ack,
+     ) -> Result<(), TransportError> {
++        if space != SpaceId::Data {
++            trace!(target: "quinn_proto::observation", ?space,
++                ranges = ?ack.iter().map(|r| [*r.start(), *r.end()]).collect::<Vec<_>>(),
++                "engine ack received");
++        }
+         if ack.largest >= self.spaces[space].next_packet_number {
+             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
+         }
+@@ -1667,6 +1674,7 @@
+                 return;
+             }
+         };
++        self.observe_recovery("pto");
+         trace!(
+             in_flight = self.path.in_flight.bytes,
+             count = self.pto_count,
+@@ -2111,6 +2119,8 @@
+         // complete. Therefore, we will never see CRYPTO data from a later-than-expected space.
+         debug_assert!(space <= expected, "received out-of-order CRYPTO data");
+ 
++        trace!(target: "quinn_proto::observation", ?space,
++            offset = crypto.offset, len = crypto.data.len(), "engine crypto received");
+         let end = crypto.offset + crypto.data.len() as u64;
+         if space < expected && end > self.spaces[space].crypto_stream.bytes_read() {
+             warn!(
+--- a/src/connection/observation.rs
++++ b/src/connection/observation.rs
+@@ -0,0 +1,64 @@
++//! Read-only diagnostic instrumentation; never published as a recovery fork.
++use super::{Connection, SpaceId, timer::Timer};
++use crate::Instant;
++
++impl Connection {
++    pub(super) fn observe_recovery(&self, reason: &str) {
++        if !tracing::enabled!(target: "quinn_proto::observation", tracing::Level::TRACE) {
++            return;
++        }
++        let now = Instant::now();
++        let mut spaces = Vec::new();
++        let mut queued = Vec::new();
++        let mut sent = Vec::new();
++        let mut acked = Vec::new();
++        for id in SpaceId::iter() {
++            let space = &self.spaces[id];
++            let number = id as u64;
++            spaces.push([number, u64::from(space.crypto.is_some()), space.next_packet_number,
++                space.rx_packet, space.crypto_offset, space.crypto_stream.bytes_read(),
++                space.sent_packets.len() as u64,
++                space.sent_packets.values().map(|p| u64::from(p.size)).sum(),
++                space.sent_packets.values().filter(|p| p.ack_eliciting).count() as u64,
++                space.pending.crypto.len() as u64, u64::from(space.pending_acks.can_send()),
++                u64::from(space.loss_probes)]);
++            queued.extend(space.pending.crypto.iter().map(|c|
++                [number, c.offset, c.data.len() as u64]));
++            for (pn, packet) in &space.sent_packets {
++                if let Some(retransmits) = packet.retransmits.get() {
++                    sent.extend(retransmits.crypto.iter().map(|c|
++                        [number, *pn, c.offset, c.data.len() as u64]));
++                }
++            }
++            if let Some(pn) = space.largest_acked_packet {
++                acked.push([number, pn]);
++            }
++        }
++        let timers: Vec<_> = Timer::VALUES.into_iter().filter_map(|timer|
++            self.timers.get(timer).map(|at| [timer as u64,
++                u64::try_from(at.saturating_duration_since(now).as_nanos())
++                    .expect("bounded diagnostic timer")])).collect();
++        let may_probe = !self.is_closed() && self.loss_time_and_space().is_none()
++            && (self.path.in_flight.ack_eliciting != 0 || !self.peer_completed_address_validation())
++            && (reason == "pto" || self.timers.get(Timer::LossDetection).is_some());
++        let pto: Vec<_> = if may_probe {
++            self.pto_time_and_space(now).into_iter().map(|(_, space)| space as u64).collect()
++        } else {
++            Vec::new()
++        };
++        let (credit, streams) = self.streams.observe_credit();
++        tracing::trace!(target: "quinn_proto::observation", reason,
++            flight_bytes = self.path.in_flight.bytes,
++            flight_packets = self.path.in_flight.ack_eliciting,
++            window_bytes = self.path.congestion.window(),
++            connection_max_data = credit[0],
++            connection_data_sent = credit[1],
++            buffered_data = credit[2],
++            send_window = credit[3],
++            engine_handshake = self.is_handshaking(),
++            tls_handshake = self.crypto.is_handshaking(),
++            spaces = ?spaces, queued = ?queued, sent = ?sent, acked = ?acked,
++            streams = ?streams, timers = ?timers, pto = ?pto,
++            "engine recovery state");
++    }
++}
+--- a/src/connection/packet_builder.rs
++++ b/src/connection/packet_builder.rs
+@@ -233,6 +233,13 @@
+             stream_frames: sent.stream_frames,
+         };
+ 
++        if space_id != SpaceId::Data {
++            trace!(target: "quinn_proto::observation", space = ?space_id,
++                pn = exact_number, size, ack_eliciting,
++                ranges = ?packet.retransmits.get().map(|r| r.crypto.iter()
++                    .map(|c| [c.offset, c.data.len() as u64]).collect::<Vec<_>>())
++                    .unwrap_or_default(), "engine packet sent");
++        }
+         conn.path
+             .sent(exact_number, packet, &mut conn.spaces[space_id]);
+         conn.stats.path.sent_packets += 1;
+--- a/src/connection/streams/state.rs
++++ b/src/connection/streams/state.rs
+@@ -144,6 +144,17 @@
+ }
+ 
+ impl StreamsState {
++    /// Numeric metadata only; no stream payload is inspected.
++    pub(crate) fn observe_credit(&self) -> ([u64; 4], Vec<[u64; 5]>) {
++        let mut rows: Vec<_> = self.send.iter().filter_map(|(id, send)| {
++            let send = send.as_ref()?;
++            Some([u64::from(*id), send.pending.offset(), send.max_data,
++                u64::from(send.pending.has_unsent_data()), u64::from(send.connection_blocked)])
++        }).collect();
++        rows.sort_unstable_by_key(|row| row[0]);
++        ([self.max_data, self.data_sent, self.buffered_data, self.send_window], rows)
++    }
++
+     #[allow(unreachable_pub)] // fuzzing only
+     pub fn new(
+         side: Side,

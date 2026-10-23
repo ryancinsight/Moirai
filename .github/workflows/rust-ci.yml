@@ -19,6 +19,11 @@ on:
     # Weekly parser-fuzz campaign (MOI-SEC-001-B) and Miri run; main only.
     - cron: "0 6 * * 1"
   workflow_dispatch:
+    inputs:
+      quic_case:
+        description: 'Additional diagnostic PROFILE:STREAMS:FRAME_BYTES; standard validation still runs the full matrix'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -35,19 +40,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Compare each exact committed provider graph under --locked. This API
-  # contract participates in the verification result on pull requests.
-  # Atlas ATLAS-SEMVER-GATE-FLEETWIDE-2026-08-28.
+  quic-diagnostics:
+    name: Native QUIC diagnosis
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.quic_case != '' }}
+    uses: ./.github/workflows/quic-transport.yml
+    with:
+      case: ${{ inputs.quic_case }}
+    permissions:
+      contents: read
+  quic:
+    name: Native QUIC validation
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    uses: ./.github/workflows/quic-transport.yml
+    permissions:
+      contents: read
+  # Atlas ATLAS-SEMVER-GATE-FLEETWIDE-2026-08-28. The fleet gate retired
+  # the locked-source contract job after 7a5a1036; its compare crashed on
+  # any package absent from the base inventory (moirai-quic is new here).
   semver:
     name: SemVer gate
-    uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@7a5a1036973b81dee0e20321942ce0c7e2bf9f9b
+    uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@d0eb478f0737df1c45ab5f346f735b8b61fa2cc7
     with:
       # Proc-macro-only targets have no library surface for this checker;
       # the workspace gate still compiles and tests moirai-async-macros.
-      package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
+      package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-quic,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
       rust-toolchain: 1.97.0
-      dependency-contract: locked
-      atlas-ref: 7a5a1036973b81dee0e20321942ce0c7e2bf9f9b
+      atlas-ref: d0eb478f0737df1c45ab5f346f735b8b61fa2cc7
     permissions:
       contents: read
 
@@ -105,6 +123,11 @@ jobs:
 
       - name: Run workspace tests
         run: cargo nextest run --locked --workspace --all-features
+
+      - name: Verify QUIC in default and minimal native builds
+        run: |
+          cargo nextest run --locked -p moirai-runtime --test quic
+          cargo nextest run --locked -p moirai-runtime --no-default-features --test quic
 
       # Criterion runs each benchmark once when its binary is not given
       # `--bench`; nextest lists them as tests, so every one runs under the
@@ -554,7 +577,7 @@ jobs:
   verdict:
     name: Verification result
     if: ${{ always() }}
-    needs: [semver, adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri]
+    needs: [semver, adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri, quic]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}

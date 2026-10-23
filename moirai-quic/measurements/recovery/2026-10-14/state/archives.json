@@ -1,0 +1,106 @@
+{
+  "archives": [
+    {
+      "name": "handshake-baseline.json.gz",
+      "compressed_sha256": "f295ee0fdf617842e735d8186065bfb6ab34a5a166f4c22032cb1978344231e0",
+      "uncompressed_sha256": "970ddd0df873988d8ee2e8db855ee5350158ecbe7e80a6ee561d1fac1d014d94",
+      "context": "27 complete local fault-rule cases; independent of shaped acceptance"
+    },
+    {
+      "name": "handshake-candidate.json.gz",
+      "compressed_sha256": "645c69dac4f31a61fd890813b2bc8b7cb936a838636afd7c25fdb56001212490",
+      "uncompressed_sha256": "e260357b7b19f70f6ee8f0ad5f8c27244b68a244d0fd6e20ccb8c5d09436c1f0",
+      "context": "27 complete local fault-rule cases; independent of shaped acceptance"
+    },
+    {
+      "name": "handshake-initial-baseline.json.gz",
+      "compressed_sha256": "5223641b6a593c7062fa197e05a8eeb134556b05d51b0a13cd5395d74ad4ff2e",
+      "uncompressed_sha256": "23d6b978ab895b0b9ea82d27affc375a32e9e62be4e4cc16a9f7068dfe92bbf6",
+      "context": "preceding nine-case exploratory local experiment; not acceptance"
+    },
+    {
+      "name": "handshake-initial-candidate.json.gz",
+      "compressed_sha256": "d165b36507bc0acff082dc55cef935594c163182bc2fc989369bf46b1d48cccc",
+      "uncompressed_sha256": "48962eb1d2a4fd8ef26042a58fdfcf5f4e4e02c0360241ca401bf51297473c55",
+      "context": "preceding nine-case exploratory local experiment; not acceptance"
+    },
+    {
+      "name": "handshake-recording-failure.json.gz",
+      "compressed_sha256": "b8b60c395da7171e0982e8a3747cdb82291084893510b654127b51bbcb4705eb",
+      "uncompressed_sha256": "2dc98774e6482270dddbeb68165e97867b717aeea087a3a544b120d092a8be2c",
+      "context": "retained unsuccessful result-file collection; corrected complete reruns remain separate"
+    },
+    {
+      "name": "03dcc4a3-fairness-0.json.gz",
+      "compressed_sha256": "74301fa3b71c676874c61e6d2df84fdaf717d1e6c64e4efec510d56c696bbfd4",
+      "uncompressed_sha256": "edcd3d0e3ab8b02736d522569ae2d55fe53542835e6fc7c69dd004d81ae2c85c",
+      "context": "complete 03dcc4a3 read-only observer shard; stock algorithms and original workload unchanged"
+    },
+    {
+      "name": "03dcc4a3-fairness-1.json.gz",
+      "compressed_sha256": "50efa49317bd4bf766c9fd558cf3534fbe0c19a603aa4bc89ea461fa379d4369",
+      "uncompressed_sha256": "09cd2f4217739dbcb9d3f83b5c3d666fc0b2b5e71af6ea97e348aeb52a4ad41c",
+      "context": "complete 03dcc4a3 read-only observer shard; stock algorithms and original workload unchanged"
+    },
+    {
+      "name": "03dcc4a3-fairness-2.json.gz",
+      "compressed_sha256": "abfb1a60ed81c3921ab03d6e5d9e0d3b681d51c674d0da901742a66b768bafd8",
+      "uncompressed_sha256": "953f6628f29ecf0165fc6e4f29d9f61266633d69341e17d3e06cfd30963208e7",
+      "context": "complete 03dcc4a3 read-only observer shard; stock algorithms and original workload unchanged"
+    },
+    {
+      "name": "03dcc4a3-matrix-0.json.gz",
+      "compressed_sha256": "a9bef9ce970eb0d469942af8a50dd981a0f211be419d97ba8819d28fe811591d",
+      "uncompressed_sha256": "000db6622c93fc932cf3906937a81750a203f25775a2f452e1304ec94c6b556f",
+      "context": "complete 03dcc4a3 read-only observer shard; stock algorithms and original workload unchanged"
+    },
+    {
+      "name": "03dcc4a3-matrix-1.json.gz",
+      "compressed_sha256": "d5e7fa844142c619a4f6e7bc1ee30d74008f0550defea157746e2b22e2538ba5",
+      "uncompressed_sha256": "171aaaa0e2731df61b9a41b6310b0ff413728049993a30d5c1cc7b5d37602646",
+      "context": "complete 03dcc4a3 read-only observer shard; stock algorithms and original workload unchanged"
+    },
+    {
+      "name": "03dcc4a3-matrix-2.json.gz",
+      "compressed_sha256": "d0ab6ab18c2ca4d480194295755a716a949686ba1df6adee21eb9a4f7af27eb5",
+      "uncompressed_sha256": "76075b912ed8641a80f10dcc9e24eab08a3d6dfd6e845afbec3a955773fc8ec9",
+      "context": "complete 03dcc4a3 read-only observer shard; stock algorithms and original workload unchanged"
+    },
+    {
+      "name": "03dcc4a3-audit.json.gz",
+      "compressed_sha256": "b6d24c1ce8735fdee44174fd77c943afed043e38e0334735c92e8bd3b65486cc",
+      "uncompressed_sha256": "45e8212132f9519b478f973241caef04e0f3d20f670b64debd89171c897e9622",
+      "context": "independent six-shard original-domain, actual byte/state/rate/fairness/queue audit"
+    },
+    {
+      "name": "03dcc4a3-original-matrix.json.gz",
+      "compressed_sha256": "d2ad4f5675b8c4301a9f637bf7ac64007d97ce84b00a56c9043cd4135aa9f041",
+      "uncompressed_sha256": "da90e45ebb50c7de8cdee7aecd8604f7d4e431f8e97ed2e38981497ad0763d3c",
+      "context": "all 108 uninstrumented original CUBIC pairs at the equivalent merge tree"
+    },
+    {
+      "name": "03dcc4a3-original-audit.json.gz",
+      "compressed_sha256": "5bfc8781f0122a94b49b3a1206a0842f948a5f64529dd18a6163a8019477e51c",
+      "uncompressed_sha256": "0e682488da8a7fde9f89b01f32881a4d62abb7bfb0920329e706683647b47988",
+      "context": "independent exact-domain/byte/kernel audit of the unchanged original gate"
+    },
+    {
+      "name": "03dcc4a3-required-checks.json.gz",
+      "compressed_sha256": "2365c6e57b63140aff547d8da5ec2f84c9f2f497b1c03e07c7490218ff488cc8",
+      "uncompressed_sha256": "a2158a5510487d9dd2d55864a5a8bec2ef8164883834ebc4849103061527b705",
+      "context": "actual required-check snapshot; original performance job fails; aggregate result queued"
+    },
+    {
+      "name": "candidate-native-contracts.json.gz",
+      "compressed_sha256": "2106995d8aa50b2f8fea4ee193b20eff39010a571e42fc520a1d18a19adc2936",
+      "uncompressed_sha256": "f9b02cd208a9eb3053eb371c9c7ba132ad5a6831a009f27056ce4f48748b1478",
+      "context": "23 native candidate tests and exact one-file source difference; retain rejected metadata invocation"
+    },
+    {
+      "name": "handshake-measured-patch.json.gz",
+      "compressed_sha256": "e74f3cf01214d1c0a37d3e7feb4f82bfc9f16c809e5cf885a6343fa6a7d6fe02",
+      "uncompressed_sha256": "5ca7516ae5caa83a5efa93784900ce97253ff77c498a4a12d6a7c37c878ea783",
+      "context": "exact measured patch bytes and normalized delivery identity; verified source equivalence"
+    }
+  ]
+}

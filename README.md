@@ -125,6 +125,52 @@ Moirai's own partition helpers perform this initialization automatically.
 Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 (`rust-toolchain.toml`).
 
+## Native QUIC sessions
+
+UDP queue requests and multicast membership use the shared PAL configuration
+in [ADR 0081](docs/adr/0081-applied-udp-socket-configuration.md). Async UDP applies
+`UdpConfig` before publishing a socket; `UdpBufferConfig` carries independent
+positive receive/send requests. `MulticastConfig` carries an IP group and its
+interface. Effective queue readback exposes kernel caps, rounding and accounting.
+QUIC accepts the same buffer vocabulary through `with_udp_buffers` and reports
+bound queue sizes; its trust, stream budgets and deadlines remain independent.
+
+Workspace 0.10.0 includes `moirai-quic` 0.1.0 in every Unix/Windows facade build,
+including `--no-default-features`. Import `moirai::quic`; no feature flag is needed.
+One authenticated UDP connection carries independent bidirectional message
+streams. `QuicConfig` bounds frames, streams, connections, queued handshakes and
+deadlines; cancellation invalidates partial framing. TLS 1.3 authenticates the
+server name and explicit trust roots; optional client roots require mutual TLS.
+Early data and unreliable datagrams are disabled.
+
+`QuicConfig::with_congestion_policy` selects stock CUBIC, NewReno or explicitly
+experimental BBR at endpoint construction. CUBIC remains the default. The
+[matched recovery study](moirai-quic/measurements/recovery/2026-10-13/README.md)
+retains 108 original cases per policy and competing-flow evidence: NewReno does
+not close the loss deadline, while BBR's mixed-policy fairness and queue tradeoff
+does not justify default adoption. The original promotion gate remains enforced.
+The [complete October 14 trace study](moirai-quic/measurements/recovery/2026-10-14/README.md)
+repeats every original case and competing experiment on Rustls 0.23.46, retaining
+actual peer preflights and recovery events. CUBIC/NewReno remain 105/108;
+experimental BBR remains 108/108 with fairness, queue and window-growth concerns.
+The independent original CUBIC gate reproduces the same three deadlines;
+Linux/Windows, workspace, supply-chain and lockfile checks pass. No default change
+is accepted. [ADR 0082](docs/adr/0082-recovery-state-observation.md) isolates
+read-only engine-state capture and a real handshake-loss experiment. Its local
+candidate remains experimental; the canonical dependency and promotion job
+remain unchanged.
+
+`Arc<Moirai>` implements the fallible `TaskSpawner` seam consumed by the provider.
+Quinn owns protocol recovery and congestion control; Moirai owns scheduling,
+timers and shared socket readiness. Quinn's Tokio synchronization primitives
+introduce no Tokio runtime. The native provider links ring's native code
+statically; ordinary TCP TLS continues to use RustCrypto. This transport serves
+native binary sessions; browser HTTP/3 requires its own HTTP mapping.
+
+[ADR 0075](docs/adr/0075-quic-multiplexed-sessions.md) specifies ownership,
+admission, framing and failure contracts. Existing distributed TCP routes and
+private process IPC remain explicit transport choices.
+
 `moirai-webview` 0.2.0 supplies Rust-owned AppKit application, Edit and Window
 menus and serves packaged Apple resources with Fetch-compatible
 status and MIME/length headers. AppKit and UIKit use the same response law;
@@ -154,6 +200,7 @@ the packaged main frame remains intact (ADR 0074).
 | [`moirai-crypto`](https://docs.rs/moirai-crypto) | Pure-Rust rustls `CryptoProvider` (RustCrypto, no C toolchain) |
 | [`moirai-tls`](https://docs.rs/moirai-tls) | Async TLS client over Moirai sockets, no Tokio |
 | [`moirai-http`](https://docs.rs/moirai-http) | Minimal async HTTP/1.1 client over `moirai-tls` |
+| `moirai-quic` | Bounded native QUIC sessions over Moirai task, timer and UDP readiness providers |
 
 ## Runtime
 

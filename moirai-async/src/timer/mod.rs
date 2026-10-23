@@ -24,6 +24,11 @@ pub use wheel::{TimerCommand, TimerWheel};
 use std::future::Future;
 use std::time::{Duration, Instant};
 
+/// Largest admitted timer duration before overflow protection clamps it.
+///
+/// Network protocols requiring an exact deadline reject larger durations.
+pub const MAX_TIMER_DURATION: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
+
 /// Compute `base + duration` without panicking on absurd durations.
 ///
 /// `Instant + Duration` panics on overflow, so a near-`Duration::MAX` input
@@ -34,8 +39,8 @@ use std::time::{Duration, Instant};
 /// (non-panicking) degenerate fallback; it is unreachable on any real
 /// platform, where `Instant` has decades of headroom.
 pub(crate) fn clamped_deadline(base: Instant, duration: Duration) -> Instant {
-    const MAX_TIMER: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
-    base.checked_add(duration.min(MAX_TIMER)).unwrap_or(base)
+    base.checked_add(duration.min(MAX_TIMER_DURATION))
+        .unwrap_or(base)
 }
 
 /// Create a delay future that completes after the specified duration

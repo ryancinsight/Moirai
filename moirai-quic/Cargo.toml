@@ -1,0 +1,31 @@
+[package]
+name = "moirai-quic"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+description = "Bounded authenticated QUIC multiplexing over Moirai scheduling and socket readiness"
+
+[target.'cfg(any(unix, windows))'.dependencies]
+moirai-core.workspace = true
+moirai-async.workspace = true
+moirai-pal.workspace = true
+quinn.workspace = true
+# Enforce the security floor even when this provider is consumed independently.
+rustls.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+moirai-executor.workspace = true
+futures = "0.3"
+tracing.workspace = true
+tracing-subscriber.workspace = true
+proptest.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

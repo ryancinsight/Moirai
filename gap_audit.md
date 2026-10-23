@@ -3,6 +3,179 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Native QUIC transport — 2026-10-13 [minor]
+
+ADR 0082 adds a separate read-only diagnostic engine build for per-space
+ACK/CRYPTO, actual flight, credit and timer observations. The original transport,
+locks and CUBIC gate remain unchanged. All 81 corrected local original-domain
+policy pairs validate bytes and state invariants. The preceding observer calls
+the PTO selector without timer/flight preconditions; retain that unsuccessful
+capture and reject its selected-space claims. The corrected full Linux matched study completes at [this commit](https://github.com/ryancinsight/Moirai/commit/03dcc4a31d7f793e4cb1cb7d96ff74f47033946c): CUBIC/NewReno
+105/108, BBR 108/108; independent pristine CUBIC remains 105/108 at the same
+tree. All six shards and every engine-state invariant pass independent audit. Instrumented measurements do not certify pristine-engine
+performance or establish a causal correction by themselves.
+
+The completed Linux competing shards narrow the early failures to queued
+Handshake CRYPTO starvation: 634 client bytes remain queued outside flight,
+Data PTOs repeat and the server consumes only 2246/2880 handshake bytes. A
+separate real maximum-workload datagram-loss experiment completes 17/27 baseline
+and 27/27 candidate cases; the isolated candidate passes all 23 native QUIC
+contract tests. The candidate preserves queued CRYPTO PTO eligibility and client
+handshake confirmation. It is not adopted: full candidate Linux competing/rate/
+latency/queue evidence and a supported reviewed production dependency remain
+required, and established-session congestion throughput remains unresolved.
+
+The completed supply-chain job at [this commit](https://github.com/ryancinsight/Moirai/commit/733afc9fcce3b70b4ceef512914e83f6e6142841) reports four Rustls 0.23.45
+advisories. The shared dependency and standalone QUIC boundary require released
+Rustls 0.23.46; both canonical locks change only Rustls's external identity.
+At patched [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf), all 23 local QUIC/trace checks, strict transport diagnostics,
+223 patch-level API checks and 1,341 workspace tests pass (nine existing ignored
+probes). Every applicable non-performance CI job passes, including Linux/Windows,
+workspace, supply-chain and lockfile integrity. The unchanged executor retention
+test emits one process-output leak diagnostic in the workspace run; its focused
+rerun passes without that diagnostic. No heap-leak inference follows.
+
+The patched October 14 study at [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf) repeats the full original domain per
+policy and all 30 competing experiments with actual peer traces and verified
+preflights: CUBIC/NewReno 105/108, experimental BBR 108/108. Independent
+uninstrumented CUBIC CI reproduces the same three deadlines. Controlled-loss and
+competing UDP-error deltas are zero. One successful unshaped NewReno case records
+three client receive-buffer drops (overlapping InErrors/RcvbufErrors), which does
+not establish socket exhaustion in the loss failures. Six early competing
+failures retain unestablished server handshakes while clients transition from a
+Handshake-space PTO to repeated Data-space PTOs; largest observed server driver
+lateness is 85,146 ns. Fifteen other competing pairs reach the pair deadline.
+Established failures show congestion, pacing and stream-flow-credit notifications;
+counts do not resolve wall-time costs. BBR's mixed-policy sampled Jain indices
+0.557124–0.581728, larger queues and sampled 10,313,912-byte congestion window
+prevent default adoption. Preceding [this commit](https://github.com/ryancinsight/Moirai/commit/733afc9fcce3b70b4ceef512914e83f6e6142841) records a 133,608,526-byte window;
+a window is neither allocated memory nor actual flight. Upstream PR 2798 remains
+open/unmerged, and internal BBR mode/target state is unobserved. Pending CRYPTO,
+ACK, flight and flow-credit timelines remain the next evidence requirement.
+All preceding, unsuccessful and canceled inputs are retained; no acceptance
+cases are spliced. The separate fuzz-lock defect is a missing tracing dependency
+edge; offline resolution repairs only that edge and both locks resolve under
+--locked. The original performance gate remains failed.
+
+Current-main integration retains 2b189f0a's WebView bridge/startup fixes and
+version 0.9.2 history. The pending additive QUIC/native surface and documented
+pre-1.0 UDP migration target workspace 0.10.0. ADR 0081 replaces the PR-only
+UDP decision number because main now owns ADR 0078. The main merge preserves
+external package identities and adds tracing-serde 0.2.0; the subsequent security correction changes only Rustls to 0.23.46.
+
+ADR 0080 adds opt-in protocol-event, phase and timer-driver wake observations
+for the next complete matched study. Initial local ready-poll instrumentation
+records no timer readiness: pinned Quinn checks monotonic time before polling
+its async timer. That diagnostic path is rejected; actual shared-driver wake
+lateness includes QUIC, operation and observation timers and excludes subsequent
+protocol scheduling. It cannot establish pacing duration or complete flight
+history. Concurrent server-output draining prevents diagnostic pipe pressure.
+The first Linux trace study at [this commit](https://github.com/ryancinsight/Moirai/commit/d946459c30f405c5c6ee904a633019b25d8167b8) exposes sudo environment filtering:
+controller opt-in metadata is true but both child traces are absent. Independent
+auditing rejects that diagnostic evidence. Explicit namespace-local forwarding
+of the single public switch and a real two-peer trace preflight close collection;
+the complete corrected study above supplies the required actual observations.
+
+ADR 0079 defines matched stock CUBIC, NewReno and experimental-BBR evaluation.
+Policy selection preserves the original CUBIC default and all security/resource
+contracts. The independent original 108-pair promotion job remains unchanged.
+The first comparison records 105/108 CUBIC, 104/108 NewReno and 107/108
+experimental-BBR complete reports; two failures come from collector cleanup
+and obscure those pair outcomes. They remain failed experiments. All three
+maximum loss cases fail under CUBIC/NewReno and complete under experimental
+BBR, whose mixed-policy sampled fairness and larger queues prevent default
+selection. The collector joins its observer before namespace cleanup and checks
+actual absence after a raced kill. The fresh complete study at [this commit](https://github.com/ryancinsight/Moirai/commit/8e9dd137e7cbf37c643b67b724c4f1a945bb6021) records
+CUBIC 105/108, NewReno 105/108 and experimental BBR 108/108, with no collector
+errors and zero UDP-error deltas in every matrix/competing role. BBR's large
+loss median is 74.241825 Mbit/s and 181.234076 ms client RTT p95; mixed-policy
+sampled Jain indices 0.569–0.598 and larger queues prevent default adoption.
+Four early competing failures retain server accept/handshake-deadline origins;
+the underlying recovery cause remains unproved. In the preceding study, one unshaped CUBIC pair
+records two receive-buffer drops and still verifies all bytes; controlled loss
+failures retain zero error deltas. No root-cause closure follows from that
+unshaped observation. Both complete studies and all failures remain archived.
+The recovery gap and protected promotion gate remain open.
+
+Fresh Linux native validation passes at [this commit](https://github.com/ryancinsight/Moirai/commit/03d640b890af232616a9dc85ffbddc38b3d8d4f8). The fresh Windows QUIC job
+fails six unused-WebView diagnostics because the shared-limits module compiles
+without its optional WebView2 consumer. Installed MSVC cross-compilation
+reproduces the same failure. The corrected module predicate is
+`(Windows && WebView2) || Browser || Test`; default Windows diagnostics pass
+without suppression. Default, minimal and WebView2-enabled Windows PAL
+cross-compilation and strict browser PAL diagnostics pass. The complete native
+workspace still passes 1,329 tests with its nine existing ignored probes.
+Actual Windows WebView2/capture execution passes at [this commit](https://github.com/ryancinsight/Moirai/commit/03d640b890af232616a9dc85ffbddc38b3d8d4f8); the final native
+QUIC runtime must still pass at the corrected revision.
+
+Current-main integration uses 7828f5df and preserves PR 617 capture admission
+and PNG validation plus PR 619 page mechanisms. The transport/evidence audit
+compares 47 paths with the previous PR head; all match, allowing only the UDP
+ADR comment renumbering. Of 64 main code paths, 63 retain exact bytes and the
+private PAL module gate follows its actual optional consumers. The socket-test split
+requires its two leaf fixtures in the embedded benchmark inventory; the
+unmodified contract fails without them and the complete corrected workspace
+passes 1,329 tests (nine existing ignored probes). The native integration suite
+passes 397 tests with no skips; minimal authenticated facade exchange passes.
+Both canonical locks resolve and preserve every external dependency identity.
+Current-main API comparison passes 979 of 980 applicable checks and reports the
+existing async UDP type-owner migration. CHANGELOG.md records the pre-1.0 break;
+this is not a backward-compatibility pass. Comparison with the previous QUIC
+head passes all 980 applicable checks across five native surfaces. Local
+validation runs on macOS; fresh
+Windows/Linux runtime and protected default-branch promotion remain gates.
+Historical platform and controlled-profile evidence below retains its source
+revisions and does not certify the reconciled tree.
+
+ADR 0081 closes ignored UDP configuration: positive, native-range-checked
+receive/send requests apply through PAL, typed multicast joins the specified
+group/interface, and readback reports kernel queue values. The original ignored
+buffer regression fails with a 786,896-byte effective queue instead of the
+requested 4,096 bytes; the corrected implementation matches a separate native
+reference. All 338 transport/async tests and strict diagnostics pass locally,
+including exact IPv4/IPv6 unicast, empty datagrams, IPv4 multicast, native option
+failure cleanup and configured authenticated QUIC with acknowledged FIN. IPv6
+multicast covers group/family validation and real invalid-interface failure;
+positive IPv6 multicast delivery remains unmeasured. Queue sizes do not change
+protocol windows or deadlines and supply no evidence to close the recovery limit.
+
+Moirai 0.10.0 includes moirai-quic 0.1.0 in every native facade build, without
+a QUIC feature flag. The default suite passes 187 tests; the minimal facade
+completes authenticated frame exchange and acknowledged teardown. Browser
+facade compilation excludes native QUIC. CI checks both native modes. The provider owns
+Moirai task/timer/PAL driving around Quinn, TLS 1.3 trust and ALPN, bounded
+connections/streams/handshakes/framing and terminal cancellation. Reliable binary
+sessions multiplex over UDP; HTTP/3/WebTransport mapping remains outside this
+slice. Quinn uses Tokio sync primitives without its runtime and links ring's
+native code. Shared readiness retires notifications under the registration lock;
+legacy UDP allocates no fan-out state until the shared poller API is used.
+
+All 187 HTTP/PAL/facade/QUIC tests pass against the canonical Git lock without path
+patches; native warning-denying Clippy and changed-source formatting pass.
+Native loopback checks cover full byte domains, finite loss and pathological
+perpetual loss, certificate/name/ALPN/mutual-TLS rejection, truncation, resource
+limits, stopped spawners, FIN acknowledgement and sibling isolation. The earlier
+readiness implementation deadlocks under the new late-subscriber regression;
+the corrected transition passes. Compatibility runs 892 applicable checks with
+the stricter patch override against 0.8.2. Metis passes 176 real backend/IPC/core
+tests and native workspace checks against the published Git provider with no
+path patches. The two-process mutual-TLS CLI passes on IPv4 and IPv6. Canonical provider promotion and
+controlled-profile collection remain active gates. Both hosted Linux and Windows
+pass strict diagnostics, 193 socket/HTTP/facade/load tests and the minimal native
+session at published revision 54568557. The [Linux workspace gate](https://github.com/ryancinsight/Moirai/actions/runs/38459278652)
+passes 1,301 tests (nine existing ignored probes) and 702 minimal-feature tests.
+The reconciled provider also passes all 27
+full-domain local process-pair probes. No wide-area performance or
+migration result is inferred from loopback correctness.
+
+Controlled CI measures all 108 process pairs at one source tree: 105 validate
+exact bytes; all three maximum-frame 16-stream loss cases exceed 60 seconds.
+All three diagnostic repetitions reproduce that limit with continuing verified
+progress and zero namespace UDP errors. Recovery snapshots identify contracting
+CUBIC windows. [Archived evidence](moirai-quic/measurements/controlled/2026-10-13/README.md)
+retains source, queues, samples and both peer traces; the active recovery-policy
+evaluation belongs to MOI-QUIC-RECOVERY-001 in backlog.md. No deadline or workload
+adjustment establishes a pass.
 ## Mnemosyne 0.10 source-cohort boundary — 2026-10-15 [patch]
 
 Moirai main `2b189f0a` requires allocator facade 0.9 while the reviewed Eunomia

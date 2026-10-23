@@ -815,7 +815,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "futures",
  "libc",
@@ -825,11 +825,12 @@ dependencies = [
  "moirai-pal",
  "moirai-transport",
  "moirai-utils",
+ "tracing",
 ]
 
 [[package]]
 name = "moirai-async-macros"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -838,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "bytemuck",
  "libc",
@@ -849,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-crypto"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -872,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-executor"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "melinoe",
  "mnemosyne-memory",
@@ -896,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-http"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "http",
  "httparse",
@@ -907,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-pal"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -925,7 +926,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-scheduler"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "loom",
  "mnemosyne-memory",
@@ -936,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tls"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "futures-io",
  "futures-rustls",
@@ -948,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-transport"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "bytemuck",
  "libc",
@@ -959,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-utils"
-version = "0.10.0"
+version = "0.11.0"
 
 [[package]]
 name = "nu-ansi-term"
@@ -1293,9 +1294,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -1671,14 +1672,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]

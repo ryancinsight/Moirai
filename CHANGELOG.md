@@ -5,6 +5,131 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - Unreleased
+
+### Added
+
+- [patch] Add a separately built, checksum-verified read-only recovery observer
+  for per-space ACK/CRYPTO, actual flight, flow credit and timer state (ADR 0082).
+  Preserve canonical transport/locks and the original CUBIC promotion gate.
+  Validate all 81 corrected local policy pairs and retain the rejected off-timer
+  PTO-selector capture. The complete Linux state study retains 105/108 CUBIC/
+  NewReno, 108/108 BBR and all 30 competing experiments; the unchanged pristine
+  CUBIC job independently reproduces 105/108 at the same source tree.
+- [patch] Retain a real maximum-workload handshake-loss experiment and isolated
+  recovery candidate: 17/27 baseline versus 27/27 candidate complete exchanges,
+  plus 23 native candidate contract tests. Correlate all six Linux early failures
+  with queued Handshake CRYPTO and Data-only PTOs. Keep the patch experimental,
+  the canonical dependency unchanged and the original promotion gate enforced.
+
+- [patch] Archive and independently audit the complete October 14 recovery trace
+  study and independent original CUBIC gate. Preserve 105/108 CUBIC/NewReno,
+  108/108 experimental BBR and all competing outcomes; distinguish early
+  server-handshake failures from established congestion/pacing/flow-credit
+  pressure. Repeat the complete study on security-patched [this commit](https://github.com/ryancinsight/Moirai/commit/140d60cf43e152b816ccd8d4ff5ac12a0e53dfdf): six early
+  server-handshake failures and 15 shared-queue pair deadlines remain. Retain
+  unsuccessful/canceled inputs and keep promotion blocked.
+- [patch] Add opt-in load-probe aggregation of pinned Quinn recovery/PTO events,
+  handshake/admission/exchange phases and actual shared timer-driver wake
+  lateness (ADR 0080). Drain server diagnostics concurrently with client work;
+  retain the full original workloads, deadlines and CUBIC promotion gate.
+- [patch] Forward only the public trace opt-in inside owned Linux namespaces;
+  an authenticated two-peer preflight rejects missing child observations before
+  full measurement. Retain the unsuccessful environment-filtered study.
+- [minor] Bounded stock congestion-policy selection retains CUBIC as default;
+  NewReno and explicitly experimental BBR permit matched measurements through
+  the same authenticated transport. ADR 0079 preserves the original full-matrix
+  promotion gate and adds shared-queue evidence collection without changing
+  deadlines, flow-control windows, socket buffers or security contracts.
+- [patch] Archive unsuccessful stock-policy experiments and correct measured
+  observer/namespace-cleanup races. Verify kernel process absence before
+  accepting a raced kill; retain real cleanup errors. Log originating probe
+  failures before endpoint drain without emitting successful partial reports.
+- [patch] Complete a fresh original-domain comparison after collector correction:
+  CUBIC and NewReno each verify 105/108 pairs; experimental BBR verifies 108/108.
+  Archive all matched fairness/latency/queue evidence and unsuccessful earlier
+  experiments. BBR's mixed-policy tradeoff does not justify a default change;
+  the original CUBIC promotion gate and MOI-QUIC-RECOVERY-001 remain open.
+
+- [minor] PAL-owned applied UDP buffer/broadcast/multicast configuration and
+  effective kernel queue readback, shared by async UDP and QUIC. QUIC queue
+  requests leave TLS, stream windows and finite deadlines intact (ADR 0081).
+
+- [patch] Preserve the complete 108-pair controlled CI matrix and independent
+  verification: 105 exact-byte successes, three maximum-frame/16-stream loss
+  deadlines and zero kernel UDP errors. Keep the measured recovery limit and
+  failed performance gate explicit; diagnostic/full artifacts have distinct names.
+- [minor] Passive connection metrics expose wire, recovery, congestion-window,
+  path-RTT and MTU observations without exposing Quinn types. Controlled probes
+  retain verified progress, namespace UDP/socket counters and every failure;
+  diagnostics can select one declared case while normal CI retains all 108 pairs.
+- [patch] Native load probe and Linux/Windows transport gates validate mutual TLS,
+  complete bytes and acknowledged FIN; isolated kernel profiles retain exact
+  RTT/goodput samples, loss counters and source/runner provenance.
+
+- `WebSocketPeerClosed` carries a validated close code/reason as an I/O cause;
+  native session dispatch identifies clean closure without comparing diagnostics.
+- `moirai-quic` 0.1.0: TLS 1.3 native QUIC with explicit trust roots, optional
+  mutual TLS, validated ALPN, reliable multiplexed streams, bounded connection,
+  stream/handshake/frame admission and finite operation deadlines (ADR 0075).
+- Native facade `quic` module in default and minimal builds; no QUIC feature
+  flag exists. `Moirai` implements the fallible core
+  `TaskSpawner` trait so protocol drivers share the application's scheduler.
+- PAL shared cancellable UDP readiness, native socket adoption and batched I/O
+  pollers; the timer's maximum admitted duration is authoritative for protocols.
+
+### Changed
+
+- [minor] Reconcile current main 0.9.2 and classify the pending QUIC additions
+  and pre-1.0 UDP migration under workspace 0.10.0; moirai-quic remains 0.1.0.
+  Preserve main's accepted ADR 0078 and number the applied UDP decision 0081.
+- Quinn owns recovery/congestion and delegates task, timer and socket driving to
+  Moirai. Its Tokio synchronization primitives introduce no Tokio runtime;
+  QUIC's upstream rustls/Retry bridge links ring native code statically.
+- Writable readiness remains cached until actual backpressure, avoiding one
+  register/cancel cycle per packet. Shared notification retirement occurs under
+  the registration lock so late subscribers cannot be stranded.
+
+### Breaking
+
+- [major] The pre-1.0 UDP configuration moves from the async crate to PAL.
+  Replace `moirai_async::net::types::UdpConfig` imports with
+  `moirai_async::net::UdpConfig`; use `buffers.receive`/`buffers.send` with
+  `NonZeroUsize` and an explicit multicast group/interface instead of the
+  former ignored `buffer_size` and boolean. Native clients update the same
+  change; no compatibility facade retains the old type owner (ADR 0081).
+
+- Replace `UdpConfig.buffer_size` with independent `buffers.receive` and
+  `buffers.send` requests using `NonZeroUsize`. Replace the ignored multicast
+  boolean with an explicit `MulticastConfig` group/interface variant. Import
+  the PAL-owned configuration from `moirai_async::net`, rather than its former
+  `types` module. Absent buffer requests now explicitly retain kernel defaults.
+
+- Unix/Windows facade builds require ring's C/assembly build tools, including
+  `--no-default-features`. Remove `--features quic` from draft-increment commands;
+  QUIC and TLS validation remain part of the native transport contract.
+
+### Fixed
+
+- [patch] Require Rustls 0.23.46 in the shared TLS dependency and standalone
+  QUIC provider after RUSTSEC-2026-0346/0347/0348/0349. Preserve caller trust,
+  TLS/ALPN, early-data policy and public vocabulary; refresh both locks and
+  repeat native/security/full-matrix validation without advisory suppressions.
+  All applicable non-performance CI jobs pass; the independent original CUBIC
+  gate still fails the same three deadlines. Preserve preceding-stack evidence.
+- [patch] Resolve the independent fuzz lock with the timer driver's regular
+  tracing dependency edge; preserve every package identity and strict locked
+  resolution. Diagnostic tests retain full span trees on failure.
+- [patch] Compile shared WebView limits only for opted-in Windows WebView2,
+  browser consumers or portable tests. Default/minimal Windows transport
+  builds retain strict diagnostics without unused optional-provider state.
+- [patch] The embedded benchmark source inventory includes both socket-test
+  leaves after the TCP/UDP split; loopback, readiness, backpressure and
+  cancellation assertions retain their full computed-value requirements.
+- Partial framing aborts on cancellation, failure and deadline. FIN
+  acknowledgement completes queued output before connection teardown.
+- Spawner rejection retains its original error across Quinn's infallible runtime
+  ABI; message/handshake allocation respects caller budgets.
 ## [0.10.0] - Unreleased
 
 ### Added
