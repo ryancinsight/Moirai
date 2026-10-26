@@ -120,7 +120,7 @@ fn test_mpsc_send_future_dropped_cancels_waiter() {
     // The full send_waiters queue must be empty after the drop
     match tx.shared.lock() {
         Ok(shared) => assert!(shared.send_waiters.is_empty()),
-        Err(_) => panic!("channel state poisoned during waiter cancellation"),
+        Err(poisoned) => panic!("channel state poisoned during waiter cancellation: {poisoned}"),
     }
 }
 
@@ -136,7 +136,7 @@ fn test_mpsc_recv_future_dropped_cancels_waiter() {
     // The full recv_waiters queue must be empty after the drop
     match tx.shared.lock() {
         Ok(shared) => assert!(shared.recv_waiters.is_empty()),
-        Err(_) => panic!("channel state poisoned during waiter cancellation"),
+        Err(poisoned) => panic!("channel state poisoned during waiter cancellation: {poisoned}"),
     }
 }
 

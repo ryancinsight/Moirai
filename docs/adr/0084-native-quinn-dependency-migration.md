@@ -135,6 +135,21 @@ endpoint event loop already has its own finite work bound. Native scheduling
 remains Moirai-owned, and the original timing/performance acceptance remains
 open.
 
+The imported driver is also held to Atlas's non-increasing source-conformance
+ratchet. Its repair separates datagram conversion from the crate manifest,
+denies missing public documentation, makes test observations value-sensitive,
+and encodes one-shot incoming, connecting and datagram-send transitions in
+single ownership paths. After a bounded send batch, one protocol probe sets
+the app-limited state if no work remains or stages one transmit for the next
+driver poll. Endpoint rebind retains each earlier socket until the connections
+that could still receive there migrate or drain; no more than two retired
+sockets are polled per turn. Poisoned state is never resumed as protocol state:
+fallible endpoint operations report closure or I/O error and teardown releases
+waiters/channels. Real UDP regressions cover multiple connections and repeated
+rebinds, alongside the existing all-stress driver suite. This internal repair
+does not broaden the approved public API break or waive the unchanged Linux
+performance, FIPS license, platform or release gates.
+
 Native source relocation separates impl families without changing protocol
 method bodies or dropping original tests. Every imported Rust source file is
 below 500 lines. New source identity remains distinct from upstream Quinn;

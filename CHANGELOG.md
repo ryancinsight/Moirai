@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recovery provenance to the recorded Git lock/tree; preserve live-current
   lock checks and all archived observations.
 
+### Fixed
+
+- [patch] Retain older UDP sockets for each connection across repeated rebinds
+  with bounded retired-socket polling. Resolve application-limited congestion
+  state at a full transmit batch without draining an unbounded queue; cache
+  completed datagram-future results to prevent duplicate sends. Discard stale
+  endpoint events and close poisoned drivers without resuming protocol state.
+
 ### Breaking
 
 - Native QUIC public error payloads now belong to `moirai_quinn`; callers naming

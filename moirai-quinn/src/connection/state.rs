@@ -13,7 +13,10 @@ impl State {
         loop {
             // Retry the last transmit, or get a new one.
             let t = match self.buffered_transmit.take() {
-                Some(t) => t,
+                Some(t) => {
+                    transmits += transmit_datagrams(&t);
+                    t
+                }
                 None => {
                     self.send_buffer.clear();
                     self.send_buffer.reserve(self.inner.current_mtu() as usize);
@@ -22,10 +25,7 @@ impl State {
                         .poll_transmit(now, max_datagrams, &mut self.send_buffer)
                     {
                         Some(t) => {
-                            transmits += match t.segment_size {
-                                None => 1,
-                                Some(s) => t.size.div_ceil(s), // round up
-                            };
+                            transmits += transmit_datagrams(&t);
                             t
                         }
                         None => break,
@@ -58,11 +58,15 @@ impl State {
             }
 
             if transmits >= MAX_TRANSMIT_DATAGRAMS {
-                // TODO: What isn't ideal here yet is that if we don't poll all
-                // datagrams that could be sent we don't go into the `app_limited`
-                // state and CWND continues to grow until we get here the next time.
-                // See https://github.com/quinn-rs/quinn/issues/1126
-                return Ok(true);
+                // A final protocol poll distinguishes a genuinely exhausted send queue from a
+                // busy one. The former updates proto's app-limited congestion state now; the
+                // latter stages exactly one transmit for the next cooperative driver poll.
+                self.send_buffer.clear();
+                self.send_buffer.reserve(self.inner.current_mtu() as usize);
+                self.buffered_transmit =
+                    self.inner
+                        .poll_transmit(now, max_datagrams, &mut self.send_buffer);
+                return Ok(self.buffered_transmit.is_some());
             }
         }
 
@@ -257,6 +261,13 @@ impl State {
         } else {
             Err(())
         }
+    }
+}
+
+fn transmit_datagrams(transmit: &proto::Transmit) -> usize {
+    match transmit.segment_size {
+        None => 1,
+        Some(segment_size) => transmit.size.div_ceil(segment_size),
     }
 }
 

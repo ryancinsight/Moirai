@@ -20,6 +20,11 @@ runtime. The all-feature supply-chain gate
 still rejects `aws-lc-fips-sys` because its declared OpenSSL license is outside
 the existing policy. FIPS support and the policy are unchanged; this is an
 integration blocker, not a security acceptance result.
+The native candidate's local Atlas conformance ratchet now passes after
+value-semantic test assertions, explicit state/poison handling, bounded
+transmit continuation and per-connection retired-socket tracking. The
+committed exact-head hook and independent source review are still required;
+this local result does not qualify the unresolved full-stack reference gate.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 

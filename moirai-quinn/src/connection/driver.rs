@@ -15,7 +15,11 @@ impl Future for ConnectionDriver {
     type Output = Result<(), io::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let mut conn = self.conn.state.lock("poll");
+        let (mut conn, poisoned) = self.conn.state.lock_for_teardown("poll");
+        if poisoned {
+            conn.terminate(ConnectionError::LocallyClosed, &self.conn.shared);
+            return Poll::Ready(Err(io::Error::other("QUIC connection state poisoned")));
+        }
         let _guard = self.span.enter();
 
         let mut keep_going = match conn.process_conn_events(&self.conn.shared, cx) {
@@ -106,7 +110,15 @@ impl Drop for ConnectionRef {
             return;
         }
 
-        let conn = &mut *self.state.lock("drop");
+        let (mut conn, poisoned) = self.state.lock_for_teardown("drop");
+
+        if poisoned {
+            // A panic may have interrupted protocol mutation. Release application waiters and
+            // State::drop then tells the endpoint to discard the connection; do not call proto.
+            conn.terminate(ConnectionError::LocallyClosed, &self.shared);
+            conn.wake();
+            return;
+        }
 
         if !conn.inner.is_closed() {
             // If the driver is alive, it's just it and us, so we'd better shut it down. If it's

@@ -41,11 +41,14 @@ mod tracking {
         /// Acquires the lock for a certain purpose
         ///
         /// The purpose will be recorded in the list of last lock owners
-        pub(crate) fn lock(&self, purpose: &'static str) -> MutexGuard<'_, T> {
+        fn acquire(&self, purpose: &'static str) -> (MutexGuard<'_, T>, bool) {
             // We don't bother dispatching through Runtime::now because they're pure performance
             // diagnostics.
             let now = Instant::now();
-            let guard = self.inner.lock().unwrap();
+            let (guard, poisoned) = match self.inner.lock() {
+                Ok(guard) => (guard, false),
+                Err(poisoned) => (poisoned.into_inner(), true),
+            };
 
             let lock_time = Instant::now();
             let elapsed = lock_time.duration_since(now);
@@ -57,11 +60,28 @@ mod tracking {
                 );
             }
 
-            MutexGuard {
-                guard,
-                start_time: lock_time,
-                purpose,
+            (
+                MutexGuard {
+                    guard,
+                    start_time: lock_time,
+                    purpose,
+                },
+                poisoned,
+            )
+        }
+
+        pub(crate) fn lock(&self, purpose: &'static str) -> MutexGuard<'_, T> {
+            let (guard, poisoned) = self.acquire(purpose);
+            if poisoned {
+                drop(guard);
+                panic!("QUIC connection state poisoned; protocol processing cannot resume");
             }
+            guard
+        }
+
+        /// Recover only for notification and channel cleanup, never protocol processing.
+        pub(crate) fn lock_for_teardown(&self, purpose: &'static str) -> (MutexGuard<'_, T>, bool) {
+            self.acquire(purpose)
         }
     }
 
@@ -134,9 +154,24 @@ mod non_tracking {
         ///
         /// The purpose will be recorded in the list of last lock owners
         pub(crate) fn lock(&self, _purpose: &'static str) -> MutexGuard<'_, T> {
-            MutexGuard {
-                guard: self.inner.lock().unwrap(),
+            let (guard, poisoned) = self.lock_for_teardown("lock");
+            if poisoned {
+                drop(guard);
+                panic!("QUIC connection state poisoned; protocol processing cannot resume");
             }
+            guard
+        }
+
+        /// Recover only for notification and channel cleanup, never protocol processing.
+        pub(crate) fn lock_for_teardown(
+            &self,
+            _purpose: &'static str,
+        ) -> (MutexGuard<'_, T>, bool) {
+            let (guard, poisoned) = match self.inner.lock() {
+                Ok(guard) => (guard, false),
+                Err(poisoned) => (poisoned.into_inner(), true),
+            };
+            (MutexGuard { guard }, poisoned)
         }
     }
 
@@ -161,3 +196,36 @@ mod non_tracking {
 
 #[cfg(not(feature = "lock_tracking"))]
 pub(crate) use non_tracking::Mutex;
+
+#[cfg(test)]
+mod tests {
+    use super::Mutex;
+
+    #[test]
+    fn poisoned_connection_lock_allows_cleanup_but_not_protocol_resume() {
+        let state = Mutex::new(41usize);
+        let original = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut guard = state.lock("poison");
+            *guard += 1;
+            panic!("deliberate state panic");
+        }))
+        .expect_err("the original panic must propagate");
+        assert_eq!(
+            original.downcast_ref::<&str>(),
+            Some(&"deliberate state panic")
+        );
+
+        let (guard, poisoned) = state.lock_for_teardown("cleanup");
+        assert!(poisoned);
+        assert_eq!(*guard, 42);
+        drop(guard);
+        let resumed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.lock("resume");
+        }))
+        .expect_err("poisoned state must reject protocol resumption");
+        assert_eq!(
+            resumed.downcast_ref::<&str>(),
+            Some(&"QUIC connection state poisoned; protocol processing cannot resume")
+        );
+    }
+}

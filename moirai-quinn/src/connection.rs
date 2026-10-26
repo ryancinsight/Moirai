@@ -252,47 +252,71 @@ pin_project! {
     /// Future produced by [`Connection::send_datagram_wait`]
     pub struct SendDatagram<'a> {
         conn: &'a ConnectionRef,
-        data: Option<Bytes>,
+        state: DatagramSendState,
         #[pin]
         notify: NotifyFuture<'a>,
     }
+}
+
+// Keep the completed result so a repeated poll cannot send the datagram a second time. Polling
+// is only a transient state while `Future::poll` holds exclusive access to this object.
+enum DatagramSendState {
+    Queued(Bytes),
+    Polling,
+    Complete(Result<(), SendDatagramError>),
 }
 
 impl Future for SendDatagram<'_> {
     type Output = Result<(), SendDatagramError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
+        if let DatagramSendState::Complete(result) = this.state {
+            return Poll::Ready(result.clone());
+        }
         let mut state = this.conn.state.lock("SendDatagram::poll");
         if let Some(ref e) = state.error {
-            return Poll::Ready(Err(SendDatagramError::ConnectionLost(e.clone())));
+            let result = Err(SendDatagramError::ConnectionLost(e.clone()));
+            *this.state = DatagramSendState::Complete(result.clone());
+            return Poll::Ready(result);
         }
+        let data = match std::mem::replace(this.state, DatagramSendState::Polling) {
+            DatagramSendState::Queued(data) => data,
+            DatagramSendState::Complete(result) => {
+                *this.state = DatagramSendState::Complete(result.clone());
+                return Poll::Ready(result);
+            }
+            DatagramSendState::Polling => {
+                unreachable!("exclusive datagram future polled recursively")
+            }
+        };
         use proto::SendDatagramError::*;
-        match state
-            .inner
-            .datagrams()
-            .send(this.data.take().unwrap(), false)
-        {
+        match state.inner.datagrams().send(data, false) {
             Ok(()) => {
                 state.wake();
+                *this.state = DatagramSendState::Complete(Ok(()));
                 Poll::Ready(Ok(()))
             }
-            Err(e) => Poll::Ready(Err(match e {
-                Blocked(data) => {
-                    this.data.replace(data);
-                    loop {
-                        match this.notify.as_mut().poll(ctx) {
-                            Poll::Pending => return Poll::Pending,
-                            // Spurious wakeup, get a new future
-                            Poll::Ready(()) => this
-                                .notify
-                                .set(this.conn.shared.datagrams_unblocked.notified()),
+            Err(e) => {
+                let error = match e {
+                    Blocked(data) => {
+                        *this.state = DatagramSendState::Queued(data);
+                        loop {
+                            match this.notify.as_mut().poll(ctx) {
+                                Poll::Pending => return Poll::Pending,
+                                // Spurious wakeup, get a new future
+                                Poll::Ready(()) => this
+                                    .notify
+                                    .set(this.conn.shared.datagrams_unblocked.notified()),
+                            }
                         }
                     }
-                }
-                UnsupportedByPeer => SendDatagramError::UnsupportedByPeer,
-                Disabled => SendDatagramError::Disabled,
-                TooLarge => SendDatagramError::TooLarge,
-            })),
+                    UnsupportedByPeer => SendDatagramError::UnsupportedByPeer,
+                    Disabled => SendDatagramError::Disabled,
+                    TooLarge => SendDatagramError::TooLarge,
+                };
+                *this.state = DatagramSendState::Complete(Err(error.clone()));
+                Poll::Ready(Err(error))
+            }
         }
     }
 }

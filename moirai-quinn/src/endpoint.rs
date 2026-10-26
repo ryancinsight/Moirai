@@ -10,7 +10,7 @@ use std::{
     str,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard,
     },
     task::{Context, Poll, Waker},
 };
@@ -29,7 +29,7 @@ use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
     EndpointEvent, ServerConfig,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(all(not(wasm_browser), any(feature = "aws-lc-rs", feature = "ring"),))]
 use socket2::{Domain, Protocol, Socket, Type};
 use tracing::{Instrument, Span};
@@ -88,12 +88,25 @@ pub(crate) struct EndpointInner {
 }
 
 impl EndpointInner {
+    // Protocol state may be partially updated if a user-provided runtime or socket panics while
+    // the lock is held. A poisoned state cannot be resumed as a live QUIC endpoint. Fallible
+    // callers propagate closure; infallible callers fail closed with one explicit diagnostic.
+    fn lock_state(&self) -> MutexGuard<'_, State> {
+        match self.state.lock() {
+            Ok(state) => state,
+            Err(_) => panic!("QUIC endpoint state poisoned; cannot resume protocol processing"),
+        }
+    }
+
     pub(crate) fn accept(
         &self,
         incoming: proto::Incoming,
         server_config: Option<Arc<ServerConfig>>,
     ) -> Result<Connecting, ConnectionError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ConnectionError::LocallyClosed)?;
         let mut response_buffer = Vec::new();
         let now = state.runtime.now();
         match state
@@ -119,7 +132,7 @@ impl EndpointInner {
     }
 
     pub(crate) fn refuse(&self, incoming: proto::Incoming) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         state.stats.refused_handshakes += 1;
         let mut response_buffer = Vec::new();
         let transmit = state.inner.refuse(incoming, &mut response_buffer);
@@ -127,7 +140,7 @@ impl EndpointInner {
     }
 
     pub(crate) fn retry(&self, incoming: proto::Incoming) -> Result<(), proto::RetryError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         let mut response_buffer = Vec::new();
         let transmit = state.inner.retry(incoming, &mut response_buffer)?;
         respond(transmit, &response_buffer, &*state.socket);
@@ -135,7 +148,7 @@ impl EndpointInner {
     }
 
     pub(crate) fn ignore(&self, incoming: proto::Incoming) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         state.stats.ignored_handshakes += 1;
         state.inner.ignore(incoming);
     }
@@ -144,9 +157,11 @@ impl EndpointInner {
 #[derive(Debug)]
 pub(crate) struct State {
     socket: Arc<dyn AsyncUdpSocket>,
-    /// During an active migration, abandoned_socket receives traffic
-    /// until the first packet arrives on the new socket.
-    prev_socket: Option<Arc<dyn AsyncUdpSocket>>,
+    /// Earlier sockets remain readable until every connection that could still receive on them
+    /// migrates to a newer socket or drains.
+    retiring_sockets: Vec<RetiringSocket>,
+    retired_poll_cursor: usize,
+    retired_poll_remaining: usize,
     inner: proto::Endpoint,
     recv_state: RecvState,
     driver: Option<Waker>,
@@ -155,6 +170,22 @@ pub(crate) struct State {
     driver_lost: bool,
     runtime: Arc<dyn Runtime>,
     stats: EndpointStats,
+}
+
+#[derive(Debug)]
+struct RetiringSocket {
+    socket: Arc<dyn AsyncUdpSocket>,
+    pending: FxHashSet<ConnectionHandle>,
+}
+
+fn observe_connection_on(
+    retiring: &mut [RetiringSocket],
+    generation: usize,
+    handle: ConnectionHandle,
+) {
+    for older in retiring.iter_mut().take(generation) {
+        older.pending.remove(&handle);
+    }
 }
 
 pub(crate) struct Shared {
@@ -239,7 +270,7 @@ impl ConnectionSet {
                 error_code,
                 reason: reason.clone(),
             })
-            .unwrap();
+            .expect("a new receiver remains alive until the connection is constructed");
         }
         self.senders.insert(handle, send);
         Connecting::new(handle, conn, self.sender.clone(), recv, socket, runtime)
@@ -286,7 +317,9 @@ impl EndpointRef {
             },
             state: Mutex::new(State {
                 socket,
-                prev_socket: None,
+                retiring_sockets: Vec::new(),
+                retired_poll_cursor: 0,
+                retired_poll_remaining: 0,
                 inner,
                 ipv6,
                 events,
@@ -313,10 +346,30 @@ impl Drop for EndpointRef {
             return;
         }
 
-        let endpoint = &mut *self.0.state.lock().unwrap();
+        let poisoned = self.0.state.is_poisoned();
+        let mut endpoint = match self.0.state.lock() {
+            Ok(endpoint) => endpoint,
+            // The last handle must still release channels and wake the driver during unwind.
+            // It does not resume protocol operations on a poisoned state.
+            Err(poisoned) => poisoned.into_inner(),
+        };
         // If the driver is about to be on its own, ensure it can shut down if the last
         // connection is gone.
-        if let Some(task) = endpoint.driver.take() {
+        let task = endpoint.driver.take();
+        let cleanup = poisoned.then(|| {
+            endpoint.driver_lost = true;
+            (
+                mem::take(&mut endpoint.recv_state.connections.senders),
+                mem::take(&mut endpoint.retiring_sockets),
+            )
+        });
+        drop(endpoint);
+        if poisoned {
+            self.shared.incoming.notify_waiters();
+            self.shared.idle.notify_waiters();
+        }
+        drop(cleanup);
+        if let Some(task) = task {
             task.wake();
         }
     }
@@ -343,8 +396,6 @@ struct RecvState {
 
 #[derive(Default)]
 struct PollProgress {
-    /// Whether a datagram was routed to an existing connection
-    received_connection_packet: bool,
     /// Whether datagram handling was interrupted early by the work limiter for fairness
     keep_going: bool,
 }

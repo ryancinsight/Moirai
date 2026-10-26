@@ -140,11 +140,14 @@ where
         if this.fut.is_none() {
             this.fut.set(Some((this.make_fut)()));
         }
-        // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
-        // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
-        // and if we didn't store it then we wouldn't be able to keep it alive between
-        // `poll_writable` calls.
-        let result = this.fut.as_mut().as_pin_mut().unwrap().poll(cx);
+        // The pinned projection preserves a !Unpin future across calls. If initialization ever
+        // leaves the slot empty, surface a poller error instead of panicking in the I/O driver.
+        let result = match this.fut.as_mut().as_pin_mut() {
+            Some(fut) => fut.poll(cx),
+            None => Poll::Ready(Err(io::Error::other(
+                "UDP writable future was not initialized",
+            ))),
+        };
         if result.is_ready() {
             // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
             // a new `Future` to be created on the next call.
@@ -197,3 +200,31 @@ mod async_io;
 // Due to MSRV, we must specify `self::` where there's crate/module ambiguity
 #[cfg(any(feature = "runtime-smol", feature = "runtime-async-std"))]
 pub use self::async_io::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::Waker;
+
+    #[test]
+    fn reusable_udp_poller_recreates_only_completed_futures() {
+        let starts = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&starts);
+        let mut poller = Box::pin(UdpPollHelper::new(move || {
+            observed.fetch_add(1, Ordering::Relaxed);
+            std::future::ready(Ok(()))
+        }));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(matches!(
+            poller.as_mut().poll_writable(&mut cx),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(starts.load(Ordering::Relaxed), 1);
+        assert!(matches!(
+            poller.as_mut().poll_writable(&mut cx),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(starts.load(Ordering::Relaxed), 2);
+    }
+}

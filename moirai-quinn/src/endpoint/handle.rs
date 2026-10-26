@@ -39,7 +39,7 @@ impl Endpoint {
 
     /// Returns relevant stats from this Endpoint
     pub fn stats(&self) -> EndpointStats {
-        self.inner.state.lock().unwrap().stats
+        self.inner.lock_state().stats
     }
 
     /// Helper to construct an endpoint for use with both incoming and outgoing connections
@@ -158,7 +158,11 @@ impl Endpoint {
         addr: SocketAddr,
         server_name: &str,
     ) -> Result<Connecting, ConnectError> {
-        let mut endpoint = self.inner.state.lock().unwrap();
+        let mut endpoint = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| ConnectError::EndpointStopping)?;
         if endpoint.driver_lost || endpoint.recv_state.connections.close.is_some() {
             return Err(ConnectError::EndpointStopping);
         }
@@ -199,8 +203,26 @@ impl Endpoint {
     /// On error, the old UDP socket is retained.
     pub fn rebind_abstract(&self, socket: Arc<dyn AsyncUdpSocket>) -> io::Result<()> {
         let addr = socket.local_addr()?;
-        let mut inner = self.inner.state.lock().unwrap();
-        inner.prev_socket = Some(mem::replace(&mut inner.socket, socket));
+        let mut inner = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| io::Error::other("QUIC endpoint state poisoned"))?;
+        let previous = mem::replace(&mut inner.socket, socket);
+        let pending: FxHashSet<_> = inner
+            .recv_state
+            .connections
+            .senders
+            .keys()
+            .copied()
+            .collect();
+        if !pending.is_empty() {
+            inner.retiring_sockets.push(RetiringSocket {
+                socket: previous,
+                pending,
+            });
+            inner.retired_poll_remaining = 0;
+        }
         inner.ipv6 = addr.is_ipv6();
 
         // Update connection socket references
@@ -221,21 +243,24 @@ impl Endpoint {
     /// Useful for e.g. refreshing TLS certificates without disrupting existing connections.
     pub fn set_server_config(&self, server_config: Option<ServerConfig>) {
         self.inner
-            .state
-            .lock()
-            .unwrap()
+            .lock_state()
             .inner
             .set_server_config(server_config.map(Arc::new))
     }
 
     /// Get the local `SocketAddr` the underlying socket is bound to
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.inner.state.lock().unwrap().socket.local_addr()
+        self.inner
+            .state
+            .lock()
+            .map_err(|_| io::Error::other("QUIC endpoint state poisoned"))?
+            .socket
+            .local_addr()
     }
 
     /// Get the number of connections that are currently open
     pub fn open_connections(&self) -> usize {
-        self.inner.state.lock().unwrap().inner.open_connections()
+        self.inner.lock_state().inner.open_connections()
     }
 
     /// Close all of this endpoint's connections immediately and cease accepting new connections.
@@ -245,7 +270,7 @@ impl Endpoint {
     /// [`Connection::close()`]: crate::Connection::close
     pub fn close(&self, error_code: VarInt, reason: &[u8]) {
         let reason = Bytes::copy_from_slice(reason);
-        let mut endpoint = self.inner.state.lock().unwrap();
+        let mut endpoint = self.inner.lock_state();
         endpoint.recv_state.connections.close = Some((error_code, reason.clone()));
         for sender in endpoint.recv_state.connections.senders.values() {
             // Ignoring errors from dropped connections
@@ -270,7 +295,7 @@ impl Endpoint {
     pub async fn wait_idle(&self) {
         loop {
             {
-                let endpoint = &mut *self.inner.state.lock().unwrap();
+                let endpoint = &mut *self.inner.lock_state();
                 if endpoint.recv_state.connections.is_empty() {
                     break;
                 }
@@ -286,7 +311,10 @@ impl Future for Accept<'_> {
     type Output = Option<Incoming>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let mut endpoint = this.endpoint.inner.state.lock().unwrap();
+        let mut endpoint = match this.endpoint.inner.state.lock() {
+            Ok(endpoint) => endpoint,
+            Err(_) => return Poll::Ready(None),
+        };
         if endpoint.driver_lost {
             return Poll::Ready(None);
         }

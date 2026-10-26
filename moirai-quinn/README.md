@@ -24,6 +24,17 @@ The connection driver processes at most 128 native channel events per poll,
 matching the original Tokio receiver's observed cooperative budget. It then
 services transmission, timers and application events before scheduling the
 next poll outside the connection-state lock; this applies to every runtime.
+After a bounded transmit batch, it probes the protocol engine once more: an
+empty queue establishes the engine's application-limited state, while one more
+transmit is staged for the next fair poll. Datagram-send futures retain their
+terminal result so a repeated poll cannot resend a payload.
+
+On rebind, the endpoint keeps earlier real UDP sockets readable until each
+connection that could still use them receives on a newer socket or drains.
+This also covers repeated rebinds. At most two retired sockets are polled per
+endpoint turn alongside the current socket. A poisoned endpoint or connection
+lock never resumes protocol processing; fallible endpoint methods return
+closure/I/O errors, and driver teardown releases waiters and channels.
 
 Migration: import `moirai_quinn`, replace `tokio::io::ReadBuf` at
 `RecvStream::poll_read_buf` with `moirai_async::io::ReadBuffer`, and enable

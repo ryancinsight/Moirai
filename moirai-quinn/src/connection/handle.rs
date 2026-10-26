@@ -171,7 +171,7 @@ impl Connection {
     pub fn send_datagram_wait(&self, data: Bytes) -> SendDatagram<'_> {
         SendDatagram {
             conn: &self.0,
-            data: Some(data),
+            state: DatagramSendState::Queued(data),
             notify: self.0.shared.datagrams_unblocked.notified(),
         }
     }

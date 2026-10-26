@@ -24,15 +24,15 @@ impl RecvState {
         }
     }
 
-    pub(super) fn poll_socket(
+    pub(super) fn poll_socket<F: FnMut(ConnectionHandle)>(
         &mut self,
         cx: &mut Context,
         endpoint: &mut proto::Endpoint,
         socket: &dyn AsyncUdpSocket,
         runtime: &dyn Runtime,
         now: Instant,
+        mut on_connection_packet: F,
     ) -> Result<PollProgress, io::Error> {
-        let mut received_connection_packet = false;
         let mut metas = [RecvMeta::default(); BATCH_SIZE];
         let mut iovs: [IoSliceMut; BATCH_SIZE] = {
             let mut bufs = self
@@ -73,7 +73,7 @@ impl RecvState {
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
                                     // Ignoring errors from dropped connections that haven't yet been cleaned up
-                                    received_connection_packet = true;
+                                    on_connection_packet(handle);
                                     let _ = self
                                         .connections
                                         .dispatch_if_live(handle, ConnectionEvent::Proto(event));
@@ -87,10 +87,7 @@ impl RecvState {
                     }
                 }
                 Poll::Pending => {
-                    return Ok(PollProgress {
-                        received_connection_packet,
-                        keep_going: false,
-                    });
+                    return Ok(PollProgress { keep_going: false });
                 }
                 // Ignore ECONNRESET as it's undefined in QUIC and may be injected by an
                 // attacker
@@ -102,10 +99,7 @@ impl RecvState {
                 }
             }
             if !self.recv_limiter.allow_work(|| runtime.now()) {
-                return Ok(PollProgress {
-                    received_connection_packet,
-                    keep_going: true,
-                });
+                return Ok(PollProgress { keep_going: true });
             }
         }
     }

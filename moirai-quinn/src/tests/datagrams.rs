@@ -99,9 +99,56 @@ async fn two_datagram_readers() {
         async {
             server.send_datagram(b"one"[..].into()).unwrap();
             done.notified().await;
-            server.send_datagram_wait(b"two"[..].into()).await.unwrap();
+            let mut second = server.send_datagram_wait(b"two"[..].into());
+            (&mut second).await.unwrap();
+            // A completed future retains its result; polling it again must not panic or enqueue
+            // a second copy of the datagram.
+            (&mut second).await.unwrap();
         }
     );
     assert!(*a == *b"one" || *b == *b"one");
     assert!(*a == *b"two" || *b == *b"two");
+}
+
+#[tokio::test]
+async fn repeated_rebind_keeps_two_live_connections_routable() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+    let client = factory.endpoint();
+    let server = factory.endpoint();
+    let server_addr = server.local_addr().expect("real server address");
+    let mut pairs = Vec::new();
+    for _ in 0..2 {
+        let (outgoing, incoming) = tokio::join!(
+            client.connect(server_addr, "localhost").expect("connect"),
+            async { server.accept().await.expect("incoming").await }
+        );
+        pairs.push((
+            outgoing.expect("client handshake"),
+            incoming.expect("server handshake"),
+        ));
+    }
+
+    for generation in 0..2 {
+        let new_socket = UdpSocket::bind("127.0.0.1:0").expect("new real UDP socket");
+        client.rebind(new_socket).expect("socket migration");
+        for (index, (outgoing, incoming)) in pairs.iter().enumerate() {
+            let request = Bytes::from(format!("generation-{generation}-connection-{index}"));
+            let response = Bytes::from(format!("ack-{generation}-{index}"));
+            timeout(Duration::from_secs(5), async {
+                outgoing
+                    .send_datagram_wait(request.clone())
+                    .await
+                    .expect("new-path datagram admission");
+                assert_eq!(incoming.read_datagram().await.expect("request"), request);
+                incoming
+                    .send_datagram_wait(response.clone())
+                    .await
+                    .expect("reply admission");
+                assert_eq!(outgoing.read_datagram().await.expect("reply"), response);
+            })
+            .await
+            .expect("both connections must remain routable after rebind");
+        }
+    }
 }
