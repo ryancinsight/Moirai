@@ -6,6 +6,24 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-NATIVE-NOTIFY-001"></a>
+## MOI-NATIVE-NOTIFY-001 — Preserve protocol-driver notification admission [patch]
+- status: todo
+- priority: correctness
+- outcome: A broadcast between notification future creation and first poll is
+  observed without consuming a separate single permit; one registered grant
+  and a stored permit produce two completions.
+- scope: moirai-async 0.11.1 notification state and regression witnesses only;
+  no Tokio exception, QUIC protocol replacement, recovery-policy change or
+  owner-branch mutation.
+- acceptance: Original regressions, all existing synchronization tests, strict
+  diagnostics, package/API checks and independent exact-source review. Native
+  Tokio removal additionally requires faithful protocol-event channels,
+  oneshot and I/O adaptation; this increment alone does not qualify the graph.
+- next step: Qualify the private exact-source repair, then integrate it with
+  the reviewed Moirai-native Quinn adaptation without changing the original
+  complete CUBIC, provenance, security or supported-platform gates.
+
 <a id="MOI-QUIC-PROMOTION-001"></a>
 ## MOI-QUIC-PROMOTION-001 — Promote verified native QUIC [minor]
 - status: todo
