@@ -135,6 +135,11 @@ path = "tests/async_std_runtime.rs"
 required-features = ["runtime-async-std", "rustls-ring"]
 
 [[test]]
+name = "async_std_runtime_config"
+path = "tests/async_std_runtime_config.rs"
+required-features = ["runtime-async-std"]
+
+[[test]]
 name = "post_quantum"
 path = "tests/post_quantum.rs"
 required-features = ["__rustls-post-quantum-test", "runtime-tokio"]

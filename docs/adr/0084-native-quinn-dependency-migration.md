@@ -118,7 +118,10 @@ The `runtime-async-std` compatibility feature spawns on
 `async-global-executor`, the executor that `async-std::task::spawn` uses, and
 detaches each driver task. This removes the discontinued `async-std` package
 from the adapted driver's dependency graph without dropping the runtime
-feature. Its actual UDP/TLS session has a separate regression test. The
+feature. First spawn applies async-std's `ASYNC_STD_THREAD_COUNT` and
+`ASYNC_STD_THREAD_NAME` configuration and default worker name, preserving an
+already initialized executor. Fresh-process regressions cover configuration,
+task lifetime and timer reset; an actual UDP/TLS session has a separate test. The
 archived recovery verifier reads the recorded revision's committed lock and
 checks its tree, while the live observer continues to use the current lock;
 historical experiment archives and values remain unchanged.

@@ -19,8 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [patch] Resolve the current compatible registry/Git cohort, including
   Themis 0.11.3 and Mnemosyne-memory 0.10.1; retain Rustls 0.23.46's floor.
 - [patch] Keep `runtime-async-std` using async-std's underlying global
-  executor directly, including detached driver tasks and a real authenticated
-  QUIC test, while removing the discontinued `async-std` package. Bind archived
+  executor directly, including first-spawn thread-count/name configuration,
+  detached driver tasks and a real authenticated QUIC test, while removing the
+  discontinued `async-std` package. Bind archived
   recovery provenance to the recorded Git lock/tree; preserve live-current
   lock checks and all archived observations.
 

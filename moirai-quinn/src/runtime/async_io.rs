@@ -52,6 +52,21 @@ pub use self::async_std::AsyncStdRuntime;
 #[cfg(feature = "runtime-async-std")]
 mod async_std {
     use super::*;
+    use std::sync::OnceLock;
+
+    static RUNTIME: OnceLock<()> = OnceLock::new();
+
+    fn ensure_initialized() {
+        RUNTIME.get_or_init(|| {
+            let thread_name = std::env::var("ASYNC_STD_THREAD_NAME")
+                .unwrap_or_else(|_| "async-std/runtime".to_string());
+            async_global_executor::init_with_config(
+                async_global_executor::GlobalExecutorConfig::default()
+                    .with_env_var("ASYNC_STD_THREAD_COUNT")
+                    .with_thread_name_fn(move || thread_name.clone()),
+            );
+        });
+    }
 
     /// A Quinn runtime for async-std
     #[derive(Debug)]
@@ -63,8 +78,10 @@ mod async_std {
         }
 
         fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-            // async-std uses this same global executor for task::spawn. A
-            // detached task is required because this runtime has no handle.
+            // Match async-std's first-spawn configuration of the shared
+            // executor. An already initialized executor retains its settings.
+            ensure_initialized();
+            // This runtime has no task handle, so the spawned task must detach.
             async_global_executor::spawn(future).detach();
         }
 

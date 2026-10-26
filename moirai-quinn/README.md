@@ -15,8 +15,11 @@ native runtime acceptance is measured separately through moirai-quic.
 The `runtime-async-std` feature uses `async-global-executor`, the executor
 underlying `async-std::task::spawn`, directly; it does not add the discontinued
 `async-std` package to Moirai's dependency graph. Driver tasks detach as they
-did through async-std's discarded join handles. A separate integration test
-exchanges authenticated QUIC bytes on this runtime.
+did through async-std's discarded join handles. On first spawn it applies
+`ASYNC_STD_THREAD_COUNT` and `ASYNC_STD_THREAD_NAME`, including async-std's
+default worker name, while retaining a previously initialized executor's
+settings. Fresh-process configuration regressions and a separate authenticated
+QUIC exchange exercise this runtime.
 The connection driver processes at most 128 native channel events per poll,
 matching the original Tokio receiver's observed cooperative budget. It then
 services transmission, timers and application events before scheduling the
