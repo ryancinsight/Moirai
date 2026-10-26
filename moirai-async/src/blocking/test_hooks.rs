@@ -88,7 +88,12 @@ impl Hooks {
         }
         state.live += 1;
         state.started += 1;
-        self.peak.fetch_max(state.live, Ordering::SeqCst);
+        // Relaxed: every writer holds `state`'s mutex, which totally orders
+        // the updates, and an atomic read-modify-write reads the latest
+        // value in modification order, so the running maximum is exact.
+        // Observers gain the happens-before edge through the same mutex, the
+        // condvar, or a join — the load below relies on one of those.
+        self.peak.fetch_max(state.live, Ordering::Relaxed);
         self.changed.notify_all();
         while state.closed {
             state = self
@@ -111,8 +116,12 @@ impl Hooks {
     }
 
     /// Highest number of jobs observed running at once.
+    ///
+    /// Relaxed: a correct reader holds a happens-before edge from the pool —
+    /// the state mutex, the condvar, or a join — which is what makes the
+    /// latest maximum visible; the load itself needs no ordering edge.
     pub(crate) fn peak(&self) -> usize {
-        self.peak.load(Ordering::SeqCst)
+        self.peak.load(Ordering::Relaxed)
     }
 
     /// Hold (`true`) or release (`false`) workers once they enter a job.
