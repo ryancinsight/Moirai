@@ -238,6 +238,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Rust 1.97.0
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+          components: clippy,rustfmt
+
       - name: Check dependency graph
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
 
