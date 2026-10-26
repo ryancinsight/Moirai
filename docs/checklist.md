@@ -4,8 +4,8 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: moirai-async 0.12.0; moirai-quinn 0.1.0;
-moirai-quic 0.2.0; facade 0.12.0; unchanged workspace 0.11.0.
+**Target Version**: 0.11.0 (workspace); the native QUIC release cohort is
+moirai-async 0.12.0, moirai-quinn 0.1.0, moirai-quic 0.2.0, and facade 0.12.0.
 
 - [x] [minor] Implement unbounded MPSC, persistent polling and native ReadBuffer;
   corrected-source strict async patch API 223 pass/30 checker skips and 34

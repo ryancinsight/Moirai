@@ -31,7 +31,7 @@ fn uninitialized_storage_exposes_only_written_bytes() {
     let mut buffer = ReadBuffer::uninit(&mut storage);
     drop(_arrange);
     let _act = tracing::info_span!("act").entered();
-    assert_eq!(buffer.initialized(), &[]);
+    assert!(buffer.initialized().is_empty());
     buffer.put_slice(&[17, 19, 23]);
     drop(_act);
     let _assert = tracing::info_span!("assert").entered();
@@ -50,7 +50,7 @@ fn clearing_retains_initialized_bytes_for_reuse() {
     let _act = tracing::info_span!("act").entered();
     buffer.put_slice(&[29, 31, 37]);
     buffer.clear();
-    assert_eq!(buffer.filled(), &[]);
+    assert!(buffer.filled().is_empty());
     assert_eq!(buffer.initialized(), &[29, 31, 37]);
     buffer.put_slice(&[41]);
     buffer.advance(2);
@@ -97,8 +97,8 @@ fn empty_buffers_and_empty_appends_preserve_the_invariant() {
         drop(tracing::info_span!("assert").entered());
         assert_eq!(buffer.capacity(), 0);
         assert_eq!(buffer.remaining(), 0);
-        assert_eq!(buffer.filled(), &[]);
-        assert_eq!(buffer.initialize_unfilled(), &[]);
+        assert!(buffer.filled().is_empty());
+        assert!(buffer.initialize_unfilled().is_empty());
     }
 }
 
