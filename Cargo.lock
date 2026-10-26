@@ -549,6 +549,20 @@ name = "bytemuck"
 version = "1.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a1f896587b6f2c069c73d2f0913e2d590c3990285cd2f0b6aa02b786b4c679c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
 
 [[package]]
 name = "bytes"
@@ -1187,6 +1201,28 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "eunomia"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35f16d44d599e5516451a436b624bad77926a8e2f66e7c21b2b1c843e95be61b"
+dependencies = [
+ "bytemuck",
+ "eunomia-derive",
+ "libm",
+]
+
+[[package]]
+name = "eunomia-derive"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e717986bc34d9429c98398ee6a3a076fa74be38f50ff3167929950e48251c3cb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2288,10 +2324,10 @@ dependencies = [
  "clap",
  "crc",
  "directories-next",
+ "eunomia",
  "futures-io",
  "futures-lite",
  "moirai-async",
- "num-traits",
  "pin-project-lite",
  "quinn-proto",
  "quinn-udp",

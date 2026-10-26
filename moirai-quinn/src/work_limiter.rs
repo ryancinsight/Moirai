@@ -1,24 +1,41 @@
 use crate::{Duration, Instant};
-use num_traits::ToPrimitive;
+use eunomia::{convert::IntegerTarget, F64};
 
-fn nanoseconds_as_f64(value: u128) -> f64 {
-    // Every u128 lies within f64's finite exponent range. The integer may round, as it did in
-    // the original estimator, but cannot make the conversion unavailable.
-    value.to_f64().expect("u128 is finite in f64")
+fn rounded_nanoseconds(value: u128) -> f64 {
+    if let Ok(count) = usize::try_from(value) {
+        return F64::from_count(count).0;
+    }
+
+    // Duration::as_nanos is u128, while Eunomia's count conversion accepts usize. Construct
+    // the IEEE binary64 normal form directly so the entire u128 range rounds exactly as the
+    // original integer-to-float conversion did (nearest, ties to even), on 32- and 64-bit hosts.
+    let width = u128::BITS - value.leading_zeros();
+    let mut exponent = width - 1;
+    let mut significand = if width > f64::MANTISSA_DIGITS {
+        let discarded_bits = width - f64::MANTISSA_DIGITS;
+        let kept = value >> discarded_bits;
+        let remainder = value & ((1_u128 << discarded_bits) - 1);
+        let halfway = 1_u128 << (discarded_bits - 1);
+        kept + u128::from(remainder > halfway || (remainder == halfway && kept & 1 == 1))
+    } else {
+        value << (f64::MANTISSA_DIGITS - width)
+    };
+    if significand == (1_u128 << f64::MANTISSA_DIGITS) {
+        significand >>= 1;
+        exponent += 1;
+    }
+    let fraction = u64::try_from(significand & ((1_u128 << (f64::MANTISSA_DIGITS - 1)) - 1))
+        .expect("binary64 fraction has 52 bits");
+    let exponent_bits = u64::from(exponent + 1023) << (f64::MANTISSA_DIGITS - 1);
+    f64::from_bits(exponent_bits | fraction)
 }
 
-fn work_items_as_f64(value: usize) -> f64 {
-    value.to_f64().expect("usize is finite in f64")
+fn rounded_work_items(value: usize) -> f64 {
+    F64::from_count(value).0
 }
 
 fn saturated_work_count(value: f64) -> usize {
-    // Match Rust's saturating float-to-unsigned conversion: truncate finite in-range values,
-    // clamp positive overflow to the maximum, and map negative values and NaN to zero.
-    if value.is_nan() || value <= 0.0 {
-        0
-    } else {
-        value.to_usize().unwrap_or(usize::MAX)
-    }
+    usize::from_truncated(value)
 }
 
 /// Limits the amount of time spent on a certain type of work in a cycle
@@ -116,7 +133,7 @@ impl WorkLimiter {
             let elapsed = now() - start;
 
             let time_per_work_item_nanos =
-                nanoseconds_as_f64(elapsed.as_nanos()) / work_items_as_f64(self.completed);
+                rounded_nanoseconds(elapsed.as_nanos()) / rounded_work_items(self.completed);
 
             // Calculate the time per work item. We set this to at least 1ns to avoid
             // dividing by 0 when calculating the allowed amount of work items.
@@ -131,7 +148,7 @@ impl WorkLimiter {
 
             // Allow at least 1 work item in order to make progress
             self.allowed = saturated_work_count(
-                nanoseconds_as_f64(self.desired_cycle_time.as_nanos())
+                rounded_nanoseconds(self.desired_cycle_time.as_nanos())
                     / self.smoothed_time_per_work_item_nanos,
             )
             .max(1);
@@ -184,9 +201,43 @@ mod tests {
         assert_eq!(saturated_work_count(12.75), 12);
         assert_eq!(saturated_work_count(f64::INFINITY), usize::MAX);
         assert_eq!(
-            saturated_work_count(nanoseconds_as_f64(u128::MAX)),
+            saturated_work_count(rounded_nanoseconds(u128::MAX)),
             usize::MAX
         );
+    }
+
+    #[test]
+    fn wide_nanosecond_counts_match_independent_decimal_rounding() {
+        let precise = 1_u128 << f64::MANTISSA_DIGITS;
+        let edges = [
+            0,
+            1,
+            precise - 1,
+            precise,
+            precise + 1,
+            precise + 3,
+            1_u128 << 64,
+            (1_u128 << 64) + (1_u128 << 11),
+            u128::MAX - 1,
+            u128::MAX,
+        ];
+        let mut state = 0x8d3f_5b79_2a6e_c413_f109_8642_b5d7_0ca1_u128;
+        for value in edges.into_iter().chain((0..1024).map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 43;
+            state
+        })) {
+            let oracle = value
+                .to_string()
+                .parse::<f64>()
+                .expect("a decimal u128 is a valid finite binary64 input");
+            assert_eq!(
+                rounded_nanoseconds(value).to_bits(),
+                oracle.to_bits(),
+                "{value}"
+            );
+        }
     }
 
     #[test]
@@ -241,13 +292,13 @@ mod tests {
         // We now do more work per cycle, and expect the estimate of allowed
         // work items to go up
         const BATCH_WORK_ITEMS_2: usize = 96;
-        let time_per_work_items_2_nanos = nanoseconds_as_f64(CYCLE_TIME.as_nanos())
-            / work_items_as_f64(expected_initial_batches * BATCH_WORK_ITEMS_2);
+        let time_per_work_items_2_nanos = rounded_nanoseconds(CYCLE_TIME.as_nanos())
+            / rounded_work_items(expected_initial_batches * BATCH_WORK_ITEMS_2);
 
         let expected_updated_time_per_work_item =
             (initial_time_per_work_item * 7.0 + time_per_work_items_2_nanos) / 8.0;
         let expected_updated_allowed_work_items = saturated_work_count(
-            nanoseconds_as_f64(CYCLE_TIME.as_nanos()) / expected_updated_time_per_work_item,
+            rounded_nanoseconds(CYCLE_TIME.as_nanos()) / expected_updated_time_per_work_item,
         );
 
         limiter.start_cycle(get_time);

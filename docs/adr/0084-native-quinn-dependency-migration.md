@@ -152,8 +152,11 @@ performance, FIPS license, platform or release gates.
 
 Atlas's separate cast gate also applies to the imported driver. Stream
 directions now map explicitly to the two notification slots, integer size
-changes use `From`/`TryFrom`, and the work limiter retains its saturating
-float-to-count behavior through the established `num-traits` conversion API.
+changes use `From`/`TryFrom`, and the work limiter uses Eunomia's count and
+saturating float-to-integer conversions. Its `u128` duration nanoseconds span
+beyond Eunomia's `usize` count API, so an explicit binary64 rounding routine
+preserves the full range; a decimal-parsing oracle checks 1,034 edge and
+seeded values.
 The test waker uses the safe `Wake` trait instead of a raw pointer vtable.
 Read-to-end buffering validates additions and range conversion before
 committing a chunk; rejected chunks leave accepted bytes intact. No cast

@@ -13,7 +13,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
-use num_traits::ToPrimitive;
+use eunomia::F32;
 use proto::crypto::rustls::QuicClientConfig;
 use rustls::pki_types::CertificateDer;
 use tracing::{error, info};
@@ -143,10 +143,7 @@ async fn run(options: Opt) -> Result<()> {
     eprintln!(
         "response received in {:?} - {} KiB/s",
         duration,
-        resp.len()
-            .to_f32()
-            .expect("usize fits f32's exponent range")
-            / (duration_secs(&duration) * 1024.0)
+        F32::from_count(resp.len()).0 / (duration_secs(&duration) * 1024.0)
     );
     io::stdout().write_all(&resp).unwrap();
     io::stdout().flush().unwrap();
