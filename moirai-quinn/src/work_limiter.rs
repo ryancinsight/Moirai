@@ -59,7 +59,9 @@ impl WorkLimiter {
     /// Requires that previous work was tracked using `record_work`.
     pub(crate) fn allow_work(&mut self, now: impl Fn() -> Instant) -> bool {
         match self.mode {
-            Mode::Measure => (now() - self.start_time.unwrap()) < self.desired_cycle_time,
+            Mode::Measure => self
+                .start_time
+                .is_some_and(|start| (now() - start) < self.desired_cycle_time),
             Mode::HistoricData => self.completed < self.allowed,
         }
     }
@@ -85,7 +87,12 @@ impl WorkLimiter {
         }
 
         if let Mode::Measure = self.mode {
-            let elapsed = now() - self.start_time.unwrap();
+            // A measurement cannot be derived without a cycle start. In particular, do not
+            // introduce a made-up zero-duration sample after a caller skips `start_cycle`.
+            let Some(start) = self.start_time else {
+                return;
+            };
+            let elapsed = now() - start;
 
             let time_per_work_item_nanos = (elapsed.as_nanos()) as f64 / self.completed as f64;
 
@@ -128,6 +135,22 @@ enum Mode {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    #[test]
+    fn missing_cycle_start_cannot_admit_work_or_update_sample() {
+        let now = Instant::now();
+        let mut limiter = WorkLimiter::new(Duration::from_millis(500));
+        assert!(!limiter.allow_work(|| now));
+        limiter.record_work(3);
+        limiter.finish_cycle(|| now);
+        assert_eq!(limiter.mode, Mode::Measure);
+        assert_eq!(limiter.allowed, 0);
+        assert_eq!(limiter.smoothed_time_per_work_item_nanos, 0.0);
+        assert!(limiter.start_time.is_none());
+
+        limiter.start_cycle(|| now);
+        assert!(limiter.allow_work(|| now));
+    }
 
     #[test]
     fn limit_work() {

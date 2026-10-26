@@ -20,11 +20,12 @@ use thiserror::Error;
 use tracing::{debug_span, Instrument, Span};
 
 use crate::{
+    datagram::udp_transmit,
     mutex::Mutex,
     recv_stream::RecvStream,
     runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpPoller},
     send_stream::SendStream,
-    udp_transmit, ConnectionEvent, Duration, Instant, VarInt,
+    ConnectionEvent, Duration, Instant, VarInt,
 };
 use proto::{
     congestion::Controller, ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent,
@@ -298,6 +299,20 @@ impl Future for SendDatagram<'_> {
 
 #[derive(Debug)]
 pub(crate) struct ConnectionRef(Arc<ConnectionInner>);
+
+/// Named ownership handoff from the handshake to the connection driver.
+/// Keeping channels distinct prevents positional swaps between the endpoint,
+/// connection and one-shot notification paths.
+struct ConnectionInit {
+    handle: ConnectionHandle,
+    conn: proto::Connection,
+    endpoint_events: mpsc::Sender<(ConnectionHandle, EndpointEvent), mpsc::Unbounded>,
+    conn_events: mpsc::Receiver<ConnectionEvent, mpsc::Unbounded>,
+    on_handshake_data: oneshot::Sender<()>,
+    on_connected: oneshot::Sender<bool>,
+    socket: Arc<dyn AsyncUdpSocket>,
+    runtime: Arc<dyn Runtime>,
+}
 
 #[derive(Debug)]
 pub(crate) struct ConnectionInner {

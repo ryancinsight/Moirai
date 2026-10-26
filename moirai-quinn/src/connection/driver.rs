@@ -51,17 +51,17 @@ impl Future for ConnectionDriver {
 }
 
 impl ConnectionRef {
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn new(
-        handle: ConnectionHandle,
-        conn: proto::Connection,
-        endpoint_events: mpsc::Sender<(ConnectionHandle, EndpointEvent), mpsc::Unbounded>,
-        conn_events: mpsc::Receiver<ConnectionEvent, mpsc::Unbounded>,
-        on_handshake_data: oneshot::Sender<()>,
-        on_connected: oneshot::Sender<bool>,
-        socket: Arc<dyn AsyncUdpSocket>,
-        runtime: Arc<dyn Runtime>,
-    ) -> Self {
+    pub(super) fn new(init: ConnectionInit) -> Self {
+        let ConnectionInit {
+            handle,
+            conn,
+            endpoint_events,
+            conn_events,
+            on_handshake_data,
+            on_connected,
+            socket,
+            runtime,
+        } = init;
         Self(Arc::new(ConnectionInner {
             state: Mutex::new(State {
                 inner: conn,

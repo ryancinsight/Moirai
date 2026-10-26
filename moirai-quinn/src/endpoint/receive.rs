@@ -76,10 +76,7 @@ impl RecvState {
                                     received_connection_packet = true;
                                     let _ = self
                                         .connections
-                                        .senders
-                                        .get_mut(&handle)
-                                        .unwrap()
-                                        .enqueue(ConnectionEvent::Proto(event));
+                                        .dispatch_if_live(handle, ConnectionEvent::Proto(event));
                                 }
                                 Some(DatagramEvent::Response(transmit)) => {
                                     respond(transmit, &response_buffer, socket);

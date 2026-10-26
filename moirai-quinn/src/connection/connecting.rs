@@ -14,6 +14,23 @@ impl fmt::Debug for Connecting {
 }
 
 impl Connecting {
+    // `conn` is present until the future completes or `into_0rtt` succeeds. Both transitions
+    // consume `self`; subsequent borrowing is only possible by violating the documented
+    // poll-after-Ready contract. Keep this linear-state assertion in one place.
+    fn connection_ref(&self) -> &ConnectionRef {
+        match &self.conn {
+            Some(conn) => conn,
+            None => unreachable!("Connecting was used after yielding Ready"),
+        }
+    }
+
+    fn take_connection(&mut self) -> ConnectionRef {
+        match self.conn.take() {
+            Some(conn) => conn,
+            None => unreachable!("Connecting was consumed twice"),
+        }
+    }
+
     pub(crate) fn new(
         handle: ConnectionHandle,
         conn: proto::Connection,
@@ -24,16 +41,16 @@ impl Connecting {
     ) -> Self {
         let (on_handshake_data_send, on_handshake_data_recv) = oneshot::channel();
         let (on_connected_send, on_connected_recv) = oneshot::channel();
-        let conn = ConnectionRef::new(
+        let conn = ConnectionRef::new(ConnectionInit {
             handle,
             conn,
             endpoint_events,
             conn_events,
-            on_handshake_data_send,
-            on_connected_send,
+            on_handshake_data: on_handshake_data_send,
+            on_connected: on_connected_send,
             socket,
-            runtime.clone(),
-        );
+            runtime: runtime.clone(),
+        });
 
         let driver = ConnectionDriver::new(conn.clone());
         runtime.spawn(Box::pin(
@@ -99,13 +116,13 @@ impl Connecting {
     pub fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Self> {
         // This lock borrows `self` and would normally be dropped at the end of this scope, so we'll
         // have to release it explicitly before returning `self` by value.
-        let conn = (self.conn.as_mut().unwrap()).state.lock("into_0rtt");
+        let conn = self.connection_ref().state.lock("into_0rtt");
 
         let is_ok = conn.inner.has_0rtt() || conn.inner.side().is_server();
         drop(conn);
 
         if is_ok {
-            let conn = self.conn.take().unwrap();
+            let conn = self.take_connection();
             Ok((Connection(conn), ZeroRttAccepted(self.connected)))
         } else {
             Err(self)
@@ -125,7 +142,7 @@ impl Connecting {
         if let Some(mut x) = self.handshake_data_ready.take() {
             let _ = x.recv().await;
         }
-        let conn = self.conn.as_ref().unwrap();
+        let conn = self.connection_ref();
         let inner = conn.state.lock("handshake");
         inner
             .inner
@@ -151,7 +168,7 @@ impl Connecting {
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn local_ip(&self) -> Option<IpAddr> {
-        let conn = self.conn.as_ref().unwrap();
+        let conn = self.connection_ref();
         let inner = conn.state.lock("local_ip");
 
         inner.inner.local_ip()
@@ -170,7 +187,7 @@ impl Future for Connecting {
     type Output = Result<Connection, ConnectionError>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         self.connected.poll_recv(cx).map(|_| {
-            let conn = self.conn.take().unwrap();
+            let conn = self.take_connection();
             let inner = conn.state.lock("connecting");
             if inner.connected {
                 drop(inner);

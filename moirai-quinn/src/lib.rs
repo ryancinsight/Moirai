@@ -37,13 +37,14 @@
 //! authority. If this is infeasible--for example, if servers are short-lived or not associated
 //! with a domain name--then as with TLS, self-signed certificates can be used to provide
 //! encryption alone.
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
 use std::sync::Arc;
 
 mod connection;
+mod datagram;
 mod endpoint;
 mod incoming;
 mod mutex;
@@ -102,35 +103,3 @@ enum ConnectionEvent {
     Proto(proto::ConnectionEvent),
     Rebind(Arc<dyn AsyncUdpSocket>),
 }
-
-fn udp_transmit<'a>(t: &proto::Transmit, buffer: &'a [u8]) -> udp::Transmit<'a> {
-    udp::Transmit {
-        destination: t.destination,
-        ecn: t.ecn.map(udp_ecn),
-        contents: buffer,
-        segment_size: t.segment_size,
-        src_ip: t.src_ip,
-    }
-}
-
-fn udp_ecn(ecn: proto::EcnCodepoint) -> udp::EcnCodepoint {
-    match ecn {
-        proto::EcnCodepoint::Ect0 => udp::EcnCodepoint::Ect0,
-        proto::EcnCodepoint::Ect1 => udp::EcnCodepoint::Ect1,
-        proto::EcnCodepoint::Ce => udp::EcnCodepoint::Ce,
-    }
-}
-
-/// Maximum number of datagrams processed in send/recv calls to make before moving on to other processing
-///
-/// This helps ensure we don't starve anything when the CPU is slower than the link.
-/// Value is selected by picking a low number which didn't degrade throughput in benchmarks.
-const IO_LOOP_BOUND: usize = 160;
-
-/// The maximum amount of time that should be spent in `recvmsg()` calls per endpoint iteration
-///
-/// 50us are chosen so that an endpoint iteration with a 50us sendmsg limit blocks
-/// the runtime for a maximum of about 100us.
-/// Going much lower does not yield any noticeable difference, since a single `recvmmsg`
-/// batch of size 32 was observed to take 30us on some systems.
-const RECV_TIME_BOUND: Duration = Duration::from_micros(50);

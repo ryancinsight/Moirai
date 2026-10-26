@@ -342,7 +342,7 @@ fn payload_unwind_cannot_bypass_any_parked_sender_wake() {
     }
     impl Drop for UnwindPayload {
         fn drop(&mut self) {
-            self.drops.fetch_add(1, Ordering::SeqCst);
+            self.drops.fetch_add(1, Ordering::Relaxed);
             if self.panic_on_drop {
                 panic!("queued payload destructor panic");
             }
@@ -392,7 +392,7 @@ fn payload_unwind_cannot_bypass_any_parked_sender_wake() {
                 Some(&"queued payload destructor panic")
             );
             assert!(sender.is_closed());
-            assert_eq!(drops.load(Ordering::SeqCst), capacity);
+            assert_eq!(drops.load(Ordering::Relaxed), capacity);
             for (index, (future, (count, waker))) in sending.iter_mut().zip(&counters).enumerate() {
                 assert_eq!(count.0.load(Ordering::Relaxed), 1);
                 let Poll::Ready(Err(returned)) =
@@ -404,7 +404,7 @@ fn payload_unwind_cannot_bypass_any_parked_sender_wake() {
                 assert_eq!(std::ptr::from_ref(&*returned.value), identities[index]);
                 drop(returned);
             }
-            assert_eq!(drops.load(Ordering::SeqCst), capacity + parked);
+            assert_eq!(drops.load(Ordering::Relaxed), capacity + parked);
         }
     }
 }

@@ -95,10 +95,7 @@ impl State {
             let _ = self
                 .recv_state
                 .connections
-                .senders
-                .get_mut(&ch)
-                .unwrap()
-                .enqueue(ConnectionEvent::Proto(event));
+                .dispatch_if_live(ch, ConnectionEvent::Proto(event));
         }
 
         true

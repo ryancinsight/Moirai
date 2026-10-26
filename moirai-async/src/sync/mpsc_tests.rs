@@ -32,9 +32,9 @@ impl Wake for CountingWake {
 #[test]
 fn test_mpsc_send_recv() {
     let (tx, mut rx) = channel(10);
-    tx.try_send(1).unwrap();
-    tx.try_send(2).unwrap();
-    tx.try_send(3).unwrap();
+    assert_eq!(tx.try_send(1), Ok(()));
+    assert_eq!(tx.try_send(2), Ok(()));
+    assert_eq!(tx.try_send(3), Ok(()));
     assert_eq!(rx.try_recv(), Some(1));
     assert_eq!(rx.try_recv(), Some(2));
     assert_eq!(rx.try_recv(), Some(3));
@@ -44,7 +44,7 @@ fn test_mpsc_send_recv() {
 #[test]
 fn test_mpsc_closed_sender() {
     let (tx, mut rx) = channel::<i32>(10);
-    tx.try_send(1).unwrap();
+    assert_eq!(tx.try_send(1), Ok(()));
     drop(tx);
     assert_eq!(rx.try_recv(), Some(1));
     assert!(rx.try_recv().is_none());
@@ -71,8 +71,8 @@ fn test_mpsc_capacity() {
 fn test_mpsc_sender_clone() {
     let (tx1, mut rx) = channel(10);
     let tx2 = tx1.clone();
-    tx1.try_send(1).unwrap();
-    tx2.try_send(2).unwrap();
+    assert_eq!(tx1.try_send(1), Ok(()));
+    assert_eq!(tx2.try_send(2), Ok(()));
     drop(tx1);
     drop(tx2);
     assert_eq!(rx.try_recv(), Some(1));
@@ -93,7 +93,7 @@ fn test_mpsc_sender_strong_count() {
 #[test]
 fn test_mpsc_send_pending_then_recv() {
     let (tx, mut rx) = channel(1);
-    tx.try_send(1).unwrap();
+    assert_eq!(tx.try_send(1), Ok(()));
     let mut send = tx.send(2);
     assert!(matches!(poll_future(&mut send), Poll::Pending));
     let _ = rx.try_recv();
@@ -105,33 +105,39 @@ fn test_mpsc_async_recv_pending_then_send() {
     let (tx, mut rx) = channel(1);
     let mut recv = rx.recv();
     assert!(matches!(poll_future(&mut recv), Poll::Pending));
-    tx.try_send(42).unwrap();
+    assert_eq!(tx.try_send(42), Ok(()));
     assert!(matches!(poll_future(&mut recv), Poll::Ready(Ok(42))));
 }
 
 #[test]
 fn test_mpsc_send_future_dropped_cancels_waiter() {
     let (tx, _rx) = channel(1);
-    tx.try_send(1).unwrap();
+    assert_eq!(tx.try_send(1), Ok(()));
     // Send future goes pending, then is dropped without completing
     let mut send = tx.send(2);
     assert!(matches!(poll_future(&mut send), Poll::Pending));
     drop(send);
     // The full send_waiters queue must be empty after the drop
-    assert!(tx.shared.lock().unwrap().send_waiters.is_empty());
+    match tx.shared.lock() {
+        Ok(shared) => assert!(shared.send_waiters.is_empty()),
+        Err(_) => panic!("channel state poisoned during waiter cancellation"),
+    }
 }
 
 #[test]
 fn test_mpsc_recv_future_dropped_cancels_waiter() {
     let (tx, mut rx) = channel(1);
-    tx.try_send(1).unwrap();
+    assert_eq!(tx.try_send(1), Ok(()));
     // Consume the item, then recv goes pending waiting for next item
     let _ = rx.try_recv();
     let mut recv = rx.recv();
     assert!(matches!(poll_future(&mut recv), Poll::Pending));
     drop(recv);
     // The full recv_waiters queue must be empty after the drop
-    assert!(tx.shared.lock().unwrap().recv_waiters.is_empty());
+    match tx.shared.lock() {
+        Ok(shared) => assert!(shared.recv_waiters.is_empty()),
+        Err(_) => panic!("channel state poisoned during waiter cancellation"),
+    }
 }
 
 #[test]

@@ -18,8 +18,9 @@ use std::{
 #[cfg(all(not(wasm_browser), any(feature = "aws-lc-rs", feature = "ring")))]
 use crate::runtime::default_runtime;
 use crate::{
+    datagram::{udp_transmit, IO_LOOP_BOUND, RECV_TIME_BOUND},
     runtime::{AsyncUdpSocket, Runtime},
-    udp_transmit, Instant,
+    Instant,
 };
 use bytes::{Bytes, BytesMut};
 use moirai_async::sync::{mpsc, Notify, NotifyFuture};
@@ -36,7 +37,7 @@ use udp::{RecvMeta, BATCH_SIZE};
 
 use crate::{
     connection::Connecting, incoming::Incoming, work_limiter::WorkLimiter, ConnectionEvent,
-    EndpointConfig, VarInt, IO_LOOP_BOUND, RECV_TIME_BOUND,
+    EndpointConfig, VarInt,
 };
 
 /// A QUIC endpoint.
@@ -216,6 +217,15 @@ struct ConnectionSet {
 }
 
 impl ConnectionSet {
+    /// A connection can be drained between protocol routing and delivery.
+    /// Returning false leaves a stale event unobserved instead of panicking
+    /// or reviving the removed connection.
+    fn dispatch_if_live(&mut self, handle: ConnectionHandle, event: ConnectionEvent) -> bool {
+        self.senders
+            .get_mut(&handle)
+            .is_some_and(|sender| sender.enqueue(event).is_ok())
+    }
+
     fn insert(
         &mut self,
         handle: ConnectionHandle,
@@ -318,6 +328,10 @@ impl std::ops::Deref for EndpointRef {
         &self.0
     }
 }
+
+#[cfg(test)]
+#[path = "endpoint/event_dispatch_tests.rs"]
+mod event_dispatch_tests;
 
 /// State directly involved in handling incoming packets
 struct RecvState {
