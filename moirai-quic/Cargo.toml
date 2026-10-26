@@ -1,6 +1,6 @@
 [package]
 name = "moirai-quic"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -13,13 +13,16 @@ description = "Bounded authenticated QUIC multiplexing over Moirai scheduling an
 moirai-core.workspace = true
 moirai-async.workspace = true
 moirai-pal.workspace = true
-quinn.workspace = true
+moirai-quinn.workspace = true
 # Enforce the security floor even when this provider is consumed independently.
 rustls.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 moirai-executor.workspace = true
+# Independent wire reference only; neither enters the native consumer graph.
+quinn = { version = "0.11.12", default-features = false, features = ["rustls-ring", "runtime-tokio"] }
+tokio = { version = "1.54.1", default-features = false, features = ["rt", "net", "time"] }
 futures = "0.3"
 tracing.workspace = true
 tracing-subscriber.workspace = true

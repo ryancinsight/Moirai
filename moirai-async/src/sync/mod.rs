@@ -20,7 +20,7 @@
 pub mod broadcast;
 /// Async condition variable.
 pub mod condvar;
-/// Bounded async multi-producer single-consumer channel.
+/// Async multi-producer single-consumer channels with bounded and unbounded admission.
 pub mod mpsc;
 /// Async mutual-exclusion lock.
 pub mod mutex;

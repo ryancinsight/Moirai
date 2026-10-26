@@ -4,7 +4,20 @@ This compatibility document is embedded by the benchmark-contract test. It
 contains no execution state; active work lives in [`../backlog.md`](../backlog.md)
 and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
-**Target Version**: 0.11.0 (workspace); moirai-quic 0.1.0; moirai-webview 0.2.0
+**Target Version**: moirai-async 0.12.0; moirai-quinn 0.1.0;
+moirai-quic 0.2.0; facade 0.12.0; unchanged workspace 0.11.0.
+
+- [x] [minor] Implement unbounded MPSC, persistent polling and native ReadBuffer;
+  strict async patch API 223 pass/30 checker skips and 33 actual-source Miri tests pass.
+- [x] [arch] Implement the licensed versioned Quinn adaptation; native package
+  tests pass 191 cases, upstream driver tests pass all 25 cases with ignored
+  stress cases executed, and default/minimal facade sessions pass (ADR 0084).
+- [x] [minor] Independently resolve source-consumer default/minimal normal/build
+  graphs without Tokio; no path/patch result is registry admission.
+- [ ] [arch] Independent exact-source review, full required hosted/platform/
+  security and original 108-pair performance gates before merge/publication.
+- [ ] [minor] Ordered archive/publication and clean registry-consumer admission;
+  notification prerequisite delivery and every historical hold remain explicit.
 
 - [ ] [patch] moirai-async 0.11.1: notification future creation/broadcast and
   independent-permit correctness; exact-source validation and review required.

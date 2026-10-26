@@ -103,19 +103,19 @@ fn stock_factories_preserve_controller_identity_and_compute_distinct_loss_respon
     let cases = [
         (
             CongestionPolicy::Cubic,
-            TypeId::of::<quinn::congestion::Cubic>(),
+            TypeId::of::<moirai_quinn::congestion::Cubic>(),
             12_000,
             8_400,
         ),
         (
             CongestionPolicy::NewReno,
-            TypeId::of::<quinn::congestion::NewReno>(),
+            TypeId::of::<moirai_quinn::congestion::NewReno>(),
             12_000,
             6_000,
         ),
         (
             CongestionPolicy::ExperimentalBbr,
-            TypeId::of::<quinn::congestion::Bbr>(),
+            TypeId::of::<moirai_quinn::congestion::Bbr>(),
             240_000,
             240_000,
         ),

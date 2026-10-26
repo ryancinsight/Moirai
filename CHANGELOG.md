@@ -5,6 +5,61 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [moirai-quinn 0.1.0 / moirai-quic 0.2.0 / moirai-runtime 0.12.0] - Unreleased
+
+### Changed
+
+- [arch] Use the real licensed Quinn 0.11.12 async driver under the explicit
+  moirai-quinn identity, with Moirai notification, channels and I/O. Preserve
+  original protocol/UDP identities, license notices and supported optional
+  runtimes. Default/minimal native normal/build graphs contain no Tokio.
+- [patch] Resolve the current compatible registry/Git cohort, including
+  Themis 0.11.3 and Mnemosyne-memory 0.10.1; retain Rustls 0.23.46's floor.
+
+### Breaking
+
+- Native QUIC public error payloads now belong to `moirai_quinn`; callers naming
+  upstream Quinn error types migrate to the explicit adaptation crate. The
+  provider/facade pre-1.0 minor versions classify this public type-owner change.
+- The adapted driver's `RecvStream::poll_read_buf` accepts
+  `moirai_async::io::ReadBuffer`. Tokio I/O traits require `tokio-compat` (also
+  enabled by `runtime-tokio`). Other supported runtime/crypto features remain.
+  Moirai's provider supplies its concrete runtime through the existing ABI.
+
+### Qualification
+
+- Local default/minimal sessions, real UDP/EOF/cancellation/property tests,
+  independent unmodified upstream wire interoperability, actual-source Miri
+  and strict async API checks pass within their recorded scopes. Full hosted
+  gates, platform/performance acceptance, independent review and ordered
+  publication remain required. No recovery experiment is adopted and no 1.0,
+  registry, security-hold or performance clearance follows from this work.
+
+## [moirai-async 0.12.0] - Unreleased
+
+### Added
+
+- [minor] Add explicit bounded/unbounded MPSC modes over the existing channel
+  buffer and waiter queues. Unbounded sends synchronously return the exact
+  rejected payload; persistent receive polling retains and replaces wakers.
+- [minor] Add `io::ReadBuffer` with initialized-prefix ownership for native
+  readers, partial progress and allocation-free initialized/uninitialized
+  storage. The existing `AsyncRead`/`AsyncWrite` signatures stay compatible.
+
+### Fixed
+
+- [patch] Release buffered payloads when the receiver drops while senders remain
+  alive; run payload destructors after releasing the channel state lock.
+
+### Qualification
+
+- ADR 0084 records the versioned native Quinn migration. The isolated source
+  and package witnesses pass 191 async/QUIC tests, the driver passes all 25
+  preserved tests, strict async API passes 223 checks (30 checker skips), and
+  actual source passes 33 Miri tests. Native source graph/runtime evidence is
+  separate from registry and final hosted acceptance. Notification repair delivery
+  remains separately owned. No package is published by this preparation.
+
 ## moirai-async [0.11.1] - Unreleased
 
 ### Fixed

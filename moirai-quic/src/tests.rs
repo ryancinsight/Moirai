@@ -1,8 +1,10 @@
 mod acceptance;
 mod congestion;
 mod loss;
+mod native_io;
 mod rejection;
 mod socket;
+mod upstream_interop;
 
 use super::*;
 use moirai_executor::HybridExecutor;

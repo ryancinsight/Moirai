@@ -84,10 +84,10 @@ fn untrusted_certificate_wrong_hostname_and_alpn_fail_closed() {
             Err(error) => error,
         };
         let code = match client_error {
-            QuicError::Connection(quinn::ConnectionError::TransportError(error)) => {
+            QuicError::Connection(moirai_quinn::ConnectionError::TransportError(error)) => {
                 u64::from(error.code)
             }
-            QuicError::Connection(quinn::ConnectionError::ConnectionClosed(error)) => {
+            QuicError::Connection(moirai_quinn::ConnectionError::ConnectionClosed(error)) => {
                 u64::from(error.error_code)
             }
             error => panic!("expected local or peer TLS transport alert, got {error}"),
@@ -133,7 +133,7 @@ fn hostile_prefix_and_truncation_abort_the_affected_stream() {
             } else {
                 assert!(matches!(
                     error,
-                    QuicError::ReadExact(quinn::ReadExactError::FinishedEarly(_))
+                    QuicError::ReadExact(moirai_quinn::ReadExactError::FinishedEarly(_))
                 ));
             }
             assert!(matches!(
@@ -268,7 +268,8 @@ fn mutual_tls_admits_only_a_client_with_the_required_certificate() {
                 Ok(_) => panic!("anonymous client admitted"),
                 Err(error) => error,
             };
-            let QuicError::Connection(quinn::ConnectionError::TransportError(error)) = error else {
+            let QuicError::Connection(moirai_quinn::ConnectionError::TransportError(error)) = error
+            else {
                 panic!("server must retain the missing-client-certificate alert");
             };
             assert_eq!(
@@ -318,7 +319,7 @@ fn expired_leaf_is_rejected_even_when_its_root_is_trusted() {
         Ok(_) => panic!("expired leaf admitted"),
         Err(error) => error,
     };
-    let QuicError::Connection(quinn::ConnectionError::TransportError(error)) = error else {
+    let QuicError::Connection(moirai_quinn::ConnectionError::TransportError(error)) = error else {
         panic!("certificate expiry error lost");
     };
     assert_eq!(

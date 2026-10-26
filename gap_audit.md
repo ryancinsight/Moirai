@@ -3,6 +3,15 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Native dependency admission boundary — 2026-10-26 [arch]
+
+Active unbounded-channel and native-buffer preparation belongs to
+MOI-NATIVE-QUINN-DEPENDENCIES-001 in backlog.md and ADR 0084. Passing local package, native graph/session, strict async API and actual-source
+Miri checks do not establish a registry/fresh-consumer release or close existing
+QUIC recovery/platform/security holds. The scoped source removes Tokio from
+native normal/build graphs; canonical release admission remains separate.
+Future acceptance must retain those distinct gates and their exact revisions.
+
 ## Native QUIC transport — 2026-10-13 [minor]
 
 ADR 0082 adds a separate read-only diagnostic engine build for per-space

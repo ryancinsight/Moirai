@@ -148,21 +148,21 @@ impl QuicConfig {
         &self.alpn
     }
 
-    pub(super) fn transport(&self) -> Result<Arc<quinn::TransportConfig>, QuicError> {
+    pub(super) fn transport(&self) -> Result<Arc<moirai_quinn::TransportConfig>, QuicError> {
         let stream_window = u64::from(self.max_frame_bytes) + 4;
         let connection_window = stream_window
             .checked_mul(u64::from(self.max_streams))
             .ok_or(QuicError::InvalidConfig("connection window overflows"))?;
-        let mut transport = quinn::TransportConfig::default();
+        let mut transport = moirai_quinn::TransportConfig::default();
         transport.congestion_controller_factory(self.congestion_policy.factory());
         transport.max_concurrent_bidi_streams(self.max_streams.into());
         transport.max_concurrent_uni_streams(0_u8.into());
         transport.stream_receive_window(
-            quinn::VarInt::from_u64(stream_window)
+            moirai_quinn::VarInt::from_u64(stream_window)
                 .map_err(|_| QuicError::InvalidConfig("stream window exceeds QUIC varint"))?,
         );
         transport.receive_window(
-            quinn::VarInt::from_u64(connection_window)
+            moirai_quinn::VarInt::from_u64(connection_window)
                 .map_err(|_| QuicError::InvalidConfig("connection window exceeds QUIC varint"))?,
         );
         transport.send_window(connection_window);

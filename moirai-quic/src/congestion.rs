@@ -22,11 +22,13 @@ pub enum CongestionPolicy {
 impl CongestionPolicy {
     // Condition 1: Quinn owns the erased controller-factory ABI. Selection
     // happens at construction; Moirai adds no per-packet virtual dispatch.
-    pub(super) fn factory(self) -> Arc<dyn quinn::congestion::ControllerFactory + Send + Sync> {
+    pub(super) fn factory(
+        self,
+    ) -> Arc<dyn moirai_quinn::congestion::ControllerFactory + Send + Sync> {
         match self {
-            Self::Cubic => Arc::new(quinn::congestion::CubicConfig::default()),
-            Self::NewReno => Arc::new(quinn::congestion::NewRenoConfig::default()),
-            Self::ExperimentalBbr => Arc::new(quinn::congestion::BbrConfig::default()),
+            Self::Cubic => Arc::new(moirai_quinn::congestion::CubicConfig::default()),
+            Self::NewReno => Arc::new(moirai_quinn::congestion::NewRenoConfig::default()),
+            Self::ExperimentalBbr => Arc::new(moirai_quinn::congestion::BbrConfig::default()),
         }
     }
 }
