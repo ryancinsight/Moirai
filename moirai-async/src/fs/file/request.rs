@@ -134,12 +134,17 @@ pub(in crate::fs) mod test_hooks {
     static CHANGED: Condvar = Condvar::new();
 
     /// Cap every later single write at `bytes`; zero lifts the cap.
+    ///
+    /// Relaxed: the knob needs visibility, not an ordering edge. A test
+    /// sets it before submitting the job whose write it caps, so thread
+    /// start provides the happens-before, and the cap is asserted through
+    /// the job's completion signal, which orders the read after the store.
     pub(in crate::fs) fn cap_single_writes(bytes: usize) {
-        WRITE_CAP.store(bytes, Ordering::SeqCst);
+        WRITE_CAP.store(bytes, Ordering::Relaxed);
     }
 
     pub(super) fn capped(len: usize) -> usize {
-        match WRITE_CAP.load(Ordering::SeqCst) {
+        match WRITE_CAP.load(Ordering::Relaxed) {
             0 => len,
             cap => len.min(cap),
         }
