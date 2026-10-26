@@ -40,7 +40,7 @@ use tracing_subscriber::EnvFilter;
 use super::{ClientConfig, Endpoint, EndpointConfig, RecvStream, SendStream, TransportConfig};
 
 /// Construct an endpoint suitable for connecting to itself
-fn endpoint() -> Endpoint {
+pub(crate) fn endpoint() -> Endpoint {
     EndpointFactory::new().endpoint()
 }
 

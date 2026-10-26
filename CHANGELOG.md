@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moirai-quinn identity, with Moirai notification, channels and I/O. Preserve
   original protocol/UDP identities, license notices and supported optional
   runtimes. Default/minimal native normal/build graphs contain no Tokio.
+- [patch] Bound each connection driver's native MPSC event batch to 128, the
+  observed upstream cooperative receive budget. Process transmission, timers
+  and application events before scheduling continuation outside the state lock.
 - [patch] Resolve the current compatible registry/Git cohort, including
   Themis 0.11.3 and Mnemosyne-memory 0.10.1; retain Rustls 0.23.46's floor.
 
@@ -49,16 +52,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - [patch] Release buffered payloads when the receiver drops while senders remain
-  alive; run payload destructors after releasing the channel state lock.
+  alive; signal every parked sender before running payload destructors outside
+  the state lock, including when a destructor unwinds.
 
 ### Qualification
 
 - ADR 0084 records the versioned native Quinn migration. The isolated source
-  and package witnesses pass 191 async/QUIC tests, the driver passes all 25
-  preserved tests, strict async API passes 223 checks (30 checker skips), and
-  actual source passes 33 Miri tests. Native source graph/runtime evidence is
-  separate from registry and final hosted acceptance. Notification repair delivery
-  remains separately owned. No package is published by this preparation.
+  and package witnesses pass 192 async/QUIC tests, the driver passes all 25
+  preserved tests plus the new fairness regression, and actual source passes
+  34 Miri tests. The corrected source's strict async API comparison passes
+  223 checks (30 checker skips); independent re-review remains pending.
+  Native source graph/runtime evidence is separate from registry and final
+  hosted acceptance. Notification repair delivery remains separately owned.
+  No package is published by this preparation.
 
 ## moirai-async [0.11.1] - Unreleased
 

@@ -400,6 +400,12 @@ pub enum SendDatagramError {
 /// and allows other tasks (like receiving ACKs) to run in between.
 const MAX_TRANSMIT_DATAGRAMS: usize = 20;
 
+/// Upper bound on connection events handled under one driver-state lock.
+/// Tokio's original unbounded receiver yields after 128 ready receives in a
+/// fresh task poll. Explicitly retain that bound with Moirai's native receiver
+/// so transmission, timers and other tasks progress with a nonempty backlog.
+const MAX_CONNECTION_EVENTS_PER_POLL: usize = 128;
+
 /// The maximum amount of datagrams that are sent in a single transmit
 ///
 /// This can be lower than the maximum platform capabilities, to avoid excessive

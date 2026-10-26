@@ -19,6 +19,8 @@ data-parallel domain in `moirai-parallel`.
   `sync::mpsc` has bounded `channel` and synchronous `unbounded_channel` over
   one FIFO ownership and cancellation state machine. `Receiver::poll_recv`
   retains the current caller's waker until progress, replacement or cancellation.
+  Receiver destruction signals parked senders before dropping queued payloads,
+  so a payload destructor panic cannot strand their closed-channel futures.
 - `executor` — native `AsyncExecutor` and `AsyncHandle`.
 
 ```toml

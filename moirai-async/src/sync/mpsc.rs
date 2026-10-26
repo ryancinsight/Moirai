@@ -344,12 +344,14 @@ impl<T, Mode> Drop for Receiver<T, Mode> {
         let buffer = std::mem::take(&mut shared.buffer);
         let wakers = shared.send_waiters.grant_all(());
         drop(shared);
-        // Payload destructors may re-enter a surviving sender. Release both
-        // queued ownership and the state mutex before invoking user code.
-        drop(buffer);
+        // Signal every parked sender before invoking payload destructors: one
+        // may panic, but its unwind must not strand the already-closed senders.
+        // Wakers and payload destructors may both re-enter the channel, so
+        // neither may run while the state mutex is held.
         for waker in wakers {
             waker.wake();
         }
+        drop(buffer);
     }
 }
 

@@ -8,14 +8,17 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 moirai-quic 0.2.0; facade 0.12.0; unchanged workspace 0.11.0.
 
 - [x] [minor] Implement unbounded MPSC, persistent polling and native ReadBuffer;
-  strict async patch API 223 pass/30 checker skips and 33 actual-source Miri tests pass.
+  corrected-source strict async patch API 223 pass/30 checker skips and 34
+  actual-source Miri tests pass after the payload-panic wake repair.
 - [x] [arch] Implement the licensed versioned Quinn adaptation; native package
-  tests pass 191 cases, upstream driver tests pass all 25 cases with ignored
-  stress cases executed, and default/minimal facade sessions pass (ADR 0084).
+  tests pass 192 cases, all 25 upstream driver tests and the 128-event fairness
+  regression pass with ignored stress cases executed. Corrected-source
+  default/minimal facade sessions pass (ADR 0084).
 - [x] [minor] Independently resolve source-consumer default/minimal normal/build
   graphs without Tokio; no path/patch result is registry admission.
-- [ ] [arch] Independent exact-source review, full required hosted/platform/
-  security and original 108-pair performance gates before merge/publication.
+- [ ] [arch] Independent re-review of both P2 repairs on the corrected exact
+  source, full required hosted/platform/security and original 108-pair
+  performance gates before merge/publication.
 - [ ] [minor] Ordered archive/publication and clean registry-consumer admission;
   notification prerequisite delivery and every historical hold remain explicit.
 

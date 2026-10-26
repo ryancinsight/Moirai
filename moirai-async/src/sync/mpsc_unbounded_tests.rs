@@ -330,3 +330,81 @@ fn queued_payload_destructor_can_reenter_a_surviving_sender() {
     assert_eq!(drops.load(Ordering::Relaxed), 1);
     assert_eq!(sender.sender_strong_count(), 1);
 }
+
+#[test]
+fn payload_unwind_cannot_bypass_any_parked_sender_wake() {
+    let _trace = trace();
+    #[derive(Debug)]
+    struct UnwindPayload {
+        value: Box<usize>,
+        panic_on_drop: bool,
+        drops: Arc<AtomicUsize>,
+    }
+    impl Drop for UnwindPayload {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+            if self.panic_on_drop {
+                panic!("queued payload destructor panic");
+            }
+        }
+    }
+    for capacity in [1, 3] {
+        for parked in [1, 3] {
+            let _case = tracing::info_span!("case", capacity, parked).entered();
+            let _arrange = tracing::info_span!("arrange").entered();
+            let (sender, receiver) = channel(capacity);
+            let drops = Arc::new(AtomicUsize::new(0));
+            for value in 0..capacity {
+                sender
+                    .try_send(UnwindPayload {
+                        value: Box::new(value),
+                        panic_on_drop: value == 0,
+                        drops: Arc::clone(&drops),
+                    })
+                    .expect("accepted queued payload");
+            }
+            let counters: Vec<_> = (0..parked).map(|_| counter()).collect();
+            let mut sending = Vec::new();
+            let mut identities = Vec::new();
+            for (index, (_, waker)) in counters.iter().enumerate() {
+                let value = Box::new(capacity + index);
+                identities.push(std::ptr::from_ref(&*value));
+                let mut future = sender.send(UnwindPayload {
+                    value,
+                    panic_on_drop: false,
+                    drops: Arc::clone(&drops),
+                });
+                assert!(
+                    Pin::new(&mut future)
+                        .poll(&mut Context::from_waker(waker))
+                        .is_pending()
+                );
+                sending.push(future);
+            }
+            drop(_arrange);
+            let _act = tracing::info_span!("act").entered();
+            let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(receiver)))
+                .expect_err("the payload panic must propagate");
+            drop(_act);
+            let _assert = tracing::info_span!("assert").entered();
+            assert_eq!(
+                panic.downcast_ref::<&str>(),
+                Some(&"queued payload destructor panic")
+            );
+            assert!(sender.is_closed());
+            assert_eq!(drops.load(Ordering::SeqCst), capacity);
+            for (index, (future, (count, waker))) in sending.iter_mut().zip(&counters).enumerate() {
+                assert_eq!(count.0.load(Ordering::Relaxed), 1);
+                let Poll::Ready(Err(returned)) =
+                    Pin::new(future).poll(&mut Context::from_waker(waker))
+                else {
+                    panic!("closed channel must return the parked payload");
+                };
+                assert_eq!(*returned.value, capacity + index);
+                assert_eq!(std::ptr::from_ref(&*returned.value), identities[index]);
+                drop(returned);
+            }
+            assert_eq!(drops.load(Ordering::SeqCst), capacity + parked);
+        }
+    }
+}

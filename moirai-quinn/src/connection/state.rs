@@ -81,8 +81,8 @@ impl State {
         &mut self,
         shared: &Shared,
         cx: &mut Context,
-    ) -> Result<(), ConnectionError> {
-        loop {
+    ) -> Result<bool, ConnectionError> {
+        for _ in 0..MAX_CONNECTION_EVENTS_PER_POLL {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(socket))) => {
                     self.socket = socket;
@@ -103,10 +103,14 @@ impl State {
                     }));
                 }
                 Poll::Pending => {
-                    return Ok(());
+                    return Ok(false);
                 }
             }
         }
+
+        // The queue may still contain events. Continue the driver after this
+        // poll's transmit, timer and application-event work has run.
+        Ok(true)
     }
 
     pub(super) fn forward_app_events(&mut self, shared: &Shared) {
@@ -266,6 +270,10 @@ impl Drop for State {
         }
     }
 }
+
+#[cfg(all(test, any(feature = "rustls-aws-lc-rs", feature = "rustls-ring")))]
+#[path = "event_tests.rs"]
+mod event_tests;
 
 impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

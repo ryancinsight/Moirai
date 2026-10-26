@@ -15,14 +15,17 @@ impl Future for ConnectionDriver {
     type Output = Result<(), io::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let conn = &mut *self.conn.state.lock("poll");
+        let mut conn = self.conn.state.lock("poll");
         let _guard = self.span.enter();
 
-        if let Err(e) = conn.process_conn_events(&self.conn.shared, cx) {
-            conn.terminate(e, &self.conn.shared);
-            return Poll::Ready(Ok(()));
-        }
-        let mut keep_going = conn.drive_transmit(cx)?;
+        let mut keep_going = match conn.process_conn_events(&self.conn.shared, cx) {
+            Ok(more) => more,
+            Err(e) => {
+                conn.terminate(e, &self.conn.shared);
+                return Poll::Ready(Ok(()));
+            }
+        };
+        keep_going |= conn.drive_transmit(cx)?;
         // If a timer expires, there might be more to transmit. When we transmit something, we
         // might need to reset a timer. Hence, we must loop until neither happens.
         keep_going |= conn.drive_timer(cx);
@@ -32,6 +35,8 @@ impl Future for ConnectionDriver {
         if !conn.inner.is_drained() {
             if keep_going {
                 // If the connection hasn't processed all tasks, schedule it again
+                // after releasing the state lock: wakers may poll immediately.
+                drop(conn);
                 cx.waker().wake_by_ref();
             } else {
                 conn.driver = Some(cx.waker().clone());

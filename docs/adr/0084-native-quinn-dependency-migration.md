@@ -3,7 +3,8 @@
 Date: 2026-10-26
 Status: Proposed
 
-Exact-head integration and independent review remain pending.
+The first independent review requests two P2 repairs. Owner regressions pass
+locally; exact-revision re-review and integration remain pending.
 
 Decision scope: the authorized native Tokio removal, separate from the held
 QUIC recovery experiments and the notification repair delivery owner.
@@ -46,6 +47,9 @@ by receive or receiver destruction. Last-sender drop closes admission but
 retains accepted values until drained. Receiver drop closes admission and
 releases buffered values even while senders remain alive. Removing a receive
 registration cannot remove a value; cancellation cannot lose a message.
+Receiver destruction signals all parked senders after unlocking and before
+running any queued payload destructor. A panicking destructor propagates its
+panic without bypassing those notifications.
 
 ## Native I/O and licensed source boundary
 
@@ -96,6 +100,15 @@ Moirai AsyncRead/AsyncWrite. Optional futures-io, Tokio I/O, Tokio runtime,
 Smol and async-std support remains explicit. Upstream unit-test runtimes and
 an unmodified upstream wire-reference peer are development dependencies;
 they do not establish native normal-graph acceptance.
+
+The original Tokio unbounded receiver cooperatively returned `Pending` after
+128 ready receives in the reviewer's fresh-task oracle. Moirai's channel has
+no task-local Tokio budget, so this driver explicitly caps connection events
+at 128 per poll. Transmission, timers and application events run after each
+batch; continuation wakes outside the connection-state lock. The separate
+endpoint event loop already has its own finite work bound. Native scheduling
+remains Moirai-owned, and the original timing/performance acceptance remains
+open.
 
 Native source relocation separates impl families without changing protocol
 method bodies or dropping original tests. Every imported Rust source file is

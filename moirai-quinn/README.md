@@ -12,6 +12,10 @@ and crypto features remain supported. Tokio trait interoperability is explicit
 under `tokio-compat`, also enabled by `runtime-tokio`. Native consumers do not
 enable those features. Upstream unit tests use their actual Tokio dev runtime;
 native runtime acceptance is measured separately through moirai-quic.
+The connection driver processes at most 128 native channel events per poll,
+matching the original Tokio receiver's observed cooperative budget. It then
+services transmission, timers and application events before scheduling the
+next poll outside the connection-state lock; this applies to every runtime.
 
 Migration: import `moirai_quinn`, replace `tokio::io::ReadBuf` at
 `RecvStream::poll_read_buf` with `moirai_async::io::ReadBuffer`, and enable
