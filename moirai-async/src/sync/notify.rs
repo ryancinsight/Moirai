@@ -14,6 +14,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use crate::sync::wait_queue::{WaitQueue, WaiterPoll};
@@ -31,6 +32,8 @@ enum NotifyGrant {
 /// Notification primitive for efficient task coordination
 pub struct Notify {
     state: Mutex<NotifyState>,
+    /// Creation snapshots do not allocate or acquire the waiter-state lock.
+    broadcasts: AtomicU64,
 }
 
 struct NotifyState {
@@ -47,14 +50,20 @@ impl Notify {
                 notified: false,
                 waiters: WaitQueue::new(),
             }),
+            broadcasts: AtomicU64::new(0),
         }
     }
 
-    /// Wait for a notification
+    /// Wait for a notification.
+    ///
+    /// A broadcast issued after this future is created is observed even if the
+    /// future has not been polled yet. A single-task notification is admitted
+    /// when the future is polled, retaining FIFO registered-waiter semantics.
     pub fn notified(&self) -> NotifyFuture<'_> {
         NotifyFuture {
             notify: self,
             id: None,
+            broadcasts: self.broadcasts.load(Ordering::Acquire),
         }
     }
 
@@ -80,12 +89,19 @@ impl Notify {
 
     /// Notify all waiting tasks.
     ///
-    /// Wakes every currently-registered waiter. This is independent of the
+    /// Wakes every currently-registered waiter and completes futures created
+    /// before this call that have not yet been polled. This is independent of the
     /// single-permit `notify_one` mechanism: a permit stored by a prior
     /// `notify_one` (issued with no waiters present) is left intact, so a
     /// subsequent `notified()` still observes it.
     pub fn notify_waiters(&self) {
         let mut state = self.state.lock().unwrap();
+        // Linearize the broadcast under the waiter lock. A first poll either
+        // sees this generation or registers before grant_all, closing the
+        // creation-to-first-poll gap without storing a broadcast permit for
+        // futures created later. Release/Acquire binds creation snapshots;
+        // waiter admission and grant visibility use the existing mutex.
+        self.broadcasts.fetch_add(1, Ordering::Release);
         let wakers = state.waiters.grant_all(NotifyGrant::All);
         drop(state);
 
@@ -105,6 +121,7 @@ impl Default for Notify {
 pub struct NotifyFuture<'a> {
     notify: &'a Notify,
     id: Option<u64>,
+    broadcasts: u64,
 }
 
 impl<'a> Future for NotifyFuture<'a> {
@@ -113,19 +130,16 @@ impl<'a> Future for NotifyFuture<'a> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut state = self.notify.state.lock().unwrap();
 
-        // 1. Check if a stored permit is available
-        if state.notified {
-            state.notified = false;
-            if let Some(id) = self.id.take() {
-                // Parity with the pre-consolidation state machine: the entry
-                // is removed regardless of grant state, so a `One` grant on
-                // our own entry is consumed together with the stored permit.
-                let _removed_grant = state.waiters.deregister(id);
-            }
+        // Quinn-style protocol drivers create this future while holding their
+        // own state lock and first poll it after releasing that lock. A
+        // broadcast in between must not be lost or consume a separate stored
+        // notify_one permit. Registered futures consume their existing grant.
+        if self.id.is_none() && self.broadcasts != self.notify.broadcasts.load(Ordering::Acquire) {
             return Poll::Ready(());
         }
 
-        // 2. Check if already registered
+        // Consume an assigned grant before a separate stored permit. Taking
+        // both for one completed future would lose the second notification.
         if let Some(id) = self.id {
             match state.waiters.poll_waiter(id, cx.waker()) {
                 WaiterPoll::Granted(_) => {
@@ -134,15 +148,24 @@ impl<'a> Future for NotifyFuture<'a> {
                 }
                 WaiterPoll::Pending => return Poll::Pending,
                 // Our registration was lost; re-register below.
-                WaiterPoll::NotRegistered => {}
+                WaiterPoll::NotRegistered => self.id = None,
             }
         }
 
-        // 3. Register a (new) waiter.
+        if state.notified {
+            state.notified = false;
+            return Poll::Ready(());
+        }
+
+        // Register a (new) waiter under the same lock as notify_waiters.
         self.id = Some(state.waiters.register(cx.waker().clone()));
         Poll::Pending
     }
 }
+
+#[cfg(test)]
+#[path = "notify_tests.rs"]
+mod tests;
 
 impl<'a> Drop for NotifyFuture<'a> {
     fn drop(&mut self) {

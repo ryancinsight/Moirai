@@ -5,6 +5,17 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## moirai-async [0.11.1] - Unreleased
+
+### Fixed
+
+- [patch] Preserve notification broadcasts between future creation and first
+  poll, as required by state-locked protocol drivers. Consume a registered
+  grant before an independent stored single permit so one completed future
+  cannot discard two notifications. Retain FIFO cancellation handoff and
+  broadcast isolation from subsequently created futures. This private
+  prerequisite does not change QUIC protocol state or clear promotion gates.
+
 ## [0.11.0] - Unreleased
 
 ### Added

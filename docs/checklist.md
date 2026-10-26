@@ -6,6 +6,10 @@ and unowned risk in [`../gap_audit.md`](../gap_audit.md).
 
 **Target Version**: 0.11.0 (workspace); moirai-quic 0.1.0; moirai-webview 0.2.0
 
+- [ ] [patch] moirai-async 0.11.1: notification future creation/broadcast and
+  independent-permit correctness; exact-source validation and review required.
+  This package increment does not qualify QUIC promotion or native Tokio removal.
+
 - [x] [minor] Integrate current main's 0.9.2 WebView fixes; classify pending native QUIC additions and the documented pre-1.0 UDP migration under workspace 0.10.0.
 - [patch] The private allocator edge accepts Mnemosyne-memory 0.10; public
   mnemosyne-memory-core 0.3 budget types and all Rust implementations remain unchanged.
