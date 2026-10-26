@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use num_traits::ToPrimitive;
 use proto::crypto::rustls::QuicClientConfig;
 use rustls::pki_types::CertificateDer;
 use tracing::{error, info};
@@ -142,7 +143,10 @@ async fn run(options: Opt) -> Result<()> {
     eprintln!(
         "response received in {:?} - {} KiB/s",
         duration,
-        resp.len() as f32 / (duration_secs(&duration) * 1024.0)
+        resp.len()
+            .to_f32()
+            .expect("usize fits f32's exponent range")
+            / (duration_secs(&duration) * 1024.0)
     );
     io::stdout().write_all(&resp).unwrap();
     io::stdout().flush().unwrap();
@@ -165,5 +169,5 @@ fn strip_ipv6_brackets(host: &str) -> &str {
 }
 
 fn duration_secs(x: &Duration) -> f32 {
-    x.as_secs() as f32 + x.subsec_nanos() as f32 * 1e-9
+    x.as_secs_f32()
 }

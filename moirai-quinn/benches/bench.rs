@@ -45,7 +45,11 @@ fn send_data(bench: &mut Bencher, data: &'static [u8], concurrent_streams: usize
     let (endpoint, client, runtime) = ctx.make_client(addr);
     let client = Arc::new(client);
 
-    bench.bytes = (data.len() as u64) * (concurrent_streams as u64);
+    let bytes_per_stream = u64::try_from(data.len()).expect("benchmark payload fits u64");
+    let stream_count = u64::try_from(concurrent_streams).expect("stream count fits u64");
+    bench.bytes = bytes_per_stream
+        .checked_mul(stream_count)
+        .expect("benchmark byte count fits u64");
     bench.iter(|| {
         let mut handles = Vec::new();
 

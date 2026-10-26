@@ -9,7 +9,7 @@ impl Connection {
     pub fn open_uni(&self) -> OpenUni<'_> {
         OpenUni {
             conn: &self.0,
-            notify: self.0.shared.stream_budget_available[Dir::Uni as usize].notified(),
+            notify: self.0.shared.stream_budget_available[direction_index(Dir::Uni)].notified(),
         }
     }
 
@@ -26,7 +26,7 @@ impl Connection {
     pub fn open_bi(&self) -> OpenBi<'_> {
         OpenBi {
             conn: &self.0,
-            notify: self.0.shared.stream_budget_available[Dir::Bi as usize].notified(),
+            notify: self.0.shared.stream_budget_available[direction_index(Dir::Bi)].notified(),
         }
     }
 
@@ -34,7 +34,7 @@ impl Connection {
     pub fn accept_uni(&self) -> AcceptUni<'_> {
         AcceptUni {
             conn: &self.0,
-            notify: self.0.shared.stream_incoming[Dir::Uni as usize].notified(),
+            notify: self.0.shared.stream_incoming[direction_index(Dir::Uni)].notified(),
         }
     }
 
@@ -51,7 +51,7 @@ impl Connection {
     pub fn accept_bi(&self) -> AcceptBi<'_> {
         AcceptBi {
             conn: &self.0,
-            notify: self.0.shared.stream_incoming[Dir::Bi as usize].notified(),
+            notify: self.0.shared.stream_incoming[direction_index(Dir::Bi)].notified(),
         }
     }
 

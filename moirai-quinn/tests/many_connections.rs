@@ -17,6 +17,18 @@ struct Shared {
 }
 
 #[test]
+fn checksum_prefix_round_trips_and_rejects_short_or_corrupt_data() {
+    let crc = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+    for length in 0..4 {
+        assert!(!hash_correct(&vec![0; length], &crc));
+    }
+    let mut data = random_data_with_hash(32, &crc);
+    assert!(hash_correct(&data, &crc));
+    data[0] ^= 1;
+    assert!(!hash_correct(&data, &crc));
+}
+
+#[test]
 #[ignore]
 fn connect_n_nodes_to_1_and_send_1mb_data() {
     let _ = tracing_subscriber::FmtSubscriber::builder()
@@ -166,20 +178,16 @@ fn gen_cert() -> (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
 fn random_data_with_hash(size: usize, crc: &Crc<u32>) -> Vec<u8> {
     let mut data = random_vec(size + 4);
     let hash = crc.checksum(&data[4..]);
-    // write hash in big endian
-    data[0] = (hash >> 24) as u8;
-    data[1] = ((hash >> 16) & 0xff) as u8;
-    data[2] = ((hash >> 8) & 0xff) as u8;
-    data[3] = (hash & 0xff) as u8;
+    data[..4].copy_from_slice(&hash.to_be_bytes());
     data
 }
 
 /// Checks if given data buffer hash is correct. Hash itself is a 4 byte prefix in the data.
 fn hash_correct(data: &[u8], crc: &Crc<u32>) -> bool {
-    let encoded_hash = ((data[0] as u32) << 24)
-        | ((data[1] as u32) << 16)
-        | ((data[2] as u32) << 8)
-        | data[3] as u32;
+    let [a, b, c, d, ..] = data else {
+        return false;
+    };
+    let encoded_hash = u32::from_be_bytes([*a, *b, *c, *d]);
     let actual_hash = crc.checksum(&data[4..]);
     encoded_hash == actual_hash
 }

@@ -93,7 +93,7 @@ impl ConnectionRef {
     }
 
     pub(super) fn stable_id(&self) -> usize {
-        &*self.0 as *const _ as usize
+        Arc::as_ptr(&self.0).addr()
     }
 }
 

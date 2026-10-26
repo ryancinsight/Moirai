@@ -6,12 +6,14 @@ impl RecvState {
         max_receive_segments: usize,
         endpoint: &proto::Endpoint,
     ) -> Self {
-        let recv_buf = vec![
-            0;
-            endpoint.config().get_max_udp_payload_size().min(64 * 1024) as usize
-                * max_receive_segments
-                * BATCH_SIZE
-        ];
+        let recv_buf =
+            vec![
+                0;
+                usize::try_from(endpoint.config().get_max_udp_payload_size().min(64 * 1024))
+                    .expect("supported QUIC targets represent the maximum 64 KiB UDP payload")
+                    * max_receive_segments
+                    * BATCH_SIZE
+            ];
         Self {
             connections: ConnectionSet {
                 senders: FxHashMap::default(),

@@ -150,6 +150,15 @@ rebinds, alongside the existing all-stress driver suite. This internal repair
 does not broaden the approved public API break or waive the unchanged Linux
 performance, FIPS license, platform or release gates.
 
+Atlas's separate cast gate also applies to the imported driver. Stream
+directions now map explicitly to the two notification slots, integer size
+changes use `From`/`TryFrom`, and the work limiter retains its saturating
+float-to-count behavior through the established `num-traits` conversion API.
+The test waker uses the safe `Wake` trait instead of a raw pointer vtable.
+Read-to-end buffering validates additions and range conversion before
+committing a chunk; rejected chunks leave accepted bytes intact. No cast
+baseline, scanner exclusion, licensing term or optional runtime is changed.
+
 Native source relocation separates impl families without changing protocol
 method bodies or dropping original tests. Every imported Rust source file is
 below 500 lines. New source identity remains distinct from upstream Quinn;

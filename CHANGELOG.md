@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state at a full transmit batch without draining an unbounded queue; cache
   completed datagram-future results to prevent duplicate sends. Discard stale
   endpoint events and close poisoned drivers without resuming protocol state.
+- [patch] Validate read-to-end chunk offsets and lengths before updating the
+  accepted span, so overflow or an oversized reordered chunk returns `TooLong`
+  without changing buffered data. Use explicit stream-direction indexing and
+  checked numeric conversions throughout the licensed driver and its tests.
 
 ### Breaking
 

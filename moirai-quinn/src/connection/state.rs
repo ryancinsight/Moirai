@@ -19,7 +19,8 @@ impl State {
                 }
                 None => {
                     self.send_buffer.clear();
-                    self.send_buffer.reserve(self.inner.current_mtu() as usize);
+                    self.send_buffer
+                        .reserve(usize::from(self.inner.current_mtu()));
                     match self
                         .inner
                         .poll_transmit(now, max_datagrams, &mut self.send_buffer)
@@ -62,7 +63,8 @@ impl State {
                 // busy one. The former updates proto's app-limited congestion state now; the
                 // latter stages exactly one transmit for the next cooperative driver poll.
                 self.send_buffer.clear();
-                self.send_buffer.reserve(self.inner.current_mtu() as usize);
+                self.send_buffer
+                    .reserve(usize::from(self.inner.current_mtu()));
                 self.buffered_transmit =
                     self.inner
                         .poll_transmit(now, max_datagrams, &mut self.send_buffer);
@@ -145,10 +147,10 @@ impl State {
                 }
                 Stream(StreamEvent::Writable { id }) => wake_stream(id, &mut self.blocked_writers),
                 Stream(StreamEvent::Opened { dir: Dir::Uni }) => {
-                    shared.stream_incoming[Dir::Uni as usize].notify_waiters();
+                    shared.stream_incoming[direction_index(Dir::Uni)].notify_waiters();
                 }
                 Stream(StreamEvent::Opened { dir: Dir::Bi }) => {
-                    shared.stream_incoming[Dir::Bi as usize].notify_waiters();
+                    shared.stream_incoming[direction_index(Dir::Bi)].notify_waiters();
                 }
                 DatagramReceived => {
                     shared.datagram_received.notify_waiters();
@@ -159,7 +161,7 @@ impl State {
                 Stream(StreamEvent::Readable { id }) => wake_stream(id, &mut self.blocked_readers),
                 Stream(StreamEvent::Available { dir }) => {
                     // Might mean any number of streams are ready, so we wake up everyone
-                    shared.stream_budget_available[dir as usize].notify_waiters();
+                    shared.stream_budget_available[direction_index(dir)].notify_waiters();
                 }
                 Stream(StreamEvent::Finished { id }) => wake_stream_notify(id, &mut self.stopped),
                 Stream(StreamEvent::Stopped { id, .. }) => {
@@ -228,10 +230,10 @@ impl State {
         }
         wake_all(&mut self.blocked_writers);
         wake_all(&mut self.blocked_readers);
-        shared.stream_budget_available[Dir::Uni as usize].notify_waiters();
-        shared.stream_budget_available[Dir::Bi as usize].notify_waiters();
-        shared.stream_incoming[Dir::Uni as usize].notify_waiters();
-        shared.stream_incoming[Dir::Bi as usize].notify_waiters();
+        shared.stream_budget_available[direction_index(Dir::Uni)].notify_waiters();
+        shared.stream_budget_available[direction_index(Dir::Bi)].notify_waiters();
+        shared.stream_incoming[direction_index(Dir::Uni)].notify_waiters();
+        shared.stream_incoming[direction_index(Dir::Bi)].notify_waiters();
         shared.datagram_received.notify_waiters();
         shared.datagrams_unblocked.notify_waiters();
         if let Some(x) = self.on_connected.take() {

@@ -12,9 +12,10 @@ moirai-async 0.12.0, moirai-quinn 0.1.0, moirai-quic 0.2.0, and facade 0.12.0.
   actual-source Miri tests pass after the payload-panic wake repair.
 - [x] [arch] Implement the licensed versioned Quinn adaptation; the prior
   exact head passes 192 native package tests and default/minimal facade
-  sessions. The later conformance repair passes 33 local driver tests,
-  including all three stress cases and the 128-event fairness regression;
-  committed exact-head qualification remains open (ADR 0084).
+  sessions. The conformance repair passes 36 local driver tests, including all
+  three stress cases, the 128-event fairness regression, checked conversion
+  behavior and two read-buffer rejection regressions. The cast-gate repair
+  still needs committed exact-head qualification (ADR 0084).
 - [x] [minor] Independently resolve source-consumer default/minimal normal/build
   graphs without Tokio; no path/patch result is registry admission.
 - [x] [arch] Owner accepted ADR 0084's versioned public migration design;
@@ -24,8 +25,10 @@ moirai-async 0.12.0, moirai-quinn 0.1.0, moirai-quic 0.2.0, and facade 0.12.0.
   merge/publication. The archived-provenance controller suite passes 26 cases;
   the discontinued async-std dependency is removed, with first-spawn executor
   configuration under regression coverage. The local Atlas conformance ratchet
-  now passes on the repair worktree; the optional FIPS license gate remains
-  failed under the unchanged policy.
+  now passes on the preceding committed candidate; the subsequent Atlas cast
+  gate identified 37 imported-driver casts and its checked-conversion repair
+  requires a new exact-head run. The optional FIPS license gate remains failed
+  under the unchanged policy.
 - [ ] [minor] Ordered archive/publication and clean registry-consumer admission;
   notification prerequisite delivery and every historical hold remain explicit.
 

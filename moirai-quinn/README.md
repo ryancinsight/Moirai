@@ -35,6 +35,8 @@ This also covers repeated rebinds. At most two retired sockets are polled per
 endpoint turn alongside the current socket. A poisoned endpoint or connection
 lock never resumes protocol processing; fallible endpoint methods return
 closure/I/O errors, and driver teardown releases waiters and channels.
+Read-to-end buffering rejects overflowing or oversized chunks before changing
+the accepted span, preserving earlier bytes when an error is returned.
 
 Migration: import `moirai_quinn`, replace `tokio::io::ReadBuf` at
 `RecvStream::poll_read_buf` with `moirai_async::io::ReadBuffer`, and enable

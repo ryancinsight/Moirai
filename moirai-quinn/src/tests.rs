@@ -16,7 +16,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    task::{Context, Poll, Wake, Waker},
 };
 
 use crate::runtime::TokioRuntime;
@@ -302,45 +302,19 @@ impl WakeCounter {
     }
 }
 
+impl Wake for WakeCounter {
+    fn wake(self: Arc<Self>) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 fn new_count_waker() -> (Waker, Arc<WakeCounter>) {
-    // instance of WakeCounter
     let counter = Arc::new(WakeCounter::default());
-
-    // convert
-    let waker = unsafe { Waker::from_raw(raw_waker(counter.clone())) };
-    (waker, counter)
-}
-
-fn raw_waker(counter: Arc<WakeCounter>) -> RawWaker {
-    // Store an Arc<WakeCounter> behind the raw pointer.
-    let ptr = Arc::into_raw(counter) as *const ();
-    RawWaker::new(ptr, &VTABLE)
-}
-
-static VTABLE: RawWakerVTable =
-    RawWakerVTable::new(clone_waker, wake_waker, wake_by_ref_waker, drop_waker);
-
-unsafe fn clone_waker(data: *const ()) -> RawWaker {
-    let arc = Arc::<WakeCounter>::from_raw(data as *const WakeCounter);
-    let cloned = arc.clone();
-    std::mem::forget(arc);
-    raw_waker(cloned)
-}
-
-unsafe fn wake_waker(data: *const ()) {
-    let arc = Arc::<WakeCounter>::from_raw(data as *const WakeCounter);
-    arc.wakes.fetch_add(1, Ordering::SeqCst);
-    // arc drops here
-}
-
-unsafe fn wake_by_ref_waker(data: *const ()) {
-    let arc = Arc::<WakeCounter>::from_raw(data as *const WakeCounter);
-    arc.wakes.fetch_add(1, Ordering::SeqCst);
-    std::mem::forget(arc);
-}
-
-unsafe fn drop_waker(data: *const ()) {
-    drop(Arc::<WakeCounter>::from_raw(data as *const WakeCounter));
+    (Waker::from(Arc::clone(&counter)), counter)
 }
 
 mod datagrams;

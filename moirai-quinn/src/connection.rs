@@ -32,6 +32,15 @@ use proto::{
     Side, StreamEvent, StreamId,
 };
 
+// The protocol assigns the bidirectional stream type index 0 and the unidirectional type 1.
+// Keep notification-array indexing explicit so a future enum change cannot silently reorder it.
+const fn direction_index(direction: Dir) -> usize {
+    match direction {
+        Dir::Bi => 0,
+        Dir::Uni => 1,
+    }
+}
+
 /// In-progress connection attempt future
 pub struct Connecting {
     conn: Option<ConnectionRef>,
@@ -140,7 +149,7 @@ fn poll_open<'a>(
             Poll::Pending => return Poll::Pending,
             // Spurious wakeup, get a new future
             Poll::Ready(()) => {
-                notify.set(conn.shared.stream_budget_available[dir as usize].notified())
+                notify.set(conn.shared.stream_budget_available[direction_index(dir)].notified())
             }
         }
     }
@@ -209,7 +218,9 @@ fn poll_accept<'a>(
             // `state` lock ensures we didn't race with readiness
             Poll::Pending => return Poll::Pending,
             // Spurious wakeup, get a new future
-            Poll::Ready(()) => notify.set(conn.shared.stream_incoming[dir as usize].notified()),
+            Poll::Ready(()) => {
+                notify.set(conn.shared.stream_incoming[direction_index(dir)].notified())
+            }
         }
     }
 }
