@@ -44,8 +44,8 @@ rustls = { version = "0.23.46", default-features = false, features = ["std", "tl
 
 # Key exchange
 x25519-dalek    = { version = "2", default-features = false, features = ["static_secrets", "zeroize"], optional = true }
-p256            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"], optional = true }
-p384            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"], optional = true }
+p256            = { version = "0.14", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc", "getrandom"], optional = true }
+p384            = { version = "0.14", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc", "getrandom"], optional = true }
 
 # AEAD cipher suites
 aes-gcm         = { version = "0.10", default-features = false, features = ["aes", "alloc"], optional = true }
@@ -67,7 +67,7 @@ rand_core       = { version = "0.6", default-features = false, features = ["getr
 getrandom       = { version = "0.2", optional = true }
 
 # Async crypto math helpers
-elliptic-curve  = { version = "0.13", default-features = false, features = ["alloc"], optional = true }
+elliptic-curve  = { version = "0.14", default-features = false, features = ["alloc"], optional = true }
 
 # pki-types re-exported by rustls; must match version in lockfile
 pki-types       = { package = "rustls-pki-types", version = "1", optional = true }
