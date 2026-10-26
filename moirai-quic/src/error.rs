@@ -3,8 +3,8 @@ use std::future::Future;
 use std::io;
 use std::time::Duration;
 
-pub(crate) const CANCELLED: quinn::VarInt = quinn::VarInt::from_u32(1);
-pub(crate) const PROTOCOL_REJECTED: quinn::VarInt = quinn::VarInt::from_u32(2);
+pub(crate) const CANCELLED: moirai_quinn::VarInt = moirai_quinn::VarInt::from_u32(1);
+pub(crate) const PROTOCOL_REJECTED: moirai_quinn::VarInt = moirai_quinn::VarInt::from_u32(2);
 
 /// Distinct transport failures retain the upstream error as their source.
 #[derive(Debug)]
@@ -21,15 +21,15 @@ pub enum QuicError {
     /// Certificate, signing key or trust-store configuration error.
     Tls(super::rustls::Error),
     /// Connection initiation error.
-    Connect(quinn::ConnectError),
+    Connect(moirai_quinn::ConnectError),
     /// Authenticated connection failure, including TLS rejection.
-    Connection(quinn::ConnectionError),
+    Connection(moirai_quinn::ConnectionError),
     /// Stream read error, retaining reset/connection context.
-    Read(quinn::ReadError),
+    Read(moirai_quinn::ReadError),
     /// Truncated exact read or stream failure.
-    ReadExact(quinn::ReadExactError),
+    ReadExact(moirai_quinn::ReadExactError),
     /// Stream write failure, retaining peer stop/connection context.
-    Write(quinn::WriteError),
+    Write(moirai_quinn::WriteError),
     /// A peer or caller exceeded the admitted message size.
     MessageTooLarge {
         /// Actual or declared message size.
@@ -98,10 +98,10 @@ impl QuicError {
         match self {
             Self::Io(error) => error.kind(),
             Self::InvalidConfig(_) => io::ErrorKind::InvalidInput,
-            Self::ReadExact(quinn::ReadExactError::FinishedEarly(_)) => {
+            Self::ReadExact(moirai_quinn::ReadExactError::FinishedEarly(_)) => {
                 io::ErrorKind::UnexpectedEof
             }
-            Self::ReadExact(quinn::ReadExactError::ReadError(error)) | Self::Read(error) => {
+            Self::ReadExact(moirai_quinn::ReadExactError::ReadError(error)) | Self::Read(error) => {
                 io::Error::from(error.clone()).kind()
             }
             Self::Write(error) => io::Error::from(error.clone()).kind(),

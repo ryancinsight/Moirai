@@ -96,13 +96,14 @@ def trace_audit(shards):
     if observed:
         import hashlib
         from quic_observation.audit import state_trace, state_pair
-        from quic_observation.prepare import verify_provenance
+        from quic_observation.prepare import committed_lock, verify_provenance
         root = Path(__file__).resolve().parents[1]
         patch = hashlib.sha256((root/"scripts/quic_observation/engine.patch").read_bytes()).hexdigest()
         require(all(s.get("engine_observation") == shards[0].get("engine_observation")
                     for s in shards), "mixed diagnostic engine provenance")
         provenance = shards[0]["engine_observation"]
-        verify_provenance(provenance, root)
+        lock = committed_lock(root, shards[0]["revision"], shards[0]["tree"])
+        verify_provenance(provenance, root, lock)
         require(provenance["patch_sha256"] == patch and provenance["version"] == "0.11.19",
                 "diagnostic patch identity differs")
         require(all(s["lock_sha256"] == provenance["canonical_lock_sha256"] for s in shards),

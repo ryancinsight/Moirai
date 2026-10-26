@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 /// Dropping this endpoint closes its connections. Endpoint count is application
 /// policy; per-endpoint connection and pending-handshake counts are bounded.
 pub struct QuicEndpoint {
-    pub(super) endpoint: quinn::Endpoint,
+    pub(super) endpoint: moirai_quinn::Endpoint,
     config: QuicConfig,
     admission: Mutex<()>,
     health: Arc<RuntimeHealth>,
@@ -54,9 +54,9 @@ impl QuicEndpoint {
         };
         tls.alpn_protocols = vec![config.alpn.to_vec()];
         tls.enable_early_data = false;
-        let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(tls)
+        let crypto = moirai_quinn::crypto::rustls::QuicClientConfig::try_from(tls)
             .map_err(|_| QuicError::InvalidConfig("QUIC Initial cipher suite is absent"))?;
-        let mut client = quinn::ClientConfig::new(Arc::new(crypto));
+        let mut client = moirai_quinn::ClientConfig::new(Arc::new(crypto));
         client.transport_config(config.transport()?);
         let mut endpoint = Self::bind(executor, address, None, config)?;
         endpoint.endpoint.set_default_client_config(client);
@@ -101,9 +101,9 @@ impl QuicEndpoint {
             .map_err(QuicError::Tls)?;
         tls.alpn_protocols = vec![config.alpn.to_vec()];
         tls.max_early_data_size = 0;
-        let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(tls)
+        let crypto = moirai_quinn::crypto::rustls::QuicServerConfig::try_from(tls)
             .map_err(|_| QuicError::InvalidConfig("QUIC Initial cipher suite is absent"))?;
-        let mut server = quinn::ServerConfig::with_crypto(Arc::new(crypto));
+        let mut server = moirai_quinn::ServerConfig::with_crypto(Arc::new(crypto));
         server.transport_config(config.transport()?);
         server.max_incoming(usize::try_from(config.max_connections).unwrap_or(usize::MAX));
         server.incoming_buffer_size(u64::from(config.max_handshake_bytes));
@@ -116,7 +116,7 @@ impl QuicEndpoint {
     fn bind<E: TaskSpawner + Send + Sync + 'static>(
         executor: Arc<E>,
         address: SocketAddr,
-        server: Option<quinn::ServerConfig>,
+        server: Option<moirai_quinn::ServerConfig>,
         config: QuicConfig,
     ) -> Result<Self, QuicError> {
         let socket = UdpConfig {
@@ -132,9 +132,13 @@ impl QuicEndpoint {
             executor,
             health: Arc::clone(&health),
         });
-        let endpoint =
-            quinn::Endpoint::new(quinn::EndpointConfig::default(), server, socket, runtime)
-                .map_err(QuicError::Io)?;
+        let endpoint = moirai_quinn::Endpoint::new(
+            moirai_quinn::EndpointConfig::default(),
+            server,
+            socket,
+            runtime,
+        )
+        .map_err(QuicError::Io)?;
         health.check()?;
         Ok(Self {
             endpoint,
@@ -243,7 +247,7 @@ impl Drop for QuicEndpoint {
 /// Authenticated connection with bounded independent bidirectional streams.
 #[derive(Clone)]
 pub struct QuicConnection {
-    pub(super) connection: quinn::Connection,
+    pub(super) connection: moirai_quinn::Connection,
     config: QuicConfig,
     health: Arc<RuntimeHealth>,
     streams: Arc<StreamAdmission>,
@@ -251,14 +255,17 @@ pub struct QuicConnection {
 
 impl QuicConnection {
     fn authenticated(
-        connection: quinn::Connection,
+        connection: moirai_quinn::Connection,
         mut config: QuicConfig,
         health: Arc<RuntimeHealth>,
     ) -> Result<Self, QuicError> {
         // Condition 1: Quinn's TLS handshake ABI exposes protocol metadata as Any.
         let protocol = connection
             .handshake_data()
-            .and_then(|data| data.downcast::<quinn::crypto::rustls::HandshakeData>().ok())
+            .and_then(|data| {
+                data.downcast::<moirai_quinn::crypto::rustls::HandshakeData>()
+                    .ok()
+            })
             .and_then(|data| data.protocol);
         if protocol.as_deref() != Some(config.alpn.as_ref()) {
             connection.close(

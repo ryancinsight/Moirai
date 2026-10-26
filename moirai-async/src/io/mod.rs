@@ -10,6 +10,8 @@ pub mod compat;
 pub mod ext;
 /// Positioned asynchronous reads and source lengths.
 pub mod positioned;
+/// Native initialized and uninitialized read-buffer ownership.
+pub mod read_buffer;
 /// Core async read/write/seek trait definitions.
 pub mod traits;
 
@@ -17,6 +19,7 @@ pub use compat::{MoiraiCompat, TokioCompat};
 
 pub use ext::{AsyncReadExt, AsyncWriteExt, Flush, Read, ReadExact, Shutdown, Write, WriteAll};
 pub use positioned::{AsyncLength, AsyncMemReader, AsyncReadAt};
+pub use read_buffer::ReadBuffer;
 pub use traits::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[cfg(test)]

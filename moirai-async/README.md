@@ -16,6 +16,11 @@ data-parallel domain in `moirai-parallel`.
   including exact cursor-preserving `AsyncReadAt` and `AsyncLength` access.
 - `timer` — `sleep`, `timeout`, `interval`, `RateLimiter`, `TimerWheel`.
 - `sync` — `Mutex`, `RwLock`, `Semaphore`, `Notify`, `Broadcast`, `Watch`.
+  `sync::mpsc` has bounded `channel` and synchronous `unbounded_channel` over
+  one FIFO ownership and cancellation state machine. `Receiver::poll_recv`
+  retains the current caller's waker until progress, replacement or cancellation.
+  Receiver destruction signals parked senders before dropping queued payloads,
+  so a payload destructor panic cannot strand their closed-channel futures.
 - `executor` — native `AsyncExecutor` and `AsyncHandle`.
 
 ```toml
@@ -39,6 +44,13 @@ the function into a synchronous native `main` that builds a default
 `AsyncExecutor` and blocks on the body.
 
 Full documentation: <https://docs.rs/moirai-async>
+
+The proposed 0.12.0 native transport prerequisite adds
+`io::ReadBuffer` for initialized or uninitialized read destinations. It borrows
+storage without allocation and maintains `filled <= initialized <= capacity`.
+Appending initializes exactly the bytes supplied; advancing cannot expose
+uninitialized bytes. This is a buffer API, independent of stream scheduling.
+Package/release and native Quinn integration qualification remain pending.
 
 `UdpSocket::bind_with_config` applies PAL-owned native options before returning
 the socket. `UdpConfig.buffers` has independent optional `NonZeroUsize` receive

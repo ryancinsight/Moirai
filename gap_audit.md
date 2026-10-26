@@ -3,6 +3,33 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## Native dependency admission boundary — 2026-10-26 [arch]
+
+Active unbounded-channel and native-buffer preparation belongs to
+MOI-NATIVE-QUINN-DEPENDENCIES-001 in backlog.md and ADR 0084. Passing local package, native graph/session, strict async API and actual-source
+Miri checks do not establish a registry/fresh-consumer release or close existing
+QUIC recovery/platform/security holds. The scoped source removes Tokio from
+native normal/build graphs; canonical release admission remains separate.
+Future acceptance must retain those distinct gates and their exact revisions.
+ADR 0084's public design has owner sign-off. The recovery-controller audit now
+binds historical observations to their recorded Git lock/tree, leaving every
+historical measurement archive unchanged. Direct use of async-std's underlying
+global executor removes the discontinued optional `async-std` dependency while
+retaining first-spawn configuration, detached tasks and a tested compatibility
+runtime. The all-feature supply-chain gate
+still rejects `aws-lc-fips-sys` because its declared OpenSSL license is outside
+the existing policy. FIPS support and the policy are unchanged; this is an
+integration blocker, not a security acceptance result.
+The preceding committed native candidate passes Atlas conformance after
+value-semantic test assertions, explicit state/poison handling, bounded
+transmit continuation and per-connection retired-socket tracking. The
+registered dry-run hook then exposed 37 bare casts in the newly imported
+driver. Its local repair uses checked size conversions, explicit direction
+mapping, safe waker construction and a saturating work-count conversion;
+read-buffer error tests reproduce and close two related rejection defects.
+The new exact-head hook and independent source review remain required. Neither
+local result qualifies the unresolved full-stack reference gate.
+
 ## Native QUIC transport — 2026-10-13 [minor]
 
 ADR 0082 adds a separate read-only diagnostic engine build for per-space

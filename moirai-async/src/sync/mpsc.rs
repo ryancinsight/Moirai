@@ -3,7 +3,7 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-//! Bounded async multi-producer single-consumer channel.
+//! Async multi-producer single-consumer channel with explicit capacity modes.
 //!
 //! Waiter bookkeeping is delegated to the shared `WaitQueue`: the same
 //! FIFO-by-monotonic-id registration, grant hand-off, and O(log n)
@@ -13,7 +13,7 @@
 
 use std::collections::VecDeque;
 use std::future::Future;
-use std::marker::Unpin;
+use std::marker::{PhantomData, Unpin};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -22,24 +22,56 @@ use super::wait_queue::{WaitQueue, WaiterPoll};
 
 struct SharedState<T> {
     buffer: VecDeque<T>,
-    capacity: usize,
+    capacity: Option<usize>,
     sender_count: usize,
     closed: bool,
     send_waiters: WaitQueue<()>,
     recv_waiters: WaitQueue<()>,
 }
 
-/// Sending half of the bounded channel; clone to add producers.
-pub struct Sender<T> {
+/// Bounded channel admission; sends wait when the buffer is full.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Bounded;
+
+/// Unbounded channel admission; synchronous sends allocate as needed.
+///
+/// Memory is bounded by available process memory, so producers must not use
+/// this mode as a substitute for application-level resource limits.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Unbounded;
+
+/// Sending half of a channel; clone to add producers.
+///
+/// The default mode preserves bounded [`channel`] semantics. The unbounded
+/// constructor returns `Sender<T, Unbounded>` with synchronous `enqueue`.
+pub struct Sender<T, Mode = Bounded> {
     shared: Arc<Mutex<SharedState<T>>>,
+    mode: PhantomData<fn() -> Mode>,
 }
 
-impl<T> Clone for Sender<T> {
+impl<T, Mode> std::fmt::Debug for Sender<T, Mode> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let shared = self
+            .shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        formatter
+            .debug_struct("Sender")
+            .field("sender_count", &shared.sender_count)
+            .field("queued", &shared.buffer.len())
+            .field("capacity", &shared.capacity)
+            .field("closed", &shared.closed)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T, Mode> Clone for Sender<T, Mode> {
     fn clone(&self) -> Self {
         let mut shared = self.shared.lock().unwrap();
         shared.sender_count += 1;
         Sender {
             shared: self.shared.clone(),
+            mode: PhantomData,
         }
     }
 }
@@ -61,14 +93,40 @@ impl<T> Sender<T> {
     ///
     /// # Errors
     ///
+    /// Returns `Err(value)` when the buffer is at capacity or the channel is closed.
+    pub fn try_send(&self, value: T) -> Result<(), T> {
+        self.try_enqueue(value)
+    }
+}
+
+impl<T> Sender<T, Unbounded> {
+    /// Enqueue a value synchronously, without waiting for capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns the exact `Err(value)` when the receiver has closed or dropped.
+    /// Allocation failure follows the process allocator's normal behavior.
+    pub fn enqueue(&self, value: T) -> Result<(), T> {
+        self.try_enqueue(value)
+    }
+}
+
+impl<T, Mode> Sender<T, Mode> {
+    /// Send without waiting; returns the value when full or closed.
+    ///
+    /// # Errors
+    ///
     /// Returns `Err(value)` when the buffer is at capacity or the channel
     /// is closed.
-    pub fn try_send(&self, value: T) -> Result<(), T> {
+    fn try_enqueue(&self, value: T) -> Result<(), T> {
         let mut shared = self.shared.lock().unwrap();
         if shared.closed {
             return Err(value);
         }
-        if shared.buffer.len() >= shared.capacity {
+        if shared
+            .capacity
+            .is_some_and(|capacity| shared.buffer.len() >= capacity)
+        {
             return Err(value);
         }
         shared.buffer.push_back(value);
@@ -94,7 +152,7 @@ impl<T> Sender<T> {
     }
 }
 
-impl<T> Drop for Sender<T> {
+impl<T, Mode> Drop for Sender<T, Mode> {
     fn drop(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.sender_count -= 1;
@@ -110,7 +168,7 @@ impl<T> Drop for Sender<T> {
     }
 }
 
-/// Future returned by [`Sender::send`].
+/// Future returned by a bounded [`Sender`]'s `send` method.
 pub struct SendFuture<'a, T> {
     sender: &'a Sender<T>,
     value: Option<T>,
@@ -132,7 +190,10 @@ impl<'a, T: Unpin> Future for SendFuture<'a, T> {
             return Poll::Ready(Err(value));
         }
 
-        if shared.buffer.len() < shared.capacity {
+        if shared
+            .capacity
+            .is_none_or(|capacity| shared.buffer.len() < capacity)
+        {
             if let Some(id) = this.id.take() {
                 shared.send_waiters.deregister(id);
             }
@@ -171,32 +232,88 @@ impl<'a, T> Drop for SendFuture<'a, T> {
     }
 }
 
-/// Receiving half of the bounded channel.
-pub struct Receiver<T> {
+/// Receiving half of a channel, with one persistent receive registration.
+pub struct Receiver<T, Mode = Bounded> {
     shared: Arc<Mutex<SharedState<T>>>,
+    id: Option<u64>,
+    mode: PhantomData<fn() -> Mode>,
 }
 
-impl<T> Receiver<T> {
-    /// Receive the next value, waiting for one to arrive.
+impl<T, Mode> std::fmt::Debug for Receiver<T, Mode> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let shared = self
+            .shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        formatter
+            .debug_struct("Receiver")
+            .field("sender_count", &shared.sender_count)
+            .field("queued", &shared.buffer.len())
+            .field("capacity", &shared.capacity)
+            .field("closed", &shared.closed)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T, Mode> Receiver<T, Mode> {
+    /// Receive the next value, returning `Err(())` after closure and drain.
     ///
-    /// The returned future resolves `Err(())` when the channel is closed
-    /// and drained.
-    pub fn recv(&mut self) -> RecvFuture<'_, T> {
+    /// Dropping a polled future cancels its waiter without consuming a value.
+    pub fn recv(&mut self) -> RecvFuture<'_, T, Mode> {
         RecvFuture {
             receiver: self,
-            id: None,
+            polled: false,
         }
+    }
+
+    /// Poll for the next value, returning `None` only after closure and drain.
+    ///
+    /// `Pending` retains this receiver's registration until the next poll,
+    /// cancellation through a polled [`recv`](Self::recv), or receiver drop.
+    /// Re-polling replaces the stored waker with the actual caller's waker.
+    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        let mut shared = self.shared.lock().unwrap();
+        if let Some(value) = shared.buffer.pop_front() {
+            if let Some(id) = self.id.take() {
+                shared.recv_waiters.deregister(id);
+            }
+            let waker = shared.send_waiters.grant_oldest(());
+            drop(shared);
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+            return Poll::Ready(Some(value));
+        }
+        if shared.closed {
+            if let Some(id) = self.id.take() {
+                shared.recv_waiters.deregister(id);
+            }
+            return Poll::Ready(None);
+        }
+        self.id = Some(match self.id {
+            Some(id) => match shared.recv_waiters.poll_waiter(id, cx.waker()) {
+                WaiterPoll::Pending => id,
+                WaiterPoll::Granted(()) | WaiterPoll::NotRegistered => {
+                    shared.recv_waiters.register(cx.waker().clone())
+                }
+            },
+            None => shared.recv_waiters.register(cx.waker().clone()),
+        });
+        Poll::Pending
     }
 
     /// Receive without waiting; `None` when the buffer is empty.
     pub fn try_recv(&mut self) -> Option<T> {
         let mut shared = self.shared.lock().unwrap();
         let value = shared.buffer.pop_front();
-        let waker = if value.is_some() {
-            shared.send_waiters.grant_oldest(())
-        } else {
-            None
-        };
+        if (value.is_some() || shared.closed)
+            && let Some(id) = self.id.take()
+        {
+            shared.recv_waiters.deregister(id);
+        }
+        let waker = value
+            .as_ref()
+            .and_then(|_| shared.send_waiters.grant_oldest(()));
         drop(shared);
         if let Some(waker) = waker {
             waker.wake();
@@ -204,7 +321,7 @@ impl<T> Receiver<T> {
         value
     }
 
-    /// Close the channel, waking every parked sender and receiver.
+    /// Close admission, retaining accepted values for the receiver to drain.
     pub fn close(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.closed = true;
@@ -217,64 +334,47 @@ impl<T> Receiver<T> {
     }
 }
 
-impl<T> Drop for Receiver<T> {
+impl<T, Mode> Drop for Receiver<T, Mode> {
     fn drop(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.closed = true;
+        if let Some(id) = self.id.take() {
+            shared.recv_waiters.deregister(id);
+        }
+        let buffer = std::mem::take(&mut shared.buffer);
         let wakers = shared.send_waiters.grant_all(());
         drop(shared);
+        // Signal every parked sender before invoking payload destructors: one
+        // may panic, but its unwind must not strand the already-closed senders.
+        // Wakers and payload destructors may both re-enter the channel, so
+        // neither may run while the state mutex is held.
         for waker in wakers {
             waker.wake();
         }
+        drop(buffer);
     }
 }
 
 /// Future returned by [`Receiver::recv`].
-pub struct RecvFuture<'a, T> {
-    receiver: &'a mut Receiver<T>,
-    id: Option<u64>,
+pub struct RecvFuture<'a, T, Mode = Bounded> {
+    receiver: &'a mut Receiver<T, Mode>,
+    polled: bool,
 }
 
-impl<'a, T> Future for RecvFuture<'a, T> {
+impl<T, Mode> Future for RecvFuture<'_, T, Mode> {
     type Output = Result<T, ()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        let mut shared = this.receiver.shared.lock().unwrap();
-        if let Some(value) = shared.buffer.pop_front() {
-            if let Some(id) = this.id.take() {
-                shared.recv_waiters.deregister(id);
-            }
-            let waker = shared.send_waiters.grant_oldest(());
-            drop(shared);
-            if let Some(waker) = waker {
-                waker.wake();
-            }
-            return Poll::Ready(Ok(value));
-        }
-        if shared.closed {
-            if let Some(id) = this.id.take() {
-                shared.recv_waiters.deregister(id);
-            }
-            return Poll::Ready(Err(()));
-        }
-
-        this.id = Some(match this.id {
-            Some(id) => match shared.recv_waiters.poll_waiter(id, cx.waker()) {
-                WaiterPoll::Pending => id,
-                WaiterPoll::Granted(()) | WaiterPoll::NotRegistered => {
-                    shared.recv_waiters.register(cx.waker().clone())
-                }
-            },
-            None => shared.recv_waiters.register(cx.waker().clone()),
-        });
-        Poll::Pending
+        this.polled = true;
+        this.receiver.poll_recv(cx).map(|value| value.ok_or(()))
     }
 }
 
-impl<'a, T> Drop for RecvFuture<'a, T> {
+impl<T, Mode> Drop for RecvFuture<'_, T, Mode> {
     fn drop(&mut self) {
-        if let Some(id) = self.id
+        if self.polled
+            && let Some(id) = self.receiver.id.take()
             && let Ok(mut shared) = self.receiver.shared.lock()
         {
             shared.recv_waiters.deregister(id);
@@ -285,8 +385,22 @@ impl<'a, T> Drop for RecvFuture<'a, T> {
 /// Create a bounded channel with the given buffer capacity.
 #[must_use]
 pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+    create(Some(capacity))
+}
+
+/// Create an unbounded channel with synchronous admission without a capacity bound.
+///
+/// Accepted messages are FIFO; closure rejects new sends and retains queued
+/// values until received or until the receiver is dropped. Producers allocate
+/// as required, so callers remain responsible for application resource bounds.
+#[must_use]
+pub fn unbounded_channel<T>() -> (Sender<T, Unbounded>, Receiver<T, Unbounded>) {
+    create(None)
+}
+
+fn create<T, Mode>(capacity: Option<usize>) -> (Sender<T, Mode>, Receiver<T, Mode>) {
     let shared = Arc::new(Mutex::new(SharedState {
-        buffer: VecDeque::with_capacity(capacity),
+        buffer: capacity.map_or_else(VecDeque::new, VecDeque::with_capacity),
         capacity,
         sender_count: 1,
         closed: false,
@@ -296,178 +410,20 @@ pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     (
         Sender {
             shared: shared.clone(),
+            mode: PhantomData,
         },
-        Receiver { shared },
+        Receiver {
+            shared,
+            id: None,
+            mode: PhantomData,
+        },
     )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-    use std::task::{Context, Poll, Wake, Waker};
+#[path = "mpsc_tests.rs"]
+mod tests;
 
-    fn poll_future<F: Future + Unpin>(future: &mut F) -> Poll<F::Output> {
-        let mut context = Context::from_waker(Waker::noop());
-        Pin::new(future).poll(&mut context)
-    }
-
-    fn poll_future_with_waker<F: Future + Unpin>(future: &mut F, waker: &Waker) -> Poll<F::Output> {
-        let mut context = Context::from_waker(waker);
-        Pin::new(future).poll(&mut context)
-    }
-
-    struct CountingWake(Arc<AtomicUsize>);
-
-    impl Wake for CountingWake {
-        fn wake(self: Arc<Self>) {
-            self.0.fetch_add(1, Ordering::Release);
-        }
-
-        fn wake_by_ref(self: &Arc<Self>) {
-            self.0.fetch_add(1, Ordering::Release);
-        }
-    }
-
-    #[test]
-    fn test_mpsc_send_recv() {
-        let (tx, mut rx) = channel(10);
-        tx.try_send(1).unwrap();
-        tx.try_send(2).unwrap();
-        tx.try_send(3).unwrap();
-        assert_eq!(rx.try_recv(), Some(1));
-        assert_eq!(rx.try_recv(), Some(2));
-        assert_eq!(rx.try_recv(), Some(3));
-        assert!(rx.try_recv().is_none());
-    }
-
-    #[test]
-    fn test_mpsc_closed_sender() {
-        let (tx, mut rx) = channel::<i32>(10);
-        tx.try_send(1).unwrap();
-        drop(tx);
-        assert_eq!(rx.try_recv(), Some(1));
-        assert!(rx.try_recv().is_none());
-    }
-
-    #[test]
-    fn test_mpsc_closed_receiver() {
-        let (tx, rx) = channel::<i32>(10);
-        drop(rx);
-        assert!(tx.try_send(1).is_err());
-    }
-
-    #[test]
-    fn test_mpsc_capacity() {
-        let (tx, mut rx) = channel(2);
-        assert!(tx.try_send(1).is_ok());
-        assert!(tx.try_send(2).is_ok());
-        assert!(tx.try_send(3).is_err());
-        let _ = rx.try_recv();
-        assert!(tx.try_send(3).is_ok());
-    }
-
-    #[test]
-    fn test_mpsc_sender_clone() {
-        let (tx1, mut rx) = channel(10);
-        let tx2 = tx1.clone();
-        tx1.try_send(1).unwrap();
-        tx2.try_send(2).unwrap();
-        drop(tx1);
-        drop(tx2);
-        assert_eq!(rx.try_recv(), Some(1));
-        assert_eq!(rx.try_recv(), Some(2));
-        assert!(rx.try_recv().is_none());
-    }
-
-    #[test]
-    fn test_mpsc_sender_strong_count() {
-        let (tx1, _) = channel::<i32>(10);
-        assert_eq!(tx1.sender_strong_count(), 1);
-        let tx2 = tx1.clone();
-        assert_eq!(tx1.sender_strong_count(), 2);
-        drop(tx2);
-        assert_eq!(tx1.sender_strong_count(), 1);
-    }
-
-    #[test]
-    fn test_mpsc_send_pending_then_recv() {
-        let (tx, mut rx) = channel(1);
-        tx.try_send(1).unwrap();
-        let mut send = tx.send(2);
-        assert!(matches!(poll_future(&mut send), Poll::Pending));
-        let _ = rx.try_recv();
-        assert!(matches!(poll_future(&mut send), Poll::Ready(Ok(()))));
-    }
-
-    #[test]
-    fn test_mpsc_async_recv_pending_then_send() {
-        let (tx, mut rx) = channel(1);
-        let mut recv = rx.recv();
-        assert!(matches!(poll_future(&mut recv), Poll::Pending));
-        tx.try_send(42).unwrap();
-        assert!(matches!(poll_future(&mut recv), Poll::Ready(Ok(42))));
-    }
-
-    #[test]
-    fn test_mpsc_send_future_dropped_cancels_waiter() {
-        let (tx, _rx) = channel(1);
-        tx.try_send(1).unwrap();
-        // Send future goes pending, then is dropped without completing
-        let mut send = tx.send(2);
-        assert!(matches!(poll_future(&mut send), Poll::Pending));
-        drop(send);
-        // The full send_waiters queue must be empty after the drop
-        assert!(tx.shared.lock().unwrap().send_waiters.is_empty());
-    }
-
-    #[test]
-    fn test_mpsc_recv_future_dropped_cancels_waiter() {
-        let (tx, mut rx) = channel(1);
-        tx.try_send(1).unwrap();
-        // Consume the item, then recv goes pending waiting for next item
-        let _ = rx.try_recv();
-        let mut recv = rx.recv();
-        assert!(matches!(poll_future(&mut recv), Poll::Pending));
-        drop(recv);
-        // The full recv_waiters queue must be empty after the drop
-        assert!(tx.shared.lock().unwrap().recv_waiters.is_empty());
-    }
-
-    #[test]
-    fn oldest_pending_sender_is_woken_first() {
-        let (tx, mut rx) = channel(1);
-        tx.try_send(1).expect("initial send must fill the channel");
-
-        let first_wakes = Arc::new(AtomicUsize::new(0));
-        let second_wakes = Arc::new(AtomicUsize::new(0));
-        let first_waker = Waker::from(Arc::new(CountingWake(Arc::clone(&first_wakes))));
-        let second_waker = Waker::from(Arc::new(CountingWake(Arc::clone(&second_wakes))));
-        let mut first = tx.send(2);
-        let mut second = tx.send(3);
-
-        assert!(poll_future_with_waker(&mut first, &first_waker).is_pending());
-        assert!(poll_future_with_waker(&mut second, &second_waker).is_pending());
-
-        assert_eq!(rx.try_recv(), Some(1));
-        assert_eq!(first_wakes.load(Ordering::Acquire), 1);
-        assert_eq!(second_wakes.load(Ordering::Acquire), 0);
-
-        assert!(matches!(
-            poll_future_with_waker(&mut first, &first_waker),
-            Poll::Ready(Ok(()))
-        ));
-        assert_eq!(rx.try_recv(), Some(2));
-        assert_eq!(second_wakes.load(Ordering::Acquire), 1);
-        assert!(matches!(
-            poll_future_with_waker(&mut second, &second_waker),
-            Poll::Ready(Ok(()))
-        ));
-        assert_eq!(rx.try_recv(), Some(3));
-    }
-}
+#[cfg(test)]
+#[path = "mpsc_unbounded_tests.rs"]
+mod unbounded_tests;

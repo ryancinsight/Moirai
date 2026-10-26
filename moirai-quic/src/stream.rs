@@ -7,8 +7,8 @@ use super::{QuicConfig, QuicError};
 /// A cancelled or failed I/O future aborts this stream, so a partial message is
 /// never interpreted as a new prefix. Sibling streams remain independent.
 pub struct QuicStream {
-    pub(super) send: quinn::SendStream,
-    pub(super) recv: quinn::RecvStream,
+    pub(super) send: moirai_quinn::SendStream,
+    pub(super) recv: moirai_quinn::RecvStream,
     max_frame_bytes: u32,
     deadline: std::time::Duration,
     alpn: std::sync::Arc<[u8]>,
@@ -21,7 +21,7 @@ pub struct QuicStream {
 
 impl QuicStream {
     pub(super) fn new(
-        (send, recv): (quinn::SendStream, quinn::RecvStream),
+        (send, recv): (moirai_quinn::SendStream, moirai_quinn::RecvStream),
         config: &QuicConfig,
         health: std::sync::Arc<super::runtime::RuntimeHealth>,
         permit: super::admission::StreamPermit,
@@ -216,7 +216,7 @@ impl QuicStream {
         guard.stream.health.check()?;
         let stopped = result?.map_err(|error| QuicError::Write(error.into()))?;
         if let Some(code) = stopped {
-            return Err(QuicError::Write(quinn::WriteError::Stopped(code)));
+            return Err(QuicError::Write(moirai_quinn::WriteError::Stopped(code)));
         }
         guard.complete = true;
         Ok(())

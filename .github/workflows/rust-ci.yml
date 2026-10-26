@@ -63,7 +63,7 @@ jobs:
     with:
       # Proc-macro-only targets have no library surface for this checker;
       # the workspace gate still compiles and tests moirai-async-macros.
-      package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-quic,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
+      package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-quic,moirai-quinn,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
       rust-toolchain: 1.97.0
       atlas-ref: d0eb478f0737df1c45ab5f346f735b8b61fa2cc7
     permissions:

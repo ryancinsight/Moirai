@@ -3,8 +3,9 @@
 Native authenticated QUIC sessions over Moirai's task spawner, timer and PAL
 socket readiness. Quinn supplies RFC 9000 loss recovery, congestion control and
 stream multiplexing. No Tokio or secondary runtime is constructed.
-Quinn uses Tokio synchronization primitives internally; its Tokio runtime and
-socket features remain disabled. Moirai owns all task, timer and socket driving.
+The licensed `moirai-quinn` driver uses Moirai notification, channels and native
+I/O buffers. `quinn-proto` retains protocol ownership. Tokio interoperability
+is explicit and does not enter default/minimal native consumer graphs.
 
 `QuicConfig::with_congestion_policy` selects the pinned Quinn stock controller
 once at endpoint construction: CUBIC (the unchanged default), NewReno, or

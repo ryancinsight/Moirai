@@ -24,6 +24,24 @@ class ObservationProvenance(unittest.TestCase):
             self.assertNotEqual(report['observed_mod_sha256'], report['pristine_mod_sha256'])
         self.assertEqual((source/'src/connection/mod.rs').read_bytes(), original)
 
+    def test_archived_observer_lock_is_bound_to_its_git_tree(self):
+        import gzip
+        import json
+        from quic_observation.prepare import committed_lock, verify_provenance
+        root = Path(__file__).resolve().parents[2]
+        archive = root/'moirai-quic/measurements/recovery/2026-10-14/state/03dcc4a3-matrix-0.json.gz'
+        shard = json.loads(gzip.decompress(archive.read_bytes()))
+        lock = committed_lock(root, shard['revision'], shard['tree'])
+        self.assertEqual(hashlib.sha256(lock.encode()).hexdigest(), shard['lock_sha256'])
+        verify_provenance(shard['engine_observation'], root, lock)
+        with self.assertRaisesRegex(ValueError, 'revision/tree differs'):
+            committed_lock(root, shard['revision'], '0' * 40)
+        with self.assertRaisesRegex(ValueError, 'full Git object ID'):
+            committed_lock(root, 'HEAD', shard['tree'])
+        altered = dict(shard['engine_observation'], canonical_lock_sha256='0' * 64)
+        with self.assertRaisesRegex(ValueError, 'provenance differs'):
+            verify_provenance(altered, root, lock)
+
 class RealStateObservations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -34,6 +52,8 @@ class RealStateObservations(unittest.TestCase):
         cls.evidence = json.loads(gzip.decompress(path.read_bytes()))
 
     def test_all_original_local_shapes_and_policies_have_actual_peer_states(self):
+        import gzip
+        import json
         from quic_profiles import verify
         from quic_observation.audit import state_trace, state_pair
         runs = self.evidence['runs']
@@ -54,8 +74,14 @@ class RealStateObservations(unittest.TestCase):
                 self.assertEqual(sum(b['observations'] for b in trace['buckets']), trace['observed_states'])
                 observed += trace['observed_states']
         self.assertGreater(observed, 162)
-        from quic_observation.prepare import verify_provenance
-        verify_provenance(self.evidence['engine_observation'], Path(__file__).resolve().parents[2])
+        from quic_observation.prepare import committed_lock, verify_provenance
+        root = Path(__file__).resolve().parents[2]
+        measured = root/'moirai-quic/measurements/recovery/2026-10-14/state/03dcc4a3-matrix-0.json.gz'
+        shard = json.loads(gzip.decompress(measured.read_bytes()))
+        lock = committed_lock(root, shard['revision'], shard['tree'])
+        self.assertEqual(hashlib.sha256(lock.encode()).hexdigest(),
+                         self.evidence['engine_observation']['canonical_lock_sha256'])
+        verify_provenance(self.evidence['engine_observation'], root, lock)
 
     def test_missing_states_corrupt_flight_credit_and_frame_ranges_fail(self):
         import copy

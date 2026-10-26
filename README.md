@@ -135,7 +135,7 @@ interface. Effective queue readback exposes kernel caps, rounding and accounting
 QUIC accepts the same buffer vocabulary through `with_udp_buffers` and reports
 bound queue sizes; its trust, stream budgets and deadlines remain independent.
 
-Workspace 0.10.0 includes `moirai-quic` 0.1.0 in every Unix/Windows facade build,
+The proposed facade 0.12.0 includes `moirai-quic` 0.2.0 in every Unix/Windows build,
 including `--no-default-features`. Import `moirai::quic`; no feature flag is needed.
 One authenticated UDP connection carries independent bidirectional message
 streams. `QuicConfig` bounds frames, streams, connections, queued handshakes and
@@ -162,8 +162,10 @@ remain unchanged.
 
 `Arc<Moirai>` implements the fallible `TaskSpawner` seam consumed by the provider.
 Quinn owns protocol recovery and congestion control; Moirai owns scheduling,
-timers and shared socket readiness. Quinn's Tokio synchronization primitives
-introduce no Tokio runtime. The native provider links ring's native code
+timers and shared socket readiness. The versioned licensed `moirai-quinn`
+adaptation uses Moirai notification, channels and I/O buffers; default and
+minimal native normal/build graphs contain no Tokio dependency. Upstream wire
+reference tests and explicit compatibility features remain separate. The native provider links ring's native code
 statically; ordinary TCP TLS continues to use RustCrypto. This transport serves
 native binary sessions; browser HTTP/3 requires its own HTTP mapping.
 
