@@ -7,6 +7,7 @@ use rustls::pki_types::{
     AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm, alg_id,
 };
 
+use p256::ecdsa::signature::Verifier as _;
 use rsa::pkcs1::DecodeRsaPublicKey;
 use signature::Verifier;
 
@@ -50,7 +51,7 @@ impl SignatureVerificationAlgorithm for EcdsaP256Sha256 {
     ) -> Result<(), InvalidSignature> {
         let key =
             p256::ecdsa::VerifyingKey::from_sec1_bytes(public_key).map_err(|_| InvalidSignature)?;
-        let sig = p256::ecdsa::Signature::from_der(signature).map_err(|_| InvalidSignature)?;
+        let sig = p256::ecdsa::DerSignature::from_bytes(signature).map_err(|_| InvalidSignature)?;
         key.verify(message, &sig).map_err(|_| InvalidSignature)
     }
 
@@ -75,7 +76,7 @@ impl SignatureVerificationAlgorithm for EcdsaP384Sha384 {
     ) -> Result<(), InvalidSignature> {
         let key =
             p384::ecdsa::VerifyingKey::from_sec1_bytes(public_key).map_err(|_| InvalidSignature)?;
-        let sig = p384::ecdsa::Signature::from_der(signature).map_err(|_| InvalidSignature)?;
+        let sig = p384::ecdsa::DerSignature::from_bytes(signature).map_err(|_| InvalidSignature)?;
         key.verify(message, &sig).map_err(|_| InvalidSignature)
     }
 

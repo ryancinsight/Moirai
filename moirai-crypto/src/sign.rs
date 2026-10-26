@@ -10,8 +10,10 @@ use rustls::pki_types::PrivateKeyDer;
 use rustls::sign::{Signer, SigningKey};
 use rustls::{Error, SignatureAlgorithm, SignatureScheme};
 
+use p256::ecdsa::signature::Signer as _;
 use p256::pkcs8::DecodePrivateKey as _;
 use rsa::pkcs1::DecodeRsaPrivateKey as _;
+use rsa::pkcs8::DecodePrivateKey as _;
 use signature::{RandomizedSigner, SignatureEncoding, Signer as _};
 
 /// Parse any supported private key (ECDSA P-256/P-384 or RSA) from DER.
@@ -73,7 +75,7 @@ impl Signer for EcdsaP256Signer {
             .0
             .try_sign(message)
             .map_err(|e| Error::General(format!("ECDSA P-256 signing failed: {e}")))?;
-        Ok(sig.to_vec())
+        Ok(sig.as_bytes().to_vec())
     }
 
     fn scheme(&self) -> SignatureScheme {
@@ -120,7 +122,7 @@ impl Signer for EcdsaP384Signer {
             .0
             .try_sign(message)
             .map_err(|e| Error::General(format!("ECDSA P-384 signing failed: {e}")))?;
-        Ok(sig.to_vec())
+        Ok(sig.as_bytes().to_vec())
     }
 
     fn scheme(&self) -> SignatureScheme {
