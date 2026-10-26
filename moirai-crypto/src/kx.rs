@@ -4,7 +4,8 @@
 use rustls::crypto::{ActiveKeyExchange, SharedSecret, SupportedKxGroup};
 use rustls::{Error, NamedGroup};
 
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use rand_core::OsRng;
 
 /// Ephemeral ECDH on Curve25519 (RFC 7748).
@@ -32,12 +33,8 @@ impl SupportedKxGroup for X25519 {
 
 impl SupportedKxGroup for P256 {
     fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, Error> {
-        let secret = p256::ecdh::EphemeralSecret::random(&mut OsRng);
-        let pub_key = secret
-            .public_key()
-            .to_encoded_point(false)
-            .as_bytes()
-            .to_vec();
+        let secret = p256::ecdh::EphemeralSecret::generate();
+        let pub_key = secret.public_key().to_sec1_point(false).as_bytes().to_vec();
         Ok(Box::new(P256KeyExchange { secret, pub_key }))
     }
 

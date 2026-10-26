@@ -5,6 +5,16 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - Unreleased
+
+### Fixed
+
+- [patch] Clear RUSTSEC-2026-0387 (crypto-bigint timing variability) by moving
+  moirai-crypto onto the p256/p384/elliptic-curve 0.14 chain, adapting the
+  ECDH and ECDSA seams to the 0.14 API (Generate trait, sec1 point encoding,
+  ecdsa 0.17's DER signatures), and clear RUSTSEC-2026-0386 (tokio AsyncFd
+  I/O soundness) by advancing tokio to 1.54.1.
+
 ## [0.11.0] - Unreleased
 
 ### Added
