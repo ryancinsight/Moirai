@@ -145,7 +145,10 @@ class HandshakeRecoveryEvidence(unittest.TestCase):
         self.assertNotEqual(value['candidate_mod_sha256'], value['baseline_mod_sha256'])
         measured = json.loads(gzip.decompress((DIRECTORY/'handshake-measured-patch.json.gz').read_bytes()))
         self.assertEqual(value['candidate_patch_sha256'], measured['patch_sha256'])
-        self.assertEqual(value['canonical_lock_sha256'], hashlib.sha256((ROOT/'Cargo.lock').read_bytes()).hexdigest())
+        from quic_observation.prepare import committed_lock
+        observed = json.loads(gzip.decompress((DIRECTORY/'03dcc4a3-matrix-0.json.gz').read_bytes()))
+        lock = committed_lock(ROOT, observed['revision'], observed['tree'])
+        self.assertEqual(value['canonical_lock_sha256'], hashlib.sha256(lock.encode()).hexdigest())
         self.assertEqual(value['result']['returncode'], 0)
         self.assertIn('23 tests run: 23 passed, 0 skipped', value['log'])
         self.assertNotEqual(value['rejected_invocation']['result']['returncode'], 0)

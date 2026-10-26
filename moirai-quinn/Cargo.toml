@@ -61,7 +61,7 @@ qlog = ["proto/qlog"]
 ring = ["proto/ring"]
 runtime-async-std = [
     "async-io",
-    "async-std",
+    "async-global-executor",
 ]
 runtime-smol = [
     "async-io",
@@ -130,6 +130,11 @@ path = "tests/many_connections.rs"
 required-features = ["runtime-tokio", "rustls-ring"]
 
 [[test]]
+name = "async_std_runtime"
+path = "tests/async_std_runtime.rs"
+required-features = ["runtime-async-std", "rustls-ring"]
+
+[[test]]
 name = "post_quantum"
 path = "tests/post_quantum.rs"
 required-features = ["__rustls-post-quantum-test", "runtime-tokio"]
@@ -144,8 +149,8 @@ required-features = ["rustls-ring", "runtime-tokio"]
 version = "2"
 optional = true
 
-[dependencies.async-std]
-version = "1.11"
+[dependencies.async-global-executor]
+version = "2.4.1"
 optional = true
 
 [dependencies.moirai-async]
@@ -214,6 +219,9 @@ features = ["derive"]
 version = "3"
 
 [dev-dependencies.directories-next]
+version = "2"
+
+[dev-dependencies.futures-lite]
 version = "2"
 
 [dev-dependencies.rand]

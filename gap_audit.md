@@ -11,6 +11,14 @@ Miri checks do not establish a registry/fresh-consumer release or close existing
 QUIC recovery/platform/security holds. The scoped source removes Tokio from
 native normal/build graphs; canonical release admission remains separate.
 Future acceptance must retain those distinct gates and their exact revisions.
+ADR 0084's public design has owner sign-off. The recovery-controller audit now
+binds historical observations to their recorded Git lock/tree, leaving every
+historical measurement archive unchanged. Direct use of async-std's underlying
+global executor removes the discontinued optional `async-std` dependency while
+retaining a tested compatibility runtime. The all-feature supply-chain gate
+still rejects `aws-lc-fips-sys` because its declared OpenSSL license is outside
+the existing policy. FIPS support and the policy are unchanged; this is an
+integration blocker, not a security acceptance result.
 
 ## Native QUIC transport — 2026-10-13 [minor]
 

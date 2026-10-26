@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and application events before scheduling continuation outside the state lock.
 - [patch] Resolve the current compatible registry/Git cohort, including
   Themis 0.11.3 and Mnemosyne-memory 0.10.1; retain Rustls 0.23.46's floor.
+- [patch] Keep `runtime-async-std` using async-std's underlying global
+  executor directly, including detached driver tasks and a real authenticated
+  QUIC test, while removing the discontinued `async-std` package. Bind archived
+  recovery provenance to the recorded Git lock/tree; preserve live-current
+  lock checks and all archived observations.
 
 ### Breaking
 
@@ -37,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gates, platform/performance acceptance, independent review and ordered
   publication remain required. No recovery experiment is adopted and no 1.0,
   registry, security-hold or performance clearance follows from this work.
+  ADR 0084's design is owner-approved, without a license or release waiver.
+  The cached supply-chain scan now passes advisories but still rejects the
+  optional FIPS package's OpenSSL license under the unchanged policy.
 
 ## [moirai-async 0.12.0] - Unreleased
 

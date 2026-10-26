@@ -63,7 +63,9 @@ mod async_std {
         }
 
         fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-            ::async_std::task::spawn(future);
+            // async-std uses this same global executor for task::spawn. A
+            // detached task is required because this runtime has no handle.
+            async_global_executor::spawn(future).detach();
         }
 
         fn wrap_udp_socket(

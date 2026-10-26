@@ -1,10 +1,23 @@
 # ADR 0084: Native Quinn dependency migration
 
 Date: 2026-10-26
-Status: Proposed
+Status: Accepted
 
-The first independent review requests two P2 repairs. Owner regressions pass
-locally; exact-revision re-review and integration remain pending.
+Decision approval: on 2026-10-26 at 12:07 UTC, the authenticated repository
+owner approved the specific pending ADR 0084 design request with a thumbs-up
+reaction. The request identified local candidate
+`cab5499fa4ec41064a4c191b55911a8dbc852b60` and explicitly covered the
+licensed `moirai-quinn` adaptation, native `ReadBuffer`, Tokio-free default and
+minimal dependency graphs, and the pre-1.0 public migration from Quinn-owned
+read/write error types and direct buffer calls. Shared protocol error identity
+remains unchanged. The approval covers this design decision only. It grants no
+license or security exception, performance waiver, integration or release
+authority. Any implementation change still needs final exact-head review and
+the unchanged qualification gates.
+
+The first independent review requested two P2 repairs. The same reviewer
+accepted their corrected source on `b50a96cfebf38a99c52b42e816ea3a5340927c25`;
+later candidate heads still require exact-revision review and integration.
 
 Decision scope: the authorized native Tokio removal, separate from the held
 QUIC recovery experiments and the notification repair delivery owner.
@@ -100,6 +113,15 @@ Moirai AsyncRead/AsyncWrite. Optional futures-io, Tokio I/O, Tokio runtime,
 Smol and async-std support remains explicit. Upstream unit-test runtimes and
 an unmodified upstream wire-reference peer are development dependencies;
 they do not establish native normal-graph acceptance.
+
+The `runtime-async-std` compatibility feature spawns on
+`async-global-executor`, the executor that `async-std::task::spawn` uses, and
+detaches each driver task. This removes the discontinued `async-std` package
+from the adapted driver's dependency graph without dropping the runtime
+feature. Its actual UDP/TLS session has a separate regression test. The
+archived recovery verifier reads the recorded revision's committed lock and
+checks its tree, while the live observer continues to use the current lock;
+historical experiment archives and values remain unchanged.
 
 The original Tokio unbounded receiver cooperatively returned `Pending` after
 128 ready receives in the reviewer's fresh-task oracle. Moirai's channel has

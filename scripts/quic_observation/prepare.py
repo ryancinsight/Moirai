@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
@@ -21,8 +22,8 @@ def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def registry_source(root):
-    packages = tomllib.loads((root/'Cargo.lock').read_text())['package']
+def registry_source(root, lock=None):
+    packages = tomllib.loads(lock if lock is not None else (root/'Cargo.lock').read_text())['package']
     package = next(p for p in packages if p['name'] == ENGINE)
     if package['version'] != VERSION:
         raise ValueError('observation patch requires the exact pinned engine')
@@ -83,11 +84,30 @@ def diagnostic_lock(original):
     return observed
 
 
-def verify_provenance(report, root):
-    source, checksum = registry_source(root)
+def committed_lock(root, revision, tree):
+    """Read a measured revision's immutable lock, rejecting a substituted tree."""
+    if not all(isinstance(value, str) and re.fullmatch(r'[0-9a-f]{40}', value)
+               for value in (revision, tree)):
+        raise ValueError('diagnostic revision/tree is not a full Git object ID')
+    try:
+        commit = subprocess.check_output(['git', 'rev-parse', '--verify', f'{revision}^{{commit}}'],
+                                         cwd=root, stderr=subprocess.DEVNULL).decode().strip()
+        actual_tree = subprocess.check_output(['git', 'rev-parse', '--verify', f'{revision}^{{tree}}'],
+                                              cwd=root, stderr=subprocess.DEVNULL).decode().strip()
+        lock = subprocess.check_output(['git', 'show', f'{revision}:Cargo.lock'],
+                                       cwd=root, stderr=subprocess.DEVNULL).decode()
+    except subprocess.CalledProcessError as error:
+        raise ValueError('diagnostic revision or committed lock is unavailable') from error
+    if commit != revision or actual_tree != tree:
+        raise ValueError('diagnostic revision/tree differs from the recorded source')
+    return lock
+
+
+def verify_provenance(report, root, lock=None):
+    source, checksum = registry_source(root, lock)
     with tempfile.TemporaryDirectory() as temporary:
         expected = patch_source(source, Path(temporary)/'engine', root)
-    original = (root/'Cargo.lock').read_text()
+    original = lock if lock is not None else (root/'Cargo.lock').read_text()
     expected.update({'registry_checksum': checksum,
                      'canonical_lock_sha256': digest(original.encode()),
                      'diagnostic_lock_sha256': digest(diagnostic_lock(original).encode())})

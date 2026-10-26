@@ -16,9 +16,13 @@ moirai-async 0.12.0, moirai-quinn 0.1.0, moirai-quic 0.2.0, and facade 0.12.0.
   default/minimal facade sessions pass (ADR 0084).
 - [x] [minor] Independently resolve source-consumer default/minimal normal/build
   graphs without Tokio; no path/patch result is registry admission.
-- [ ] [arch] Independent re-review of both P2 repairs on the corrected exact
-  source, full required hosted/platform/security and original 108-pair
-  performance gates before merge/publication.
+- [x] [arch] Owner accepted ADR 0084's versioned public migration design;
+  no license/security, performance or release gate was waived.
+- [ ] [arch] Same-reviewer approval of the changed final exact head, full
+  hosted/platform/security and original 108-pair performance gates before
+  merge/publication. The archived-provenance controller suite passes 26 cases;
+  the discontinued async-std dependency is removed. The optional FIPS license
+  gate remains failed under the unchanged policy.
 - [ ] [minor] Ordered archive/publication and clean registry-consumer admission;
   notification prerequisite delivery and every historical hold remain explicit.
 
