@@ -5,6 +5,15 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - Unreleased
+
+### Changed
+
+- [patch] Name the ordering edges of the blocking test hooks and the fs write
+  cap: both relax to Relaxed with their happens-before derivations documented
+  inline, and the scheduler shutdown swap is documented as the SeqCst producer
+  half of the parking handshake.
+
 ## [0.11.2] - Unreleased
 
 ### Fixed
