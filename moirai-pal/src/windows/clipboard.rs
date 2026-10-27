@@ -129,7 +129,7 @@ pub fn write_text(text: &str) -> io::Result<usize> {
             // ours to release.
             // SAFETY: allocated above, never accepted by the clipboard.
             let _ = unsafe { GlobalFree(Some(handle)) };
-            io::Error::from_raw_os_error(error.code().0)
+            os_error(error)
         })?;
     Ok(text.len())
 }
@@ -206,7 +206,18 @@ fn os_error(error: windows::core::Error) -> io::Error {
 }
 
 fn io_os_error(error: &windows::core::Error) -> io::Error {
-    io::Error::from_raw_os_error(error.code().0)
+    // The clipboard APIs report failures as Win32-facility HRESULTs
+    // (`0x8007_xxxx`), whose low sixteen bits are the operating system's own
+    // error code: `io::Error` maps that code to its kind — ERROR_ACCESS_DENIED
+    // under clipboard contention becomes `PermissionDenied` — which is the
+    // typing this module's contracts promise. HRESULTs from any other
+    // facility carry no operating-system code and stay unclassified.
+    let code = error.code().0.cast_unsigned();
+    if code & 0xFFFF_0000 == 0x8007_0000 {
+        io::Error::from_raw_os_error((code & 0xFFFF).cast_signed())
+    } else {
+        io::Error::other(error.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -224,14 +235,23 @@ mod tests {
     #[test]
     fn absent_text_is_none_and_read_errors_are_typed() {
         // The real clipboard may hold text or nothing; the mechanism must
-        // report one of the admitted outcomes, never panic.
+        // report one of the admitted outcomes, never panic. The clipboard is
+        // shared with every other process on the host, so an operating-system
+        // failure — another application holding it open is the ordinary case
+        // on a shared host — is an admitted typed outcome whenever it carries
+        // the operating system's own code, which the conversion above maps to
+        // its error kind.
         match read_text() {
             Ok(None | Some(_)) => {}
             Err(error) => assert!(
-                matches!(
-                    error.kind(),
-                    ErrorKind::Unsupported | ErrorKind::Interrupted | ErrorKind::Other
-                ),
+                error.raw_os_error().is_some()
+                    || matches!(
+                        error.kind(),
+                        ErrorKind::Unsupported
+                            | ErrorKind::Interrupted
+                            | ErrorKind::InvalidData
+                            | ErrorKind::Other
+                    ),
                 "unexpected read error: {error}"
             ),
         }
