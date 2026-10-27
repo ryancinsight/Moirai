@@ -5,6 +5,16 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - Unreleased
+
+### Fixed
+
+- [patch] Type the Windows clipboard's operating-system failures: Win32-facility
+  HRESULTs convert through their embedded operating-system error code, so a
+  clipboard another application holds open reports `PermissionDenied` instead of
+  an unclassified error, at every conversion site. The clipboard read test admits
+  the typed contention outcome it witnesses on a shared host.
+
 ## [0.11.1] - Unreleased
 
 ### Fixed
