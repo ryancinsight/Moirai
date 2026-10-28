@@ -5,6 +5,18 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## moirai-pal [0.11.4] - Unreleased
+
+### Fixed
+
+- [patch] Keep closed-socket retirement, reused-generation ordering and WSAPoll
+  cleanup regressions in the default Windows suite. Initialize the retained
+  global reactor before allocating their subject sockets, so late initialization
+  cannot consume a retired value under observation. Preserve the original
+  successful single-poll assertions and bounded, fail-fast reuse allocation.
+  Remove the unused cross-platform retry helpers and redundant Windows error
+  conversions without suppressing diagnostics or changing gate timeouts.
+
 ## [0.11.3] - Unreleased
 
 ### Changed

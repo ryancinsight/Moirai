@@ -75,16 +75,8 @@ fn wsapoll_reactor_wake_interrupts_a_blocking_poll() {
     handle.join().expect("poll thread");
 }
 
-// Ignored: a parallel suite thread can recycle the just-closed value before
-// the observing poll runs, leaving the registration aliased to a live
-// foreign socket past any bound. Same namespace reason as the
-// `socket_generation` ignored tests.
 #[test]
-#[ignore = "needs a quiescent process socket-value namespace; run explicitly on an owned host"]
 fn wsapoll_reactor_self_cleans_closed_sockets() {
-    // Pin the process-global reactor first: its forever-held wake socket must
-    // take a value before this test binds the socket it later observes (see
-    // `reactor::tests::harness::pin_global_reactor`).
     IoReactor::with_current(|_| {});
     let reactor = WsaPollReactor::new().expect("reactor");
     let sock = UdpSocket::bind("127.0.0.1:0").expect("bind");
@@ -95,32 +87,14 @@ fn wsapoll_reactor_self_cleans_closed_sockets() {
     drop(sock); // close without unregistering -> POLLNVAL
 
     // The poll surfaces POLLNVAL for the closed socket and removes it; the
-    // call must not error or wedge. The just-closed value can be reissued to
-    // another suite thread before this poll runs, reading live until its new
-    // owner closes it, so the cleanup is awaited up to a deadline instead of
-    // asserted after a single attempt.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        match reactor.poll_events(Some(Duration::from_millis(50))) {
-            Ok(_) => {}
-            // The closed value racing handle teardown rejects the whole call;
-            // the next poll reports it once teardown settles.
-            Err(error)
-                if error.raw_os_error()
-                    == Some(i32::from(
-                        windows::Win32::Networking::WinSock::WSAENOTSOCK.0,
-                    )) => {}
-            Err(error) => panic!("poll must not error on a stale socket: {error}"),
-        }
-        if lock_mutex(&reactor.registrations).is_empty() {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "closed socket must be self-cleaned from the interest set"
-        );
-        std::thread::yield_now();
-    }
+    // call must not error or wedge.
+    let _ = reactor
+        .poll_events(Some(Duration::from_millis(50)))
+        .expect("poll must not error on a stale socket");
+    assert!(
+        lock_mutex(&reactor.registrations).is_empty(),
+        "closed socket must be self-cleaned from the interest set"
+    );
 }
 
 #[test]

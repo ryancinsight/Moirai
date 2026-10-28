@@ -2,10 +2,7 @@
 //! raw-socket generation ordering, and the closed-after-snapshot race.
 
 use super::super::core::{FdKey, IoReactor};
-use super::harness::{
-    WakeCount, bind_reusing_socket, is_mid_teardown, observe_until, pin_global_reactor,
-    socket_to_raw,
-};
+use super::harness::{WakeCount, bind_reusing_socket, pin_global_reactor, socket_to_raw};
 use crate::Interest;
 use std::net::UdpSocket;
 use std::sync::Arc;
@@ -13,14 +10,7 @@ use std::sync::atomic::Ordering;
 use std::task::Waker;
 use std::time::Duration;
 
-// Ignored: observes one process-global socket value across close and poll.
-// A parallel suite thread can recycle the just-closed value first (then the
-// poll reports a live foreign socket or Winsock rejects the torn-down value
-// outright), and no test-side primitive can quiesce Winsock's namespace.
-// Run explicitly on an owned host; the table-level generation test stays
-// in-gate.
 #[test]
-#[ignore = "needs a quiescent process socket-value namespace; run explicitly on an owned host"]
 fn closed_socket_retires_central_and_platform_waiters() {
     pin_global_reactor();
     let reactor = IoReactor::new().expect("reactor");
@@ -34,15 +24,9 @@ fn closed_socket_retires_central_and_platform_waiters() {
         .expect("register read interest");
     drop(socket);
 
-    // The just-closed value can be reissued to another suite thread before
-    // this poll runs; the wake then lands only once the new owner closes it.
-    observe_until("closed socket waiter wake", || {
-        match reactor.run_iteration(Some(Duration::from_millis(50))) {
-            Ok(()) => (wake_count.0.load(Ordering::Relaxed) >= 1).then_some(()),
-            Err(error) if is_mid_teardown(&error) => None,
-            Err(error) => panic!("retire closed socket: {error}"),
-        }
-    });
+    reactor
+        .run_iteration(Some(Duration::from_millis(50)))
+        .expect("retire closed socket");
 
     assert_eq!(
         wake_count.0.load(Ordering::Relaxed),
@@ -67,12 +51,9 @@ fn closed_socket_retires_central_and_platform_waiters() {
     );
 }
 
-// Ignored: manufactures fd reuse by draining Winsock's free set, which
-// parallel suite threads also allocate from; a competitor can hold the
-// retired value past any bound. Same namespace reason as above.
 #[test]
-#[ignore = "needs a quiescent process socket-value namespace; run explicitly on an owned host"]
 fn successive_reused_socket_invalidations_preserve_generation_order() {
+    pin_global_reactor();
     let reactor = IoReactor::new().expect("reactor");
     let retired_socket = UdpSocket::bind("127.0.0.1:0").expect("retired socket bind");
     retired_socket
@@ -90,18 +71,13 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
         .expect("register retired read interest");
     drop(retired_socket);
 
-    let retired_event = observe_until("closed socket invalidation", || {
-        match reactor
-            .platform_reactor
-            .poll_registered_events(Some(Duration::from_millis(50)))
-        {
-            Ok(events) => events.into_iter().find(|event| {
-                FdKey::from(event.descriptor()) == FdKey::from(fd) && event.was_invalidated()
-            }),
-            Err(error) if is_mid_teardown(&error) => None,
-            Err(error) => panic!("poll retired socket: {error}"),
-        }
-    });
+    let retired_event = reactor
+        .platform_reactor
+        .poll_registered_events(Some(Duration::from_millis(50)))
+        .expect("poll retired socket")
+        .into_iter()
+        .find(|event| FdKey::from(event.descriptor()) == FdKey::from(fd))
+        .expect("closed socket invalidation");
     assert!(retired_event.was_invalidated());
     assert!(!reactor.platform_reactor.has_registration(fd));
     assert_eq!(retired_wake_count.0.load(Ordering::Relaxed), 0);
@@ -120,18 +96,13 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
         "replacing an invalidated registration must wake its retired waiter"
     );
     drop(current_socket);
-    let current_event = observe_until("current socket invalidation", || {
-        match reactor
-            .platform_reactor
-            .poll_registered_events(Some(Duration::from_millis(50)))
-        {
-            Ok(events) => events.into_iter().find(|event| {
-                FdKey::from(event.descriptor()) == FdKey::from(fd) && event.was_invalidated()
-            }),
-            Err(error) if is_mid_teardown(&error) => None,
-            Err(error) => panic!("poll current socket: {error}"),
-        }
-    });
+    let current_event = reactor
+        .platform_reactor
+        .poll_registered_events(Some(Duration::from_millis(50)))
+        .expect("poll current socket")
+        .into_iter()
+        .find(|event| FdKey::from(event.descriptor()) == FdKey::from(fd))
+        .expect("current socket invalidation");
     assert!(current_event.was_invalidated());
 
     reactor

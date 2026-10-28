@@ -60,6 +60,24 @@ jobs:
         run: cargo check --locked -p moirai-pal --lib --no-default-features --features webview2
       - name: Lint every Windows PAL target
         run: cargo clippy --locked -p moirai-pal --all-targets --no-default-features --features webview2 -- -D warnings
+      # The draft-gated QUIC job also includes this default suite when eligible.
+      # Keep PAL's native contracts visible on every PR, including drafts, and
+      # require each formerly ignored socket regression to execute on its own.
+      - name: Run default PAL contracts and individual closed-socket regressions
+        shell: pwsh
+        run: |
+          cargo nextest run --locked -p moirai-pal --lib --config-file .config/nextest.toml --test-threads 1 --retries 0 --no-tests fail --no-fail-fast
+          $failed = $LASTEXITCODE -ne 0
+          $socketTests = @(
+            'reactor::tests::socket_generation::closed_socket_retires_central_and_platform_waiters',
+            'reactor::tests::socket_generation::successive_reused_socket_invalidations_preserve_generation_order',
+            'windows::poll::tests::wsapoll_reactor_self_cleans_closed_sockets'
+          )
+          foreach ($socketTest in $socketTests) {
+            cargo nextest run --locked -p moirai-pal --lib --config-file .config/nextest.toml --test-threads 1 --retries 0 --no-tests fail --no-fail-fast -E "test(=$socketTest)"
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+          }
+          if ($failed) { exit 1 }
       - name: Run WebView2 policy and complete frame validation
         run: >-
           cargo nextest run --locked -p moirai-pal --lib
