@@ -6,6 +6,20 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
+<a id="MOI-PAL-CLOSED-SOCKET-GATES-001"></a>
+## MOI-PAL-CLOSED-SOCKET-GATES-001 — Preserve closed-socket coverage [patch]
+- status: todo
+- priority: correctness
+- outcome: Default Windows tests execute actual closed-socket waiter retirement,
+  reused-generation ordering and WSAPoll cleanup with their original assertions.
+- scope: moirai-pal 0.11.4 test fixtures and package metadata; no production
+  transport, policy, ownership or acceptance-bound change.
+- acceptance: All three exact default and solo regressions execute on Windows;
+  strict Unix/Windows diagnostics, package/API checks and independent exact-head
+  review pass. A compiled or skipped case is not a native runtime pass.
+- next step: Validate the private supplemental source before coordination with
+  the existing #644 owner; preserve pending lifecycle and service holds.
+
 <a id="MOI-QUIC-PROMOTION-001"></a>
 ## MOI-QUIC-PROMOTION-001 — Promote verified native QUIC [minor]
 - status: todo
