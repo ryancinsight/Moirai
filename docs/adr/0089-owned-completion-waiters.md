@@ -2,6 +2,9 @@
 
 Status: Accepted
 
+Revision 2026-10-29: use the standard mutex for the lazy set pointer;
+cross-target checks preserve the task-state size bound without a custom lock.
+
 ## Context
 
 A completion wait currently registers strong waker clones in the target task.
@@ -34,6 +37,11 @@ that set. Keep the first slot inline in the shared set; allocate spill storage
 only for additional concurrent registrations. Tokens own the set rather than a
 task-state pointer. Completion closes registration before notification; handles
 can still remove pending entries while other notifications execute.
+
+Protect the lazy pointer with `Mutex<Option<Arc<WaiterSet>>>`. Pointer mutation
+never invokes a caller callback. A separate set mutex owns slot bookkeeping;
+the pointer lock is released before acquiring that mutex. Standard mutex
+layouts fit the complete task-state budget on Windows, Linux and macOS.
 
 Clone, wake and destruction of caller wakers occur outside every registry or
 registration lock. Slot mutation contains only owned moves and bookkeeping.
@@ -74,7 +82,7 @@ proof of every possible schedule or a performance claim.
 
 The Loom model bounds the protocol to two waiter identities, two slots, one
 registrar and one completion publisher, with the default 1,000-branch bound
-and no preemption or permutation cap. It tracks atomic slot locking and
+and no preemption or permutation cap. It tracks the pointer mutex and
 per-slot claims. It abstracts callbacks, allocation, updates and block
 retirement; actual-code tests cover removal while another callback blocks.
 The [delivery PR](https://github.com/ryancinsight/Moirai/pull/650) records the

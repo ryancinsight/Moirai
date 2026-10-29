@@ -1,7 +1,7 @@
 //! loom model of owned waiter registration racing task completion.
 //!
 //! `TaskState::register_waker` publishes a lazily allocated waiter set through
-//! `WaiterSetSlot`'s atomic lock. Completion publishes its state, detaches that
+//! `WaiterSetSlot`'s mutex. Completion publishes its state, detaches that
 //! set under the same lock, closes registration, and claims each occupied slot
 //! separately. An owner may remove its slot until notification claims it.
 //!
@@ -22,9 +22,9 @@
 //! Under a normal build the `#![cfg(loom)]` gate makes this file empty.
 
 #![cfg(loom)]
+#![forbid(unsafe_code)]
 #![expect(clippy::unwrap_used, reason = "test scope")]
 
-use loom::cell::UnsafeCell;
 use loom::sync::atomic::{AtomicBool, Ordering};
 use loom::sync::{Arc, Mutex};
 use loom::thread;
@@ -38,64 +38,30 @@ struct Task {
     woken: [AtomicBool; WAITERS],
 }
 
-/// Faithful bounded model of the production atomic slot lock and set pointer.
+/// Bounded model of the production mutex and set pointer.
 struct WaiterSetSlot {
-    locked: AtomicBool,
-    set: UnsafeCell<Option<Arc<WaiterSet>>>,
-}
-
-struct WaiterSetSlotGuard<'a> {
-    slot: &'a WaiterSetSlot,
-}
-
-impl Drop for WaiterSetSlotGuard<'_> {
-    fn drop(&mut self) {
-        self.slot.locked.store(false, Ordering::Release);
-    }
+    set: Mutex<Option<Arc<WaiterSet>>>,
 }
 
 impl WaiterSetSlot {
     fn new() -> Self {
         Self {
-            locked: AtomicBool::new(false),
-            set: UnsafeCell::new(None),
+            set: Mutex::new(None),
         }
-    }
-
-    fn lock(&self) -> WaiterSetSlotGuard<'_> {
-        while self
-            .locked
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            thread::yield_now();
-        }
-        WaiterSetSlotGuard { slot: self }
     }
 
     fn get_or_create(&self, completed: impl FnOnce() -> bool) -> Option<Arc<WaiterSet>> {
-        let guard = self.lock();
+        let mut set = self.set.lock().unwrap();
         if completed() {
-            drop(guard);
             return None;
         }
-        let set = self.set.with_mut(|set| {
-            // SAFETY: `guard` makes this the only access to `set`.
-            let set = unsafe { &mut *set };
-            Arc::clone(set.get_or_insert_with(|| Arc::new(WaiterSet::new())))
-        });
-        drop(guard);
-        Some(set)
+        Some(Arc::clone(
+            set.get_or_insert_with(|| Arc::new(WaiterSet::new())),
+        ))
     }
 
     fn take(&self) -> Option<Arc<WaiterSet>> {
-        let guard = self.lock();
-        let set = self.set.with_mut(|set| {
-            // SAFETY: `guard` makes this the only access to `set`.
-            unsafe { (&mut *set).take() }
-        });
-        drop(guard);
-        set
+        self.set.lock().unwrap().take()
     }
 }
 

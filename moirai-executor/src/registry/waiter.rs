@@ -1,97 +1,54 @@
 //! Owned registrations for task-completion notification.
 
+#![forbid(unsafe_code)]
+
 use std::{
     any::Any,
-    cell::UnsafeCell,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, MutexGuard},
     task::Waker,
 };
 
 /// The per-task pointer to lazily allocated waiter storage.
 ///
-/// This stays the size of one pointer plus a lock flag on every supported
-/// target. Callback-bearing destruction never runs while the flag is held.
+/// Callback-bearing destruction never runs while the pointer is locked.
 pub(super) struct WaiterSetSlot {
-    locked: AtomicBool,
-    set: UnsafeCell<Option<Arc<WaiterSet>>>,
-}
-
-struct WaiterSetSlotGuard<'a> {
-    slot: &'a WaiterSetSlot,
-}
-
-impl Drop for WaiterSetSlotGuard<'_> {
-    fn drop(&mut self) {
-        self.slot.locked.store(false, Ordering::Release);
-    }
+    set: Mutex<Option<Arc<WaiterSet>>>,
 }
 
 impl WaiterSetSlot {
     pub(super) const fn new() -> Self {
         Self {
-            locked: AtomicBool::new(false),
-            set: UnsafeCell::new(None),
+            set: Mutex::new(None),
         }
     }
 
-    fn lock(&self) -> WaiterSetSlotGuard<'_> {
-        let mut spins = 0_usize;
-        while self
-            .locked
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            if spins < 16 {
-                std::hint::spin_loop();
-            } else {
-                std::thread::yield_now();
-            }
-            spins += 1;
-        }
-        WaiterSetSlotGuard { slot: self }
+    fn lock(&self) -> MutexGuard<'_, Option<Arc<WaiterSet>>> {
+        self.set
+            .lock()
+            .expect("invariant: pointer-slot mutations contain no caller callbacks")
     }
 
     /// Return shared registration storage unless completion was published.
     pub(super) fn get_or_create(&self, completed: impl FnOnce() -> bool) -> Option<Arc<WaiterSet>> {
-        let guard = self.lock();
+        let mut set = self.lock();
         if completed() {
-            drop(guard);
             return None;
         }
-        // SAFETY: `guard` makes this the only access to `set`.
-        let set = unsafe { &mut *self.set.get() };
         let result = Arc::clone(set.get_or_insert_with(|| Arc::new(WaiterSet::new())));
-        drop(guard);
+        drop(set);
         Some(result)
     }
 
     /// Detach the registration storage from its task state.
     pub(super) fn take(&self) -> Option<Arc<WaiterSet>> {
-        let guard = self.lock();
-        // SAFETY: `guard` makes this the only access to `set`.
-        let result = unsafe { (&mut *self.set.get()).take() };
-        drop(guard);
-        result
+        self.lock().take()
     }
 
     pub(super) fn is_some(&self) -> bool {
-        let guard = self.lock();
-        // SAFETY: `guard` makes this the only access to `set`.
-        let result = unsafe { (&*self.set.get()).is_some() };
-        drop(guard);
-        result
+        self.lock().is_some()
     }
 }
-
-// SAFETY: every access to `set` holds the slot's atomic lock, and `Arc` is
-// safe to move between threads.
-unsafe impl Send for WaiterSetSlot {}
-// SAFETY: the same lock serializes shared access from every thread.
-unsafe impl Sync for WaiterSetSlot {}
 
 #[derive(Clone, Copy)]
 struct WaiterKey(usize);

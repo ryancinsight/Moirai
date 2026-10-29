@@ -45,9 +45,8 @@ pub(super) enum Retirement {
 /// keeps the allocation alive; scheduler-bounded tokens require their registry
 /// to outlive the job and make their final access to the state when they retire.
 ///
-/// The flags live apart from the states: a flag beside its state would pad every
-/// 64-byte state to 72 bytes, and the retirement scan reads flags without
-/// touching state lines.
+/// Publication flags live apart from the states so retirement scans inspect
+/// densely packed flags without loading the task-state lines.
 pub(super) struct TaskStateBlock {
     published: Box<[AtomicBool]>,
     states: Box<[UnsafeCell<MaybeUninit<TaskState>>]>,
@@ -84,11 +83,9 @@ pub(crate) struct TaskState {
     pub(super) cancelled: AtomicBool,
 }
 
-// A registry block holds 1,024 of these plus one flag byte each; the size is
-// pinned because retained memory per task is this figure: 64 bytes on every
-// 64-bit target (`Instant` is 16 bytes, 8-aligned, on each), 56 on wasm32.
-// `worker_id` is `u32` and the waiter-set pointer carries its own compact spin
-// lock to stay within it on macOS, Linux, and Windows.
+// A registry block holds 1,024 of these plus one publication byte each.
+// Keep the complete state within its budget despite platform mutex layouts;
+// waiter-set allocations are separate from this inline lifecycle storage.
 const _: () = assert!(size_of::<TaskState>() <= 64);
 
 impl std::fmt::Debug for TaskState {
