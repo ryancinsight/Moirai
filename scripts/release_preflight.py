@@ -12,21 +12,21 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tarfile
 import tomllib
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 import release_sbom
 
 
-USER_AGENT = "moirai-release-preflight"
+REGISTRY_READER = Path(".github/actions/crate-release-identity/release_identity.py")
+ARTIFACT_EVIDENCE = Path(".github/actions/crates-pending/artifact_evidence.py")
 
 
 def cargo_metadata(manifest: Path) -> dict[str, Any]:
@@ -47,31 +47,32 @@ def cargo_metadata(manifest: Path) -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def index_path(name: str) -> str:
-    lowered = name.lower()
-    if len(lowered) <= 2:
-        return f"{len(lowered)}/{lowered}"
-    if len(lowered) == 3:
-        return f"3/{lowered[0]}/{lowered}"
-    return f"{lowered[:2]}/{lowered[2:4]}/{lowered}"
-
-
-def published_versions(name: str) -> list[str] | None:
-    request = urllib.request.Request(
-        f"https://index.crates.io/{index_path(name)}", headers={"User-Agent": USER_AGENT}
-    )
+def load_atlas_module(root: Path, relative: Path, module_name: str, member: str) -> Any:
+    """Load a required contract owner from an explicit Atlas checkout root."""
+    source = (root / relative).resolve()
+    if not source.is_file():
+        raise RuntimeError(f"Atlas contract owner does not exist: {source}")
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Atlas contract owner cannot be loaded: {source}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            if response.status != 200:
-                raise RuntimeError(f"registry index returned HTTP {response.status} for {name}")
-            body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise RuntimeError(f"registry index returned HTTP {error.code} for {name}") from error
-    except urllib.error.URLError as error:
-        raise RuntimeError(f"registry index request failed for {name}: {error}") from error
-    return [json.loads(line)["vers"] for line in body.splitlines() if line]
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(spec.name, None)
+        raise
+    if not callable(getattr(module, member, None)):
+        sys.modules.pop(spec.name, None)
+        raise RuntimeError(f"Atlas contract owner lacks {member}: {source}")
+    return module
+
+
+def load_registry_reader(root: Path) -> Any:
+    """Load the pinned Atlas registry reader from its explicit checkout root."""
+    return load_atlas_module(
+        root, REGISTRY_READER, "atlas_crate_release_identity", "sparse_index_versions"
+    )
 
 
 def is_publishable(package: dict[str, Any]) -> bool:
@@ -80,8 +81,7 @@ def is_publishable(package: dict[str, Any]) -> bool:
 
 
 def cohort_entry(package: dict[str, Any]) -> dict[str, Any]:
-    libraries = [target["name"] for target in package["targets"] if {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"} & set(target["kind"])]
-    return {"name": package["name"], "version": package["version"], "libraries": sorted(libraries)}
+    return {"name": package["name"], "version": package["version"]}
 
 
 def select_pending(packages: list[dict[str, Any]], versions_for: Any) -> dict[str, Any]:
@@ -97,8 +97,8 @@ def select_pending(packages: list[dict[str, Any]], versions_for: Any) -> dict[st
     return {"packages": [item["name"] for item in sorted(pending, key=lambda item: item["name"])], "bootstrap": sorted(first), "cohort": sorted(pending, key=lambda item: item["name"])}
 
 
-def plan(manifest: Path) -> dict[str, Any]:
-    return select_pending(cargo_metadata(manifest)["packages"], published_versions)
+def plan(manifest: Path, versions_for: Any) -> dict[str, Any]:
+    return select_pending(cargo_metadata(manifest)["packages"], versions_for)
 
 
 def sha256(path: Path) -> str:
@@ -126,12 +126,11 @@ def evidence(context: dict[str, str], artifacts: dict[str, str], cohort: list[di
     for item in cohort:
         if (
             not isinstance(item, dict)
+            or set(item) != {"name", "version"}
             or not isinstance(item.get("name"), str)
             or not item["name"]
             or not isinstance(item.get("version"), str)
             or not item["version"]
-            or not isinstance(item.get("libraries"), list)
-            or any(not isinstance(library, str) or not library for library in item["libraries"])
         ):
             raise RuntimeError("release evidence has malformed cohort")
         names.append((item["name"], item["version"]))
@@ -214,6 +213,7 @@ def main() -> int:
     plan_parser = subcommands.add_parser("plan")
     plan_parser.add_argument("--manifest", type=Path, default=Path("Cargo.toml"))
     plan_parser.add_argument("--github-output", type=Path)
+    plan_parser.add_argument("--registry-reader-root", required=True, type=Path)
     record_parser = subcommands.add_parser("record")
     record_parser.add_argument("--output", required=True, type=Path)
     record_parser.add_argument("--context", required=True)
@@ -233,7 +233,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "plan":
-            result = plan(args.manifest)
+            reader = load_registry_reader(args.registry_reader_root)
+            result = plan(args.manifest, reader.sparse_index_versions)
             encoded = ",".join(result["packages"])
             print(encoded)
             if args.github_output:
@@ -252,7 +253,7 @@ def main() -> int:
             release_sbom.validate(args.paths, json.loads(args.cohort), release_sbom.Graph(args.metadata))
         else:
             compare(args.left, args.right, json.loads(args.expected_cohort))
-    except RuntimeError as error:
+    except (RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0

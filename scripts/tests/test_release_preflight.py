@@ -3,6 +3,7 @@
 import json
 import io
 import gzip
+import os
 import sys
 import tarfile
 import tempfile
@@ -16,12 +17,19 @@ import release_sbom
 
 class ReleasePreflightTests(unittest.TestCase):
     @staticmethod
+    def registry_reader():
+        root = os.environ.get("ATLAS_REGISTRY_READER_ROOT")
+        if root is None:
+            raise RuntimeError("ATLAS_REGISTRY_READER_ROOT must name the pinned Atlas checkout")
+        return release_preflight.load_registry_reader(Path(root))
+
+    @staticmethod
     def context():
         return {"candidate": "a", "toolchain": "1.97.0", "target": "linux", "profile": "release"}
 
     @staticmethod
     def cohort(name="demo", version="1.0.0"):
-        return [{"name": name, "version": version, "libraries": []}]
+        return [{"name": name, "version": version}]
 
     @staticmethod
     def write_crate(path, name="demo", version="1.0.0", prefix=None, epoch=1):
@@ -39,7 +47,7 @@ class ReleasePreflightTests(unittest.TestCase):
         packages = [{"name": "root", "version": "1.0.0", "publish": None, "targets": []}]
         self.assertEqual(
             release_preflight.select_pending(packages, lambda _name: None),
-            {"packages": ["root"], "bootstrap": ["root"], "cohort": [{"name": "root", "version": "1.0.0", "libraries": []}]},
+            {"packages": ["root"], "bootstrap": ["root"], "cohort": [{"name": "root", "version": "1.0.0"}]},
         )
 
     def test_plan_selects_only_registry_missing_versions(self):
@@ -49,11 +57,67 @@ class ReleasePreflightTests(unittest.TestCase):
             {"name": "private", "version": "1.0.0", "publish": False, "targets": []},
         ]
         def versions(name):
-            return ["1.0.0"] if name != "private" else None
+            return {"1.0.0": "0" * 64} if name != "private" else None
         self.assertEqual(
             release_preflight.select_pending(packages, versions),
-            {"packages": ["pending"], "bootstrap": [], "cohort": [{"name": "pending", "version": "1.1.0", "libraries": []}]},
+            {"packages": ["pending"], "bootstrap": [], "cohort": [{"name": "pending", "version": "1.1.0"}]},
         )
+
+    def test_plan_uses_the_shared_registry_reader_and_propagates_its_error(self):
+        reader = self.registry_reader()
+        checksum = "0" * 64
+
+        def present(_url, _limit):
+            record = json.dumps({"name": "root", "vers": "1.0.0", "cksum": checksum})
+            return 200, record.encode("utf-8")
+
+        def fail(_url, _limit):
+            raise reader.IdentityError("shared registry failure")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "Cargo.toml"
+            manifest.write_text('[package]\nname = "root"\nversion = "1.0.0"\nedition = "2024"\n')
+            (root / "Cargo.lock").write_text(
+                'version = 4\n\n[[package]]\nname = "root"\nversion = "1.0.0"\n'
+            )
+            (root / "src").mkdir()
+            (root / "src" / "lib.rs").write_text("")
+
+            def versions(name):
+                return reader.sparse_index_versions(name, fetch=present)
+
+            self.assertEqual(
+                release_preflight.plan(manifest, versions),
+                {"packages": [], "bootstrap": [], "cohort": []},
+            )
+
+            def failing_versions(name):
+                return reader.sparse_index_versions(name, fetch=fail)
+
+            with self.assertRaisesRegex(reader.IdentityError, "shared registry failure"):
+                release_preflight.plan(manifest, failing_versions)
+
+    def test_evidence_matches_the_shared_atlas_artifact_schema(self):
+        root = Path(os.environ["ATLAS_REGISTRY_READER_ROOT"])
+        owner = release_preflight.load_atlas_module(
+            root,
+            release_preflight.ARTIFACT_EVIDENCE,
+            "atlas_artifact_evidence",
+            "parse_expected_artifacts",
+        )
+        context = self.context() | {
+            "candidate": "a" * 40,
+            "profile": "cargo-package-verify",
+        }
+        value = release_preflight.evidence(
+            context,
+            {"demo-1.0.0.crate": "0" * 64},
+            self.cohort(),
+        )
+        parsed = owner.parse_expected_artifacts(json.dumps(value))
+        self.assertEqual(parsed.cohort, (("demo", "1.0.0"),))
+        self.assertEqual(parsed.artifacts, {"demo-1.0.0.crate": "0" * 64})
 
     def test_record_and_compare_accept_complete_identical_archives(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -161,7 +225,7 @@ class ReleasePreflightTests(unittest.TestCase):
             path = Path(directory) / "bad.json"
             path.write_text(json.dumps({"context": self.context(), "cohort": self.cohort(), "artifacts": {"demo-1.0.0.crate": "0" * 64}}))
             with self.assertRaisesRegex(RuntimeError, "cohort differs"):
-                release_preflight.compare(path, path, [{"name": "other", "version": "1.0.0", "libraries": []}])
+                release_preflight.compare(path, path, [{"name": "other", "version": "1.0.0"}])
 
     def test_record_rejects_duplicate_archive_basenames(self):
         with tempfile.TemporaryDirectory() as directory:
