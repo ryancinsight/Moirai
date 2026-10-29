@@ -6,11 +6,12 @@ import argparse
 import hashlib
 import importlib
 import json
+import os
 import sys
 import tempfile
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 COMMAND_TIMEOUT_SECONDS = 600
 NIGHTLY_TOOLCHAIN = "nightly-2026-08-01"
@@ -229,6 +230,27 @@ def _within(path: Path, parent: Path) -> bool:
     return True
 
 
+def _scratch_root(environment: Mapping[str, str]) -> Path:
+    configured = environment.get("RUNNER_TEMP")
+    if "RUNNER_TEMP" in environment and not configured:
+        raise GateFailure("RUNNER_TEMP must name an existing scratch directory")
+    root = Path(configured or tempfile.gettempdir()).resolve(strict=True)
+    if not root.is_dir():
+        raise GateFailure(f"scratch root is not a directory: {root}")
+    return root
+
+
+def _assert_candidate_location(
+    candidate: Path, working_directory: Path, temporary_root: Path
+) -> None:
+    if not _within(working_directory, temporary_root):
+        raise GateFailure(
+            "the gate must start from an operating-system scratch directory"
+        )
+    if not _within(candidate, working_directory) or candidate == working_directory:
+        raise GateFailure("candidate must be an explicit export below the scratch directory")
+
+
 def verify(
     candidate: Path, cargo_config: Path, runner_root: Path, output_root: Path
 ) -> dict[str, Any]:
@@ -237,12 +259,9 @@ def verify(
     cargo_config = cargo_config.resolve(strict=True)
     runner_root = runner_root.resolve(strict=True)
     output_root = output_root.resolve(strict=False)
-    temporary_root = Path(tempfile.gettempdir()).resolve(strict=True)
+    temporary_root = _scratch_root(os.environ)
     working_directory = Path.cwd().resolve(strict=True)
-    if not _within(working_directory, temporary_root):
-        raise GateFailure("the gate must start from an operating-system scratch directory")
-    if not _within(candidate, working_directory) or candidate == working_directory:
-        raise GateFailure("candidate must be an explicit export below the scratch directory")
+    _assert_candidate_location(candidate, working_directory, temporary_root)
     if (candidate / ".git").exists():
         raise GateFailure("candidate must be an export, not a Git checkout")
     if not _within(output_root, candidate):

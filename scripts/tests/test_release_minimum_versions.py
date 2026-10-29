@@ -193,6 +193,33 @@ class LockIdentityTests(unittest.TestCase):
             minimum.assert_git_sources_unchanged(self.lock("a" * 40), self.lock("b" * 40))
 
 
+class ScratchRootTests(unittest.TestCase):
+    def test_runner_temp_accepts_only_nested_candidate_export(self) -> None:
+        with tempfile.TemporaryDirectory() as runner_directory:
+            root = Path(runner_directory).resolve()
+            working_directory = root / "job"
+            candidate = working_directory / "candidate"
+            candidate.mkdir(parents=True)
+
+            selected = minimum._scratch_root({"RUNNER_TEMP": str(root)})
+            self.assertEqual(selected, root)
+            minimum._assert_candidate_location(candidate, working_directory, selected)
+            with self.assertRaisesRegex(minimum.GateFailure, "explicit export below"):
+                minimum._assert_candidate_location(root / "outside", working_directory, selected)
+            with self.assertRaisesRegex(minimum.GateFailure, "operating-system scratch"):
+                minimum._assert_candidate_location(root.parent / "outside", root.parent, selected)
+
+    def test_empty_runner_temp_is_rejected(self) -> None:
+        with self.assertRaisesRegex(minimum.GateFailure, "must name"):
+            minimum._scratch_root({"RUNNER_TEMP": ""})
+
+    def test_os_temp_is_fallback_without_runner_temp(self) -> None:
+        self.assertEqual(
+            minimum._scratch_root({}),
+            Path(tempfile.gettempdir()).resolve(strict=True),
+        )
+
+
 @unittest.skipUnless(
     os.environ.get("MOIRAI_RUN_CARGO_CONTROL") == "1",
     "set MOIRAI_RUN_CARGO_CONTROL=1 for the real Cargo resolver control",
