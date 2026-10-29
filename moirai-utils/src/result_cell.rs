@@ -23,25 +23,28 @@
 //! runs only after the last `Arc`, so it has exclusive access and races neither
 //! side.
 //!
-//! # State machine
+//! # State machines
 //!
-//! `state: AtomicU8` is the sole synchronization variable; the `result` and
-//! `waiter` cells are touched only while a transition grants exclusive access to
-//! them (C = consumer, P = producer):
+//! The result and waiter have independent atomic machines so registering a
+//! waiter never waits for producer progress (C = consumer, P = producer):
 //!
 //! ```text
-//!   PENDING ──C register──▶ WAITING ──C re-register──▶ UPDATING_WAITER ──C──▶ WAITING
-//!      │                       │
-//!      │ P complete            │ P complete
-//!      ▼                       ▼
-//!   WRITING ────────────────▶ WRITING ──P──▶ READY ──C take──▶ TAKEN
+//!   PENDING ──P complete──▶ WRITING ──P publish──▶ READY ──C take──▶ TAKEN
+//!
+//!   IDLE ──C register──▶ REGISTERING ──C publish──▶ IDLE
+//!     │                       │
+//!     │ P wake                │ P requests wake
+//!     ▼                       ▼
+//!   WAKING                 REGISTERING | WAKING
+//!     │                       │
+//!     └──── owner wakes ──────┴───────────────▶ IDLE
 //! ```
 //!
 //! `WRITING` is the producer's exclusive claim on `result`, and `READY`
-//! publishes it; `UPDATING_WAITER` is the consumer's exclusive claim on `waiter`
-//! while it swaps a stale one, past which the producer spins. A waiter that is
-//! never replaced (see [`Waiter::REPLACE_ON_REPEAT`]) never enters
-//! `UPDATING_WAITER`, and monomorphization removes that arm entirely.
+//! publishes it before the producer touches the waiter machine. `REGISTERING`
+//! is the consumer's exclusive claim on the waiter slot. A producer that sees
+//! that claim sets `WAKING` and returns; the consumer then publishes, removes,
+//! and wakes the new waiter. No path spins for the other role.
 //!
 //! # Cell-access invariants (what the per-site `// Safety:` comments rely on)
 //!
@@ -50,12 +53,13 @@
 //!    consumer can see it yet). It is read exactly once — by the unique
 //!    `READY -> TAKEN` consumer transition, or by `Drop` at `READY` when the
 //!    consumer never took it.
-//! 2. **`waiter`: written by the consumer, read once by the producer.** The
-//!    consumer writes it under `PENDING` (published by the `PENDING -> WAITING`
-//!    release transition) or under the `UPDATING_WAITER` claim. The producer
-//!    reads it exactly once, on `WAITING -> WRITING`; otherwise `Drop` at
-//!    `WAITING` drops it. A *failed* publish transition proves no producer
-//!    observed the write, so the consumer drops its own value.
+//! 2. **`waiter`: accessed only by the waiter-machine owner.** The consumer owns
+//!    the slot after `IDLE -> REGISTERING`; the producer owns it when `fetch_or`
+//!    observes `IDLE`. If the producer instead observes `REGISTERING`, it marks
+//!    the pending wake and leaves the slot to the consumer. Both roles restore
+//!    `IDLE` before waking or dropping a waiter, because those operations may
+//!    re-enter the cell. A separate atomic presence flag mirrors the slot only
+//!    for safe diagnostics; it grants no access to the waiter.
 //! 3. **No lost wakeup.** [`complete`](ResultCell::complete) on the `PENDING ->
 //!    WRITING` path (it beat registration) deliberately does not wake: no waiter
 //!    is registered yet. Liveness therefore requires the consumer to check →
@@ -65,14 +69,11 @@
 //!
 //! # Ordering
 //!
-//! Each cell access is ordered by a release/acquire pair on `state`: the writer
-//! releases on the publishing transition, the reader acquires on the transition
-//! that reads the cell. Thus `PENDING -> WAITING` and the `UPDATING_WAITER ->
-//! WAITING` store are `Release` (they publish `waiter`), while `WAITING ->
-//! WRITING` and `READY -> TAKEN` are `Acquire` (they read a cell). The `PENDING
-//! -> WRITING` success is `Relaxed`: that path reads neither cell before its own
-//! `store(READY, Release)` publishes `result`, so it carries no incoming edge to
-//! establish.
+//! `READY` publishes the result with `Release`, and `READY -> TAKEN` reads it
+//! with `Acquire`. The waiter machine claims with `Acquire`, publishes with
+//! `Release`, and uses `AcqRel` when the producer both observes registration and
+//! requests a wake. These edges cover separate cells; neither role waits for the
+//! other to advance.
 //!
 //! # The waiter payload
 //!
@@ -81,9 +82,8 @@
 //! it is a trait constant rather than a branch —
 //! [`REPLACE_ON_REPEAT`](Waiter::REPLACE_ON_REPEAT) is `false` for a thread,
 //! which parks once per wait and must not be overwritten, and `true` for a
-//! waker, which a re-poll may legitimately replace. Each instantiation therefore
-//! compiles to its own machine, and both share this one copy of the protocol,
-//! its invariants and its ordering argument.
+//! waker, which a re-poll may legitimately replace. A mixed waiter type may opt
+//! into replacement so a blocking join can replace an earlier async waker.
 //!
 //! # Layout
 //!
@@ -96,18 +96,21 @@
 
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 mod state_word;
 
 pub use state_word::StateWord;
 
 const RESULT_PENDING: u8 = 0;
-const RESULT_WAITING: u8 = 1;
-const RESULT_UPDATING_WAITER: u8 = 2;
 const RESULT_WRITING: u8 = 3;
 const RESULT_READY: u8 = 4;
 const RESULT_TAKEN: u8 = 5;
+
+const WAITER_IDLE: u8 = 0;
+const WAITER_REGISTERING: u8 = 1;
+const WAITER_WAKING: u8 = 2;
+const WAITER_REGISTERING_AND_WAKING: u8 = WAITER_REGISTERING | WAITER_WAKING;
 
 /// A handle that can be parked on and woken once.
 ///
@@ -151,7 +154,9 @@ impl Waiter for core::task::Waker {
 pub struct ResultCell<T, W: Waiter, S: StateWord = AtomicU8> {
     result: UnsafeCell<MaybeUninit<T>>,
     state: S,
-    waiter: UnsafeCell<MaybeUninit<W>>,
+    waiter_state: AtomicU8,
+    waiter_present: AtomicBool,
+    waiter: UnsafeCell<Option<W>>,
 }
 
 // Safety: the cell has one producer and one consumer. Atomic states serialize
@@ -171,7 +176,9 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         Self {
             result: UnsafeCell::new(MaybeUninit::uninit()),
             state: S::pending(),
-            waiter: UnsafeCell::new(MaybeUninit::uninit()),
+            waiter_state: AtomicU8::new(WAITER_IDLE),
+            waiter_present: AtomicBool::new(false),
+            waiter: UnsafeCell::new(None),
         }
     }
 
@@ -179,9 +186,9 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
     ///
     /// Called exactly once by the producer; a second call is a no-op.
     pub fn complete(&self, result: T) {
-        let Some(waiting) = self.begin_completion() else {
+        if !self.begin_completion() {
             return;
-        };
+        }
 
         // Safety: WRITING is reachable only after `begin_completion` wins the
         // producer transition, so no consumer can read this cell yet.
@@ -190,13 +197,7 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         }
 
         self.state.store(RESULT_READY, Ordering::Release);
-
-        if waiting {
-            // Safety: WAITING is reachable only after `register` writes the
-            // waiter and publishes it with a release transition.
-            let waiter = unsafe { (*self.waiter.get()).assume_init_read() };
-            waiter.wake();
-        }
+        self.wake_waiter();
     }
 
     /// Take the result if the producer has published it.
@@ -244,126 +245,147 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
     /// one that never ran.
     #[must_use]
     pub fn has_registered_waiter(&self) -> bool {
-        self.state.load(Ordering::Acquire) == RESULT_WAITING
+        !matches!(
+            self.state.load(Ordering::Acquire),
+            RESULT_READY | RESULT_TAKEN
+        ) && self.waiter_present.load(Ordering::Acquire)
     }
 
     /// Park a clone of `waiter`, or replace the parked one when
     /// [`REPLACE_ON_REPEAT`](Waiter::REPLACE_ON_REPEAT) is set.
     ///
-    /// Registration retries until the state is settled, so the waiter is stored
-    /// from a clone and a failed publish transition costs only that clone. The
-    /// caller must re-check [`try_take_ready`](ResultCell::try_take_ready) after this
-    /// returns: a `complete` that raced in before the registration does not wake,
-    /// because it saw no waiter. See the
-    /// [module docs](self#cell-access-invariants).
+    /// Registration makes one non-blocking attempt. It clones before claiming
+    /// the waiter slot, and it drops that clone if the producer already owns the
+    /// wake path. The caller must re-check
+    /// [`try_take_ready`](ResultCell::try_take_ready) after this returns: a
+    /// producer that wins the race publishes the result before it makes the
+    /// waiter unavailable. See the [module docs](self#cell-access-invariants).
     ///
     /// # Safety
     ///
-    /// The waiter cell has one writer at a time, so no other call to `register`
-    /// may run on this cell concurrently, and `waiter.clone()` must not reach
-    /// back into this cell. The cell has one consumer by construction (a blocking
-    /// join takes the handle by value; an async poll takes `Pin<&mut Self>`), and
-    /// the caller is that consumer.
+    /// No other call to `register` may run on this cell concurrently. The cell
+    /// has one consumer by construction (a blocking join takes the handle by
+    /// value; an async poll takes `Pin<&mut Self>`), and the caller is that
+    /// consumer. `waiter.clone()` may run arbitrary code but must not recursively
+    /// register another consumer on this cell.
     pub unsafe fn register(&self, waiter: &W) {
-        loop {
-            match self.state.load(Ordering::Acquire) {
-                RESULT_PENDING => {
-                    // Safety: the caller of `register` is the only consumer
-                    // registering. If the publish transition fails, this clone is
-                    // dropped before retry.
-                    unsafe {
-                        (*self.waiter.get()).write(waiter.clone());
-                    }
+        if matches!(
+            self.state.load(Ordering::Acquire),
+            RESULT_READY | RESULT_TAKEN
+        ) {
+            return;
+        }
 
-                    if self
-                        .state
-                        .compare_exchange(
-                            RESULT_PENDING,
-                            RESULT_WAITING,
-                            Ordering::Release,
-                            Ordering::Acquire,
-                        )
-                        .is_ok()
-                    {
-                        return;
-                    }
+        // Clone before claiming the waiter slot. Clone may panic or run
+        // user-defined code, neither of which may strand REGISTERING.
+        let replacement = waiter.clone();
 
-                    // Safety: the transition failed, so no producer can observe
-                    // this waiter cell as initialized through the WAITING state.
-                    unsafe {
-                        (*self.waiter.get()).assume_init_drop();
-                    }
-                }
-                RESULT_WAITING => {
-                    if !W::REPLACE_ON_REPEAT {
-                        return;
-                    }
+        if matches!(
+            self.state.load(Ordering::Acquire),
+            RESULT_READY | RESULT_TAKEN
+        ) {
+            drop(replacement);
+            return;
+        }
 
-                    if self
-                        .state
-                        .compare_exchange(
-                            RESULT_WAITING,
-                            RESULT_UPDATING_WAITER,
-                            Ordering::Acquire,
-                            Ordering::Acquire,
-                        )
-                        .is_ok()
-                    {
-                        // Safety: UPDATING_WAITER excludes the producer from
-                        // reading the waiter cell while the consumer replaces it.
-                        unsafe {
-                            (*self.waiter.get()).assume_init_drop();
-                            (*self.waiter.get()).write(waiter.clone());
-                        }
-                        self.state.store(RESULT_WAITING, Ordering::Release);
-                        return;
-                    }
-                }
-                RESULT_UPDATING_WAITER | RESULT_WRITING => core::hint::spin_loop(),
-                _ => return,
+        if self
+            .waiter_state
+            .compare_exchange(
+                WAITER_IDLE,
+                WAITER_REGISTERING,
+                Ordering::Acquire,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            // A producer that owns WAKING has already published READY. The
+            // caller's required post-registration result check observes it.
+            drop(replacement);
+            return;
+        }
+
+        // Safety: IDLE -> REGISTERING gives this consumer exclusive access to
+        // the waiter slot until it publishes IDLE again.
+        let mut replaced = unsafe { (*self.waiter.get()).take() };
+        let unused_replacement = if W::REPLACE_ON_REPEAT || replaced.is_none() {
+            // Safety: this consumer still owns REGISTERING and the slot is empty.
+            unsafe {
+                *self.waiter.get() = Some(replacement);
             }
+            None
+        } else {
+            // Safety: this consumer still owns REGISTERING and restores the
+            // parked non-replaceable waiter before publishing.
+            unsafe {
+                *self.waiter.get() = replaced.take();
+            }
+            Some(replacement)
+        };
+        self.waiter_present.store(true, Ordering::Release);
+
+        let wake = if self
+            .waiter_state
+            .compare_exchange(
+                WAITER_REGISTERING,
+                WAITER_IDLE,
+                Ordering::Release,
+                Ordering::Acquire,
+            )
+            .is_ok()
+        {
+            None
+        } else {
+            debug_assert_eq!(
+                self.waiter_state.load(Ordering::Relaxed),
+                WAITER_REGISTERING_AND_WAKING
+            );
+            // Safety: the producer only set WAKING and left the waiter slot to
+            // this consumer, which still owns REGISTERING.
+            let wake = unsafe { (*self.waiter.get()).take() };
+            self.waiter_present.store(false, Ordering::Release);
+            self.waiter_state.store(WAITER_IDLE, Ordering::Release);
+            wake
+        };
+
+        // Waiter drop and wake may run arbitrary code, including completion.
+        // The waiter state is IDLE before any of it runs.
+        drop(replaced);
+        drop(unused_replacement);
+        if let Some(wake) = wake {
+            wake.wake();
         }
     }
 
     /// Claim the producer side of the hand-off.
     ///
-    /// Returns `Some(waiting)` with the result cell claimed for writing, or
-    /// `None` when the result was already published (or taken) and the caller
-    /// must abandon its value.
-    fn begin_completion(&self) -> Option<bool> {
-        loop {
-            match self.state.load(Ordering::Acquire) {
-                RESULT_PENDING => {
-                    if self
-                        .state
-                        .compare_exchange(
-                            RESULT_PENDING,
-                            RESULT_WRITING,
-                            Ordering::Relaxed,
-                            Ordering::Acquire,
-                        )
-                        .is_ok()
-                    {
-                        return Some(false);
-                    }
-                }
-                RESULT_WAITING => {
-                    if self
-                        .state
-                        .compare_exchange(
-                            RESULT_WAITING,
-                            RESULT_WRITING,
-                            Ordering::Acquire,
-                            Ordering::Acquire,
-                        )
-                        .is_ok()
-                    {
-                        return Some(true);
-                    }
-                }
-                RESULT_UPDATING_WAITER => core::hint::spin_loop(),
-                _ => return None,
-            }
+    /// Returns whether this producer claimed the pending result.
+    fn begin_completion(&self) -> bool {
+        self.state
+            .compare_exchange(
+                RESULT_PENDING,
+                RESULT_WRITING,
+                Ordering::Relaxed,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// Wake the registered consumer without waiting for registration to finish.
+    fn wake_waiter(&self) {
+        let previous = self.waiter_state.fetch_or(WAITER_WAKING, Ordering::AcqRel);
+
+        if previous != WAITER_IDLE {
+            debug_assert_eq!(previous, WAITER_REGISTERING);
+            return;
+        }
+
+        // Safety: IDLE -> WAKING gives the producer exclusive access to the
+        // waiter slot. A consumer cannot claim it until IDLE is restored.
+        let waiter = unsafe { (*self.waiter.get()).take() };
+        self.waiter_present.store(false, Ordering::Release);
+        self.waiter_state.store(WAITER_IDLE, Ordering::Release);
+        if let Some(waiter) = waiter {
+            waiter.wake();
         }
     }
 }
@@ -376,22 +398,12 @@ impl<T, W: Waiter, S: StateWord> Default for ResultCell<T, W, S> {
 
 impl<T, W: Waiter, S: StateWord> Drop for ResultCell<T, W, S> {
     fn drop(&mut self) {
-        match *self.state.get_mut() {
-            RESULT_READY => {
-                // Safety: READY means the result cell is initialized and no
-                // consumer took it, because drop has exclusive access.
-                unsafe {
-                    self.result.get_mut().assume_init_drop();
-                }
+        if *self.state.get_mut() == RESULT_READY {
+            // Safety: READY means the result cell is initialized and no
+            // consumer took it, because drop has exclusive access.
+            unsafe {
+                self.result.get_mut().assume_init_drop();
             }
-            RESULT_WAITING => {
-                // Safety: WAITING means the waiter cell is initialized and no
-                // producer read it, because drop has exclusive access.
-                unsafe {
-                    self.waiter.get_mut().assume_init_drop();
-                }
-            }
-            _ => {}
         }
     }
 }

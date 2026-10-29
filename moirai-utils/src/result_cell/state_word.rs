@@ -1,18 +1,17 @@
-//! The single atomic word the completion state machine synchronizes through.
+//! Storage abstraction for the result-publication state word.
 
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use super::RESULT_PENDING;
 
-/// The one word the state machine synchronizes through.
+/// The atomic word that publishes and consumes the result.
 ///
-/// The machine only ever loads, stores, and transitions a `u8`, which is all it
-/// needs; naming that as a trait keeps *where the word lives* a decision of the
-/// caller, not of the protocol. The async handle keeps it packed beside the
-/// result, because it allocates one cell per spawned task and refuses to pad
-/// each of them; the blocking handle puts it in an interference sector of its
-/// own, so the producer's publish does not invalidate the result's line. Both
-/// run the identical machine — see [the layout note](super#layout).
+/// The result machine only loads, stores, and transitions a `u8`; naming that as
+/// a trait keeps *where the word lives* a caller decision. The async handle keeps
+/// it packed beside the result, while the blocking handle puts it in an
+/// interference sector of its own. The independent waiter state remains an
+/// internal atomic owned by [`ResultCell`](super::ResultCell); this trait does
+/// not mediate waiter registration or wakeup. See [the layout note](super#layout).
 ///
 /// # Safety
 ///
@@ -20,7 +19,7 @@ use super::RESULT_PENDING;
 ///
 /// - `load`, `store`, and `compare_exchange` are atomic and honor the ordering
 ///   they are given (at least as strong as the requested one), because the
-///   cell publishes and consumes its result and waiter through those edges;
+///   cell publishes and consumes its result through those edges;
 /// - `load` returns only values a `store` or successful `compare_exchange`
 ///   wrote, or [`pending`](Self::pending)'s initial value, and `get_mut`
 ///   exposes that same cell.
