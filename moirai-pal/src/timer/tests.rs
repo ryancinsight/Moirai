@@ -85,3 +85,38 @@ fn pal_timer_extreme_duration_does_not_panic() {
     let timer = super::Timer::new(Duration::from_secs(u64::MAX));
     assert!(timer.deadline() > std::time::Instant::now());
 }
+
+#[test]
+fn dropping_pending_timer_cancels_its_sleeper() {
+    let (wake_tx, _wake_rx) = std::sync::mpsc::sync_channel(1);
+    let wake_flag = Arc::new(WakeFlag::new(wake_tx));
+    let waker = waker(wake_flag);
+    let mut context = Context::from_waker(&waker);
+    let mut timer = Box::pin(sleep(Duration::from_secs(60)));
+    let state = Arc::clone(&timer.state);
+
+    assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    drop(timer);
+    assert!(state.cancelled.load(Ordering::Acquire));
+}
+
+#[test]
+fn completing_a_borrowed_timer_releases_its_registered_waker() {
+    let (wake_tx, _wake_rx) = std::sync::mpsc::sync_channel(1);
+    let flag = Arc::new(WakeFlag::new(wake_tx));
+    let observer = Arc::downgrade(&flag);
+    let task_waker = waker(flag);
+    let mut context = Context::from_waker(&task_waker);
+    let mut timer = Box::pin(sleep(Duration::from_secs(60)));
+    assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    drop(task_waker);
+    assert_eq!(observer.strong_count(), 1);
+    // Exercise expiry before the sleeper runs, without a wall-clock wait.
+    timer.as_mut().get_mut().deadline = std::time::Instant::now();
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    assert!(matches!(
+        timer.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
+    assert_eq!(observer.strong_count(), 0);
+}

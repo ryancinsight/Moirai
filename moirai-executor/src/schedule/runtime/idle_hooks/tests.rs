@@ -21,9 +21,9 @@ fn take_calls() -> Vec<usize> {
 #[test]
 fn empty_snapshot_calls_nothing() {
     let registry = HookRegistry::new();
-    assert_eq!(take_calls(), []);
+    assert_eq!(take_calls(), Vec::<usize>::new());
     registry.run();
-    assert_eq!(take_calls(), []);
+    assert_eq!(take_calls(), Vec::<usize>::new());
 }
 
 #[test]
