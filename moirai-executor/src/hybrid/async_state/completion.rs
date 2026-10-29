@@ -75,6 +75,9 @@ where
     fn store_completed(&self) {
         self.drop_future();
         self.state.store(ASYNC_COMPLETED, Ordering::Release);
+        if let Some(registration) = self.registration.get() {
+            registration.remove();
+        }
     }
 
     #[inline]

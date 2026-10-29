@@ -65,15 +65,25 @@
 //! spawner (the spawn-backpressure contract) after reverting `QUEUED → IDLE`,
 //! which is race-free there because wakers are minted only inside `poll`.
 
+//! Live facade tasks are retained by an executor-owned waker table. Completion
+//! removes the entry; the task holds only a weak table reference. Cancellation
+//! publishes the registry flag before waking the task. The poll owner observes
+//! that flag at each poll boundary and owns future destruction. Shutdown closes
+//! registration and drains the table before joining workers, so an external
+//! event source is never required to wake an idle task for cancellation.
+
 mod admission;
+mod cancellation;
 mod completion;
 mod future_state;
 mod inline_poll;
 mod lifecycle;
 mod phase;
 mod polling;
+mod tasks;
 #[cfg(test)]
 mod tests;
 mod waker;
 
 pub(crate) use future_state::AsyncFutureState;
+pub(crate) use tasks::AsyncTasks;

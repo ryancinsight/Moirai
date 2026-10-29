@@ -21,19 +21,15 @@ use crate::{Priority, TaskId};
 /// - Cancellation: O(1) operation, cooperative completion
 /// - Statistics: Atomic operations, minimal overhead
 pub trait TaskManager: Send + Sync + 'static {
-    /// Cancels a running task by its ID.
+    /// Request cancellation of a task.
     ///
-    /// # Arguments
-    /// * `id` - The unique identifier of the task to cancel
-    ///
-    /// # Returns
-    /// `Ok(())` if the task was successfully cancelled or was already completed.
+    /// Queued work skips execution. Async work is dropped at a poll boundary;
+    /// a poll already returning its result may complete instead. Running
+    /// synchronous and blocking closures are not forcibly interrupted.
+    /// Cancelling a settled task succeeds without changing its outcome.
     ///
     /// # Errors
-    /// Returns `TaskError` in the following cases:
-    /// - `NotFound` if no task with the given ID exists
-    /// - `InvalidState` if the task cannot be cancelled (e.g., already completed)
-    /// - `SystemError` if the cancellation operation fails due to internal errors
+    /// Returns an executor error when the task id is unknown.
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()>;
 
     /// Get the current status of a task.

@@ -76,6 +76,7 @@ pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
     task_registry: Arc<TaskRegistry>,
     metrics: Arc<ExecutorMetrics>,
     shutdown_signal: Arc<AtomicBool>,
+    async_tasks: Arc<async_state::AsyncTasks>,
 }
 
 impl HybridExecutor<ThreadScheduler> {
@@ -106,6 +107,7 @@ impl HybridExecutor<ThreadScheduler> {
             task_registry,
             metrics,
             shutdown_signal: Arc::new(AtomicBool::new(false)),
+            async_tasks: Arc::new(async_state::AsyncTasks::default()),
         })
     }
 
@@ -137,6 +139,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
     /// Shutdown the executor gracefully.
     pub fn shutdown(&mut self) -> ExecutorResult<()> {
         self.shutdown_signal.store(true, Ordering::Release);
+        self.async_tasks.shutdown(&self.task_registry);
         self.scheduler.shutdown();
         Ok(())
     }

@@ -310,16 +310,17 @@ impl Moirai {
 
     /// Shutdown the runtime gracefully.
     ///
-    /// This will wait for all currently running tasks to complete before
-    /// shutting down the thread pools.
+    /// Cancels pending async work at poll boundaries and joins the workers.
+    /// Running synchronous and blocking closures finish before this returns.
     pub fn shutdown(&self) {
         self.executor.shutdown();
     }
 
     /// Shutdown the runtime with a timeout.
     ///
-    /// If tasks don't complete within the timeout, they will be forcefully
-    /// terminated.
+    /// Pending async tasks are cancelled at their next poll boundary. The
+    /// caller stops waiting after the timeout; running synchronous and blocking
+    /// closures continue until they return. Dropping the runtime joins them.
     pub fn shutdown_timeout(&self, timeout: Duration) {
         self.executor.shutdown_timeout(timeout);
     }
@@ -389,4 +390,8 @@ impl Default for Moirai {
         Self::new().expect("Failed to create default Moirai runtime")
     }
 }
+mod manager;
 mod spawner;
+
+#[cfg(test)]
+mod tests;

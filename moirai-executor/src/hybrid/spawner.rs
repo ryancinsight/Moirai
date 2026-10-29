@@ -56,6 +56,7 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
             result_sender,
             Arc::clone(&self.metrics),
         );
+        state.track(&self.async_tasks, task_id.0)?;
         Arc::clone(&state).schedule()?;
 
         self.metrics.record_task_spawned();

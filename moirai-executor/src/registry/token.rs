@@ -246,6 +246,14 @@ impl<L: StateLease> Drop for TaskLifecycleToken<L> {
 }
 
 impl<L: StateLease> RunningTaskToken<L> {
+    pub(crate) fn cancel_requested(&self) -> bool {
+        self.lease
+            .as_ref()
+            .expect("invariant: running token retains its state lease")
+            .state()
+            .cancel_requested()
+    }
+
     /// Abandon a started task whose body will not finish: record it cancelled
     /// and completed (waking any registered waiter), as its handle reports.
     #[inline]

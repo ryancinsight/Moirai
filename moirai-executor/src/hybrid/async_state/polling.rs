@@ -61,6 +61,10 @@ where
         let mut inline_repolls = 0usize;
 
         loop {
+            if self.cancel_pending() {
+                self.complete_cancelled();
+                return;
+            }
             let poll_result = {
                 // Safety: `state` grants this worker the only polling
                 // permission, and the `Arc` allocation keeps the address
@@ -97,7 +101,11 @@ where
         // Safety: only the poll owner selected by the async state machine calls
         // this method, so the lifecycle cell access is single-threaded.
         let lifecycle = unsafe { &*self.lifecycle.get() };
-        matches!(lifecycle, AsyncLifecycle::Registered(token) if token.cancel_requested())
+        match lifecycle {
+            AsyncLifecycle::Registered(token) => token.cancel_requested(),
+            AsyncLifecycle::Running(token) => token.cancel_requested(),
+            AsyncLifecycle::Completed => false,
+        }
     }
 
     fn mark_running(&self, worker_id: usize) {

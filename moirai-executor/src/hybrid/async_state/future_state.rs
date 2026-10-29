@@ -5,7 +5,7 @@ use std::{
     future::Future,
     mem::MaybeUninit,
     ptr,
-    sync::{Arc, atomic::AtomicU8},
+    sync::{Arc, OnceLock, atomic::AtomicU8},
 };
 
 use moirai_core::task::TaskResultSender;
@@ -28,6 +28,7 @@ where
     pub(super) metrics: Arc<ExecutorMetrics>,
     pub(super) state: AtomicU8,
     pub(super) future_present: UnsafeCell<bool>,
+    pub(super) registration: OnceLock<super::tasks::Registration>,
     // Must remain last: production lifecycle leases borrow storage retained by
     // the scheduler, so every lease must retire before scheduler destruction.
     pub(super) scheduler: S,
@@ -80,6 +81,7 @@ where
             metrics,
             state: AtomicU8::new(ASYNC_IDLE),
             future_present: UnsafeCell::new(true),
+            registration: OnceLock::new(),
             scheduler,
         })
     }
@@ -91,6 +93,9 @@ where
     L: StateLease,
 {
     fn drop(&mut self) {
+        if let Some(registration) = self.registration.get() {
+            registration.remove();
+        }
         if *self.future_present.get_mut() {
             // Safety: `Drop` has exclusive access to the state because the last
             // `Arc` reference is being destroyed.

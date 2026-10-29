@@ -28,14 +28,17 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
     /// Cooperative cancellation.
     ///
     /// Contract: a queued task that has not started skips its body when a
-    /// worker dequeues it — the task completes with `TaskError::Cancelled` and
-    /// status `Cancelled`. A task that already started is **not** preempted; it
-    /// runs to completion and this call still returns `Ok(())` (the request is
-    /// recorded but has no effect). Cancelling an already-completed task is a
-    /// no-op `Ok(())`. An unknown task ID is an error.
+    /// worker dequeues it â€” the task completes with `TaskError::Cancelled` and
+    /// status `Cancelled`. A running synchronous closure is not preempted and
+    /// runs to completion. An async task receives cancellation at its next
+    /// poll boundary. Cancelling an already-completed task is a no-op `Ok(())`.
+    /// An unknown task ID is an error.
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()> {
         match self.task_registry.request_cancel(id.0) {
-            Some(CancelOutcome::Requested | CancelOutcome::AlreadyCompleted) => Ok(()),
+            Some(CancelOutcome::Requested | CancelOutcome::AlreadyCompleted) => {
+                self.async_tasks.cancel(id.0);
+                Ok(())
+            }
             None => Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation)),
         }
     }

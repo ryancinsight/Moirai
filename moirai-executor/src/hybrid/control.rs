@@ -22,6 +22,7 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
 
     fn shutdown(&self) {
         self.shutdown_signal.store(true, Ordering::Release);
+        self.async_tasks.shutdown(&self.task_registry);
         self.scheduler.shutdown();
     }
 
@@ -33,6 +34,7 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
     /// scheduler shutdown is re-joined on executor drop.
     fn shutdown_timeout(&self, timeout: core::time::Duration) {
         self.shutdown_signal.store(true, Ordering::Release);
+        self.async_tasks.shutdown(&self.task_registry);
 
         let scheduler = self.scheduler.clone();
         let (done_sender, done_receiver) = std::sync::mpsc::sync_channel::<()>(1);
