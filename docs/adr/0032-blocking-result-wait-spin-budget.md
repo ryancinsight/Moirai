@@ -2,12 +2,14 @@
 
 Status: Accepted
 
+Revision 2026-10-29: retain the blocking spin budget while moving waiter ownership to the independent protocol in [ADR 0085](0085-result-state-storage.md).
+
 **Date**: 2026-05-24
 **Context**: `TaskHandle::join` uses the sealed zero-sized `BlockingResultWait` policy to probe a pending result slot before entering the single-waiter park fallback. Caller-side attribution measured the previous 100-spin pending miss at 1.1886-1.4520 us.
 
 ### Decision
 
-Set `MAX_SPIN_ATTEMPTS` to 64 for the blocking result-wait policy. Preserve the direct first READY-to-TAKEN CAS for already-ready handles, the relaxed-load gated pending probes, and the existing `WAITING` plus `thread::park` fallback.
+Set `MAX_SPIN_ATTEMPTS` to 64 for the blocking result-wait policy. Preserve the direct first READY-to-TAKEN CAS for already-ready handles, the relaxed-load gated pending probes, and waiter registration followed by `thread::park` under the protocol in ADR 0085.
 
 ### Rationale
 

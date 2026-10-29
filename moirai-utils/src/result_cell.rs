@@ -99,9 +99,9 @@ use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 #[cfg(not(loom))]
-use core::sync::atomic::{AtomicBool as WaiterAtomicBool, AtomicU8 as WaiterAtomicU8};
+use core::sync::atomic::{AtomicBool as WaiterPresence, AtomicU8 as WaiterPhase};
 #[cfg(loom)]
-use loom::sync::atomic::{AtomicBool as WaiterAtomicBool, AtomicU8 as WaiterAtomicU8};
+use loom::sync::atomic::{AtomicBool as WaiterPresence, AtomicU8 as WaiterPhase};
 
 mod state_word;
 
@@ -159,8 +159,8 @@ impl Waiter for core::task::Waker {
 pub struct ResultCell<T, W: Waiter, S: StateWord = AtomicU8> {
     result: UnsafeCell<MaybeUninit<T>>,
     state: S,
-    waiter_state: WaiterAtomicU8,
-    waiter_present: WaiterAtomicBool,
+    waiter_state: WaiterPhase,
+    waiter_present: WaiterPresence,
     waiter: UnsafeCell<Option<W>>,
 }
 
@@ -181,8 +181,8 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         Self {
             result: UnsafeCell::new(MaybeUninit::uninit()),
             state: S::pending(),
-            waiter_state: WaiterAtomicU8::new(WAITER_IDLE),
-            waiter_present: WaiterAtomicBool::new(false),
+            waiter_state: WaiterPhase::new(WAITER_IDLE),
+            waiter_present: WaiterPresence::new(false),
             waiter: UnsafeCell::new(None),
         }
     }
@@ -236,10 +236,16 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         }
     }
 
-    /// Whether the producer has published a result.
+    /// Whether the producer has published a result, including one already taken.
+    ///
+    /// Publication is terminal: this remains `true` after
+    /// [`try_take_ready`](ResultCell::try_take_ready) consumes the result.
     #[must_use]
     pub fn is_completed(&self) -> bool {
-        self.state.load(Ordering::Acquire) == RESULT_READY
+        matches!(
+            self.state.load(Ordering::Acquire),
+            RESULT_READY | RESULT_TAKEN
+        )
     }
 
     /// Whether a waiter is parked and no result has been published yet.

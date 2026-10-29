@@ -226,9 +226,18 @@ fn complete_races_first_poll() {
 
         producer.join().expect("invariant: producer completes");
         let observed = consumer.join().expect("invariant: consumer completes");
-        let value = observed
-            .or_else(|| cell.try_take_ready())
-            .expect("invariant: check-register-recheck either takes or leaves the published value");
+        let value = match observed {
+            Some(value) => value,
+            None => {
+                assert_eq!(
+                    probe.wakes.load(Ordering::Acquire),
+                    1,
+                    "a pending poll must be notified before it can run again"
+                );
+                cell.try_take_ready()
+                    .expect("invariant: notification follows result publication")
+            }
+        };
         assert_eq!(value.value, VALUE);
         assert!(cell.try_take_ready().is_none());
         drop(value);

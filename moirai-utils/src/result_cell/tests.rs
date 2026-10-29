@@ -131,6 +131,7 @@ fn take_observes_the_published_result_exactly_once() {
     cell.complete(7);
     assert!(cell.is_completed());
     assert_eq!(cell.try_take_ready(), Some(7));
+    assert!(cell.is_completed());
     assert_eq!(cell.try_take_ready(), None, "result taken twice");
 }
 
