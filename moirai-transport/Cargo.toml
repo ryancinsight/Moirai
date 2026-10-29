@@ -26,13 +26,13 @@ bytemuck = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 # POSIX process-group containment: waitid(WNOWAIT) and killpg.
-libc = "0.2"
+libc = "0.2.190"
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
-tracing = { version = "0.1", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [features]
 default = ["local", "parallel", "mnemosyne-memory"]

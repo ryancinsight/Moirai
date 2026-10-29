@@ -23,6 +23,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import release_sbom
+
 
 USER_AGENT = "moirai-release-preflight"
 
@@ -192,97 +194,6 @@ def tool_version(manifest: Path, tool: str) -> str:
     return version
 
 
-def sbom_components(value: dict[str, Any]) -> set[tuple[str, str]]:
-    components: set[tuple[str, str]] = set()
-
-    def collect(component: Any) -> None:
-        if not isinstance(component, dict):
-            return
-        name, version = component.get("name"), component.get("version")
-        if isinstance(name, str) and isinstance(version, str):
-            components.add((name, version))
-        for child in component.get("components", []):
-            collect(child)
-
-    collect(value.get("metadata", {}).get("component"))
-    for component in value.get("components", []):
-        collect(component)
-    return components
-
-
-def locked_dependency_closure(metadata: Path, cohort: list[dict[str, Any]]) -> set[tuple[str, str]]:
-    value = json.loads(metadata.read_text(encoding="utf-8"))
-    packages = value.get("packages")
-    resolve = value.get("resolve")
-    if not isinstance(packages, list) or not isinstance(resolve, dict) or not isinstance(resolve.get("nodes"), list):
-        raise RuntimeError("locked cargo metadata lacks a resolved package graph")
-    identities: dict[str, tuple[str, str]] = {}
-    ids_by_identity: dict[tuple[str, str], str] = {}
-    for package in packages:
-        if not isinstance(package, dict):
-            raise RuntimeError("locked cargo metadata has a malformed package")
-        package_id, name, version = package.get("id"), package.get("name"), package.get("version")
-        if not isinstance(package_id, str) or not package_id or not isinstance(name, str) or not name or not isinstance(version, str) or not version:
-            raise RuntimeError("locked cargo metadata has a malformed package identity")
-        if package_id in identities or (name, version) in ids_by_identity:
-            raise RuntimeError("locked cargo metadata has an ambiguous package identity")
-        identities[package_id] = (name, version)
-        ids_by_identity[(name, version)] = package_id
-    roots = {(item["name"], item["version"]) for item in cohort}
-    missing_roots = roots - set(ids_by_identity)
-    if missing_roots:
-        raise RuntimeError("locked cargo metadata omits planned packages")
-    dependencies: dict[str, list[str]] = {}
-    for node in resolve["nodes"]:
-        if not isinstance(node, dict):
-            raise RuntimeError("locked cargo metadata has a malformed resolved node")
-        package_id, direct = node.get("id"), node.get("dependencies")
-        if not isinstance(package_id, str) or not package_id or not isinstance(direct, list):
-            raise RuntimeError("locked cargo metadata has a malformed resolved node")
-        if package_id not in identities or package_id in dependencies:
-            raise RuntimeError("locked cargo metadata has an invalid resolved node")
-        if any(not isinstance(dependency, str) or not dependency for dependency in direct):
-            raise RuntimeError("locked cargo metadata has a malformed dependency")
-        dependencies[package_id] = direct
-    pending = [ids_by_identity[root] for root in roots]
-    seen: set[str] = set()
-    while pending:
-        package_id = pending.pop()
-        if package_id in seen:
-            continue
-        if package_id not in dependencies:
-            raise RuntimeError(f"locked cargo metadata lacks a resolved node for {package_id}")
-        seen.add(package_id)
-        pending.extend(dependencies[package_id])
-    closure = {identities[package_id] for package_id in seen}
-    return closure
-
-
-def validate_sbom(paths: list[Path], cohort: list[dict[str, Any]], metadata: Path | None = None) -> None:
-    if not paths:
-        raise RuntimeError("no CycloneDX documents generated")
-    primary = set()
-    components = set()
-    for path in paths:
-        document = json.loads(path.read_text(encoding="utf-8"))
-        if document.get("bomFormat") != "CycloneDX":
-            raise RuntimeError(f"{path} is not a CycloneDX document")
-        component = document.get("metadata", {}).get("component", {})
-        name, version = component.get("name"), component.get("version")
-        if not isinstance(name, str) or not isinstance(version, str):
-            raise RuntimeError(f"{path} lacks a primary component name/version")
-        primary.add((name, version))
-        components.update(sbom_components(document))
-    missing = [f"{item['name']}@{item['version']}" for item in cohort if (item["name"], item["version"]) not in primary]
-    if missing:
-        raise RuntimeError("SBOM omits planned packages: " + ", ".join(missing))
-    if metadata is not None:
-        absent = sorted(locked_dependency_closure(metadata, cohort) - components)
-        if absent:
-            rendered = ", ".join(f"{name}@{version}" for name, version in absent)
-            raise RuntimeError("SBOM omits locked dependency components: " + rendered)
-
-
 def compare(left: Path, right: Path, expected_cohort: list[dict[str, Any]]) -> None:
     first = json.loads(left.read_text(encoding="utf-8"))
     second = json.loads(right.read_text(encoding="utf-8"))
@@ -336,7 +247,9 @@ def main() -> int:
         elif args.command == "tool-version":
             print(tool_version(args.manifest, args.tool))
         elif args.command == "validate-sbom":
-            validate_sbom(args.paths, json.loads(args.cohort), args.metadata)
+            if args.metadata is None:
+                raise RuntimeError("SBOM validation requires locked cargo metadata")
+            release_sbom.validate(args.paths, json.loads(args.cohort), release_sbom.Graph(args.metadata))
         else:
             compare(args.left, args.right, json.loads(args.expected_cohort))
     except RuntimeError as error:

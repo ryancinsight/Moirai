@@ -1,8 +1,4 @@
-//! Apple application lifecycle and bounded packaged WebKit presentation.
-//!
-//! AppKit and UIKit are host adapters for the same WebView/resource policy.
-//! Native objects remain on the main thread. See the provider's ADR 0068.
-
+#![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
 

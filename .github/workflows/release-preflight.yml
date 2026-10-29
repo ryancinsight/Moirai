@@ -54,19 +54,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: nightly-2026-08-01
-      - name: Resolve direct minimum versions outside the checkout
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.95.0
+      - name: Fetch the pinned process-tree runner
+        run: |
+          git init "$RUNNER_TEMP/atlas"
+          git -C "$RUNNER_TEMP/atlas" remote add origin https://github.com/ryancinsight/atlas.git
+          timeout --kill-after=30s 60s git -C "$RUNNER_TEMP/atlas" fetch --depth=1 origin d0eb478f0737df1c45ab5f346f735b8b61fa2cc7
+          git -C "$RUNNER_TEMP/atlas" checkout --detach FETCH_HEAD
+      - name: Resolve supported direct floors and check MSRV without Git drift
         run: |
           release="$RUNNER_TEMP/release-minimum"
           mkdir -p "$release"
           git archive "$GITHUB_SHA" | tar -x -C "$release"
-          (cd "$release" && timeout --kill-after=30s 600s cargo +nightly-2026-08-01 generate-lockfile -Zdirect-minimal-versions)
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+          printf '[build]\ntarget-dir = "%s"\n' "$RUNNER_TEMP/target" > "$RUNNER_TEMP/config.toml"
+          MOIRAI_RUN_CARGO_CONTROL=1 ATLAS_PROCESS_TREE_ROOT="$RUNNER_TEMP/atlas/scripts" MOIRAI_CARGO_CONFIG="$RUNNER_TEMP/config.toml" python -m unittest scripts.tests.test_release_minimum_versions
+          cd "$RUNNER_TEMP"
+          python "$release/scripts/release_minimum_versions.py" --candidate "$release" --cargo-config "$RUNNER_TEMP/config.toml" --runner-root "$RUNNER_TEMP/atlas/scripts" --output-root "$release/output/release-minimum"
+      - name: Preserve minimum graph provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          toolchain: 1.95.0
-      - name: Check the resolved minimum graph at the declared MSRV
-        run: |
-          release="$RUNNER_TEMP/release-minimum"
-          (cd "$release" && cargo +1.95.0 --version && timeout --kill-after=30s 600s cargo +1.95.0 check --locked --workspace --all-features --all-targets)
+          name: release-minimum-evidence
+          path: ${{ runner.temp }}/release-minimum/output/release-minimum
+          if-no-files-found: error
 
   evidence:
     name: Independent artifact build (${{ matrix.build }})
@@ -118,6 +130,9 @@ jobs:
     outputs:
       artifacts: ${{ steps.compare.outputs.artifacts }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: release-evidence-first
@@ -126,9 +141,6 @@ jobs:
         with:
           name: release-evidence-second
           path: second
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
       - id: compare
         run: |
           python3 scripts/release_preflight.py compare --expected-cohort '${{ needs.plan.outputs.cohort }}' first/evidence-first.json second/evidence-second.json
@@ -154,32 +166,42 @@ jobs:
           version="$(python3 scripts/release_preflight.py tool-version cargo-cyclonedx)"
           timeout --kill-after=30s 600s cargo install --locked cargo-cyclonedx --version "$version"
       - name: Record the locked dependency graph before SBOM generation
-        run: cargo metadata --locked --all-features --format-version 1 > locked-metadata.json
+        run: |
+          mkdir -p output/release
+          cargo metadata --locked --all-features --format-version 1 > output/release/locked-metadata.json
       - name: Generate CycloneDX SBOM without changing the release lockfile
         run: |
           before="$(sha256sum Cargo.lock)"
           timeout --kill-after=30s 600s cargo cyclonedx --format json --all --all-features --target all
           test "$before" = "$(sha256sum Cargo.lock)"
-          mapfile -t sboms < <(find . -name '*.cdx.json' -print)
-          python3 scripts/release_preflight.py validate-sbom --cohort '${{ needs.plan.outputs.cohort }}' --metadata locked-metadata.json "${sboms[@]}"
+          mapfile -t generated < <(find . -type f -name '*.cdx.json' -print)
+          test "${#generated[@]}" -gt 0
+          python3 scripts/release_sbom.py stage --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json --output output/release --manifest output/release/documents.json "${generated[@]}"
+          mapfile -t sboms < <(python3 -c 'import json; print(*json.load(open("output/release/documents.json")), sep="\n")')
+          test "${#sboms[@]}" -gt 0
+          python3 scripts/release_sbom.py extend --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json "${sboms[@]}"
+          python3 scripts/release_sbom.py validate --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json "${sboms[@]}"
+          export POSTPROCESSOR_SHA256="$(python3 scripts/release_sbom.py source-hash)"
           python3 - <<'PY'
           import hashlib, json, os
+          with open("output/release/locked-metadata.json", "rb") as metadata:
+              metadata_sha256 = hashlib.sha256(metadata.read()).hexdigest()
           with open("Cargo.lock", "rb") as lock:
               lock_sha256 = hashlib.sha256(lock.read()).hexdigest()
-          import glob
-          documents = {path: hashlib.sha256(open(path, "rb").read()).hexdigest()
-                       for path in glob.glob("**/*.cdx.json", recursive=True)}
-          with open("release-provenance.json", "w", encoding="utf-8") as output:
+          with open("output/release/documents.json", encoding="utf-8") as manifest:
+              paths = json.load(manifest)
+          documents = {path: hashlib.sha256(open(path, "rb").read()).hexdigest() for path in paths}
+          with open("output/release/release-provenance.json", "w", encoding="utf-8") as output:
               json.dump({"candidate": os.environ["GITHUB_SHA"], "lock_sha256": lock_sha256,
-                         "cohort": json.loads(os.environ["COHORT"]), "sbom_sha256": documents,
-                         "graph_scope": "clean checkout, all features, all targets"}, output, sort_keys=True)
+                         "metadata_sha256": metadata_sha256, "cohort": json.loads(os.environ["COHORT"]),
+                         "sbom_sha256": documents, "graph_scope": "clean checkout, all features, all targets",
+                         "development_extension": {"tool": "scripts/release_sbom.py",
+                                                   "sha256": os.environ["POSTPROCESSOR_SHA256"]}}, output, sort_keys=True)
           PY
         env:
           COHORT: ${{ needs.plan.outputs.cohort }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: moirai-cyclonedx-sbom
-          path: |
-            **/*.cdx.json
-            release-provenance.json
+          path: output/release
           if-no-files-found: error

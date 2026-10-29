@@ -23,22 +23,22 @@ moirai-metrics = { path = "../moirai-metrics", version = "0.12.0" }
 mnemosyne = { workspace = true }
 
 # Benchmarking framework
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { workspace = true, features = ["html_reports"] }
 
 # Comparison libraries
-tokio = { version = "1.0", features = ["full"] }
-rayon = "1.8"
-crossbeam = "0.8"
-num_cpus = "1.16"
-futures = "0.3"
+tokio = { version = "1.54.1", features = ["full"] }
+rayon = "1.12.0"
+crossbeam = "0.8.5"
+num_cpus = "1.17.0"
+futures = "0.3.34"
 
 # Additional dependencies for benchmarks
-libc = "0.2"
+libc = "0.2.190"
 
 [dev-dependencies]
-rand = "0.8"
-serde_json = "1.0"
-socket2 = "0.5"
+rand = "0.8.8"
+serde_json = "1.0.151"
+socket2 = "0.5.10"
 
 [[bench]]
 name = "industry_comparison"

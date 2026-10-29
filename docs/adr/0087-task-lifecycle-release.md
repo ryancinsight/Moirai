@@ -7,6 +7,10 @@ main-branch verification workflow at the identical commit, in addition to
 release preflight. A pending or failed run rejects publication; the existing
 scheduled release can collect a later successful result without polling.
 
+Revision 2026-10-29: align the unpublished QUIC and WebView packages with the
+workspace version and release tag. Their standalone manifest numbers do not
+have a prior independent release decision; both registry names remain absent.
+
 Workspace version: 0.12.0
 
 ## Context
@@ -26,11 +30,18 @@ are completed.
 
 ## Decision
 
-Release the inherited workspace packages at 0.12.0 in one reviewed composition.
-Retain the independent QUIC 0.1.0 and WebView 0.2.0 package versions; their public
-contracts are unchanged by this unit. Update every internal requirement,
+Release all publishable workspace packages at 0.12.0 in one reviewed composition
+and one annotated v0.12.0 source tag. QUIC and WebView inherit that version for
+their first publication. Update every internal requirement,
 including unpublished Python, benchmark and test consumers. Use the pinned
 cargo-release 1.1.7 version step; it performs no upload or tag operation.
+
+For this release, direct registry dependency floors use the versions in the
+verified committed lock. These are supported minimums, not claims about the
+earliest compatible upstream API. Requirements retain caret compatibility.
+Subsequent lock advances do not automatically raise these floors. The minimum
+gate resolves the declared direct floors from the committed graph, preserves
+every Git provider identity, and checks that graph with Rust 1.95.
 
 The release includes the four lifecycle contracts and their regression tests.
 It does not claim Tokio feature, performance or platform parity. Non-yielding
