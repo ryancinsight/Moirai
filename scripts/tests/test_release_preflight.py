@@ -3,7 +3,10 @@
 import json
 import io
 import gzip
+import hashlib
+import importlib.util
 import os
+import py_compile
 import sys
 import tarfile
 import tempfile
@@ -224,6 +227,34 @@ class ReleasePreflightTests(unittest.TestCase):
         parsed = owner.parse_expected_artifacts(json.dumps(value))
         self.assertEqual(parsed.cohort, (("demo", "1.0.0"),))
         self.assertEqual(parsed.artifacts, {"demo-1.0.0.crate": "0" * 64})
+
+    def test_contract_owner_executes_source_despite_valid_stale_bytecode(self):
+        prefix = "import hashlib\ndef digest(value):\n    return hashlib.sha256("
+        source_bytes = (prefix + "value" + ").hexdigest()\n").encode()
+        stale_bytes = (prefix + "value[::-1]" + ").hexdigest()\n").encode()
+        source_bytes = source_bytes.ljust(len(stale_bytes), b" ")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "owner.py"
+            source.write_bytes(stale_bytes)
+            timestamp = source.stat().st_mtime_ns
+            bytecode = Path(py_compile.compile(str(source), doraise=True))
+            source.write_bytes(source_bytes)
+            os.utime(source, ns=(timestamp, timestamp))
+            control_spec = importlib.util.spec_from_file_location("stale_owner_control", source)
+            control = importlib.util.module_from_spec(control_spec)
+            control_spec.loader.exec_module(control)
+            payload = b"release-candidate"
+            self.assertEqual(control.digest(payload), hashlib.sha256(payload[::-1]).hexdigest())
+            module_name = "release_preflight_source_owner"
+            try:
+                owner = release_preflight.load_atlas_module(root, Path("owner.py"), module_name, "digest")
+                self.assertEqual(owner.digest(payload), hashlib.sha256(payload).hexdigest())
+                self.assertEqual(Path(owner.__file__).resolve(), source.resolve())
+                self.assertEqual(source.read_bytes(), source_bytes)
+                self.assertEqual(bytecode.read_bytes()[:4], importlib.util.MAGIC_NUMBER)
+            finally:
+                sys.modules.pop(module_name, None)
 
     def test_record_and_compare_accept_complete_identical_archives(self):
         with tempfile.TemporaryDirectory() as directory:

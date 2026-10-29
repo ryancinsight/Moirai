@@ -58,7 +58,7 @@ def load_atlas_module(root: Path, relative: Path, module_name: str, member: str)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     try:
-        spec.loader.exec_module(module)
+        exec(compile(source.read_bytes(), str(source), "exec", dont_inherit=True), module.__dict__)
     except Exception:
         sys.modules.pop(spec.name, None)
         raise
