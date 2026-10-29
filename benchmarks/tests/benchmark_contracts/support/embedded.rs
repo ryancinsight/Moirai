@@ -31,7 +31,7 @@ embedded_sources![
     "../docs/performance_results.md",
     "../docs/adr-008-checklist.md",
     "../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md",
-    "../docs/checklist.md",
+    "../docs/adr/0087-task-lifecycle-release.md",
     "../docs/moirai_rayon_tokio_comparison.md",
     "../docs/rayon_adapter_surface_audit.md",
     "../docs/rayon_tokio_gap_audit.md",

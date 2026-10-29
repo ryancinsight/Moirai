@@ -11,7 +11,7 @@ fn for_each_visits_every_element_once() {
     data.par().for_each(|&x| {
         counter.fetch_add(x, Ordering::Relaxed);
     });
-    assert_eq!(counter.load(Ordering::Relaxed), data.iter().sum());
+    assert_eq!(counter.load(Ordering::Relaxed), data.iter().sum::<usize>());
 }
 
 #[test]
