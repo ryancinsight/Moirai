@@ -5,12 +5,16 @@ task scheduling and parallel work-stealing into a single unified executor.
 
 ## Building the Runtime
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use moirai::Moirai;
 
 let runtime = Moirai::builder()
     .worker_threads(4)
     .build()?;
+# Ok(())
+# }
 ```
 
 `Moirai::builder()` returns a `MoiraiBuilder` that accepts:
@@ -39,8 +43,14 @@ Moirai supports three execution contexts:
 
 ## Graceful Shutdown
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let runtime = moirai::Moirai::new()?;
 runtime.shutdown();
+assert!(runtime.is_shutting_down());
+# Ok(())
+# }
 ```
 
 `shutdown()` rejects new work, requests cancellation of pending async tasks at

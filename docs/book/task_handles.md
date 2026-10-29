@@ -4,16 +4,22 @@ A `TaskHandle<T>` is the ownership token for a spawned Moirai task.
 
 ## Collecting a Result
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use moirai::{Moirai, TaskError};
 
 let runtime = Moirai::new()?;
 
 let blocking = runtime.spawn_fn(|| 21usize);
 let joined: Option<Result<usize, TaskError>> = blocking.join();
+assert_eq!(joined, Some(Ok(21)));
 
 let asynchronous = runtime.spawn_async(async { 42usize });
 let awaited: Option<Result<usize, TaskError>> = runtime.block_on(asynchronous);
+assert_eq!(awaited, Some(Ok(42)));
+# Ok(())
+# }
 ```
 
 `join()` blocks the calling thread. Awaiting suspends the calling async task and
@@ -37,7 +43,9 @@ request task cancellation.
 
 ## Task Cancellation
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use moirai::{Moirai, TaskError};
 use moirai::prelude::TaskManager;
 
@@ -45,6 +53,8 @@ let runtime = Moirai::new()?;
 let handle = runtime.spawn_async(core::future::pending::<usize>());
 runtime.cancel_task(handle.id())?;
 assert_eq!(runtime.block_on(handle), Some(Err(TaskError::Cancelled)));
+# Ok(())
+# }
 ```
 
 Cancellation is explicit and cooperative. Queued work skips its body. An async

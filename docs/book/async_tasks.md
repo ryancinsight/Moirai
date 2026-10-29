@@ -5,7 +5,9 @@ CPU-bound parallel work, sharing the same worker pool.
 
 ## Spawning Async Tasks
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use moirai::{Moirai, TaskError};
 
 let runtime = Moirai::new()?;
@@ -14,6 +16,8 @@ let result = runtime.block_on(async {
     handle.await
 });
 assert_eq!(result, Some(Ok::<usize, TaskError>(42)));
+# Ok(())
+# }
 ```
 
 `spawn_async` accepts any `Future<Output = T>` where `T: Send + 'static`. It
@@ -30,7 +34,14 @@ report that:
 - The spawned task panicked
 - Explicit cancellation or shutdown cancelled the task at a poll boundary
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+# use moirai::{Moirai, TaskError};
+# let runtime = Moirai::new()?;
+# let handle = runtime.spawn_async(async { 42usize });
+# runtime.block_on(async {
 match handle.await {
     Some(Ok(value)) => println!("result: {value}"),
     Some(Err(TaskError::Panicked)) => eprintln!("task panicked"),
@@ -38,6 +49,9 @@ match handle.await {
     Some(Err(error)) => eprintln!("task failed: {error}"),
     None => eprintln!("task result was detached or already consumed"),
 }
+# });
+# Ok(())
+# }
 ```
 
 ## `TaskId` and `TaskContext`
