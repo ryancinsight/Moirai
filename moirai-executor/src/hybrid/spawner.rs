@@ -11,7 +11,7 @@ use moirai_core::{
 use super::{
     HybridExecutor, MetricsRef,
     async_state::AsyncFutureState,
-    result::{TaskEnd, send_task_result},
+    result::{TaskEnd, cancel_task_result, send_task_result},
 };
 use crate::schedule::{BlockingTask, SyncTask, WorkScheduler};
 
@@ -102,7 +102,7 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
                 let running = match lifecycle.start_unless_cancelled(worker_id) {
                     Ok(running) => running,
                     Err(receipt) => {
-                        send_task_result::<()>(TaskEnd::Cancelled, None, metrics.get(), receipt);
+                        cancel_task_result::<_, ()>(func, None, metrics.get(), receipt);
                         return;
                     }
                 };

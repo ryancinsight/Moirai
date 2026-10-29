@@ -2,12 +2,13 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        Arc, Barrier, Mutex,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
         mpsc,
     },
     task::{Context, Poll},
     thread,
+    time::Duration,
 };
 
 use moirai_core::{
@@ -25,6 +26,8 @@ use super::fixtures::{
 use crate::metrics::ExecutorMetrics;
 use crate::registry::{CancelOutcome, TaskRegistry};
 use crate::schedule::{SyncTask, ThreadScheduler, WorkClass, WorkSubmit};
+
+const EVENT_DEADLINE: Duration = Duration::from_secs(5);
 
 struct UnpolledFuture {
     polls: Arc<AtomicUsize>,
@@ -48,19 +51,32 @@ impl Drop for UnpolledFuture {
 
 struct RejectionGate {
     scheduler: ThreadScheduler,
-    entered: Barrier,
-    release: Barrier,
+    entered: mpsc::SyncSender<()>,
+    release: Mutex<mpsc::Receiver<()>>,
     attempts: AtomicUsize,
 }
 
-impl RejectionGate {
-    fn new(scheduler: ThreadScheduler) -> Arc<Self> {
-        Arc::new(Self {
+struct RejectionFixture {
+    scheduler: Arc<RejectionGate>,
+    entered: mpsc::Receiver<()>,
+    release: mpsc::SyncSender<()>,
+}
+
+impl RejectionFixture {
+    fn new(scheduler: ThreadScheduler) -> Self {
+        let (entered_sender, entered) = mpsc::sync_channel(1);
+        let (release, release_receiver) = mpsc::sync_channel(1);
+        let scheduler = Arc::new(RejectionGate {
             scheduler,
-            entered: Barrier::new(2),
-            release: Barrier::new(2),
+            entered: entered_sender,
+            release: Mutex::new(release_receiver),
             attempts: AtomicUsize::new(0),
-        })
+        });
+        Self {
+            scheduler,
+            entered,
+            release,
+        }
     }
 }
 
@@ -77,15 +93,21 @@ impl WorkSubmit for Arc<RejectionGate> {
     {
         let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
         if attempt == 0 {
-            self.entered.wait();
-            self.release.wait();
+            self.entered
+                .send(())
+                .expect("admission observer remains connected");
+            self.release
+                .lock()
+                .unwrap()
+                .recv_timeout(EVENT_DEADLINE)
+                .expect("test controller releases admission before the deadline");
         }
         self.scheduler
             .schedule::<C, F>(priority, locality_hint, task)
     }
 }
 
-struct WorkerRelease(Option<mpsc::Sender<()>>);
+struct WorkerRelease(Option<mpsc::SyncSender<()>>);
 
 impl WorkerRelease {
     fn release(&mut self) {
@@ -94,6 +116,73 @@ impl WorkerRelease {
             .expect("worker gate releases once")
             .send(())
             .expect("gated worker remains alive");
+    }
+}
+
+struct SaturatedExecutor {
+    worker_release: WorkerRelease,
+    executor: HybridExecutor,
+    filler_runs: Arc<AtomicUsize>,
+}
+
+impl SaturatedExecutor {
+    fn new() -> Self {
+        let executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 1,
+            max_global_queue_size: 2,
+            ..ExecutorConfig::default()
+        })
+        .expect("executor");
+        let scheduler = executor.scheduler.clone();
+        let (worker_entered_tx, worker_entered_rx) = mpsc::sync_channel(1);
+        let (worker_release_tx, worker_release_rx) = mpsc::sync_channel(1);
+        scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, None, move |worker_id| {
+                worker_entered_tx
+                    .send(worker_id)
+                    .expect("worker-gate observer remains connected");
+                worker_release_rx
+                    .recv_timeout(EVENT_DEADLINE)
+                    .expect("test controller releases worker before the deadline");
+            })
+            .expect("worker gate admits");
+        assert_eq!(
+            worker_entered_rx
+                .recv_timeout(EVENT_DEADLINE)
+                .expect("worker enters gate before the deadline"),
+            0
+        );
+
+        let filler_runs = Arc::new(AtomicUsize::new(0));
+        for _ in 0..2 {
+            let filler_runs = Arc::clone(&filler_runs);
+            scheduler
+                .schedule::<SyncTask, _>(Priority::Normal, None, move |worker_id| {
+                    assert_eq!(worker_id, 0);
+                    filler_runs.fetch_add(1, Ordering::SeqCst);
+                })
+                .expect("bounded queue slot admits filler");
+        }
+        assert_eq!(scheduler.pending_tasks(), 2);
+
+        Self {
+            worker_release: WorkerRelease(Some(worker_release_tx)),
+            executor,
+            filler_runs,
+        }
+    }
+
+    fn scheduler(&self) -> ThreadScheduler {
+        self.executor.scheduler.clone()
+    }
+
+    fn release_and_join(&mut self) {
+        self.worker_release.release();
+        self.executor
+            .scheduler
+            .join()
+            .expect("accepted filler jobs drain");
+        assert_eq!(self.filler_runs.load(Ordering::SeqCst), 2);
     }
 }
 
@@ -109,15 +198,14 @@ impl Drop for WorkerRelease {
 
 #[test]
 fn cancellation_wake_cannot_claim_first_admission() {
-    let injector = GatedInjector::new();
-    injector.refuse_next.store(1, Ordering::SeqCst);
+    let mut saturated = SaturatedExecutor::new();
     let registry = TaskRegistry::new();
     let (task_id, lifecycle) = registry.register_next_task();
     let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
     let polls = Arc::new(AtomicUsize::new(0));
     let drops = Arc::new(AtomicUsize::new(0));
     let state = AsyncFutureState::new(
-        Arc::clone(&injector),
+        saturated.scheduler(),
         UnpolledFuture {
             polls: Arc::clone(&polls),
             drops: Arc::clone(&drops),
@@ -134,72 +222,33 @@ fn cancellation_wake_cannot_claim_first_admission() {
         Some(CancelOutcome::Requested)
     );
     tasks.cancel(task_id).expect("cancellation wake completes");
-    assert_eq!(
-        injector.rejections.load(Ordering::SeqCst),
-        0,
-        "the table waker cannot consume the spawner's first admission"
-    );
+    assert!(!handle.is_finished());
+    assert_eq!(saturated.executor.scheduler.pending_tasks(), 2);
 
     let admission = Arc::clone(&state).schedule();
     assert!(matches!(
         admission,
         Err(ExecutorError::ResourceExhausted(_))
     ));
-    assert_eq!(injector.rejections.load(Ordering::SeqCst), 1);
     assert_eq!(state.complete_rejected(), Ok(()));
     assert_eq!(polls.load(Ordering::SeqCst), 0);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     assert_eq!(handle.join(), Some(Err(TaskError::Cancelled)));
     assert!(tasks.close_and_snapshot().is_empty());
+    saturated.release_and_join();
 }
 
 #[test]
 fn shutdown_wake_during_first_rejection_preserves_completion_owner() {
-    let executor = HybridExecutor::new(ExecutorConfig {
-        worker_threads: 1,
-        max_global_queue_size: 2,
-        ..ExecutorConfig::default()
-    })
-    .expect("executor");
-    let scheduler = executor.scheduler.clone();
-    let (worker_entered_tx, worker_entered_rx) = mpsc::sync_channel(0);
-    let (worker_release_tx, worker_release_rx) = mpsc::channel();
-    let mut worker_release = WorkerRelease(Some(worker_release_tx));
-    scheduler
-        .schedule::<SyncTask, _>(Priority::Normal, None, move |worker_id| {
-            worker_entered_tx
-                .send(worker_id)
-                .expect("worker-gate observer remains alive");
-            worker_release_rx
-                .recv()
-                .expect("test controller releases worker");
-        })
-        .expect("worker gate admits");
-    assert_eq!(
-        worker_entered_rx
-            .recv()
-            .expect("worker enters gate before saturation"),
-        0
-    );
-    let filler_runs = Arc::new(AtomicUsize::new(0));
-    for _ in 0..2 {
-        let filler_runs = Arc::clone(&filler_runs);
-        scheduler
-            .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
-                filler_runs.fetch_add(1, Ordering::SeqCst);
-            })
-            .expect("bounded queue slot admits filler");
-    }
-    assert_eq!(scheduler.pending_tasks(), 2);
-
-    let gated_scheduler = RejectionGate::new(scheduler.clone());
+    let mut saturated = SaturatedExecutor::new();
+    let rejection = RejectionFixture::new(saturated.scheduler());
     let registry = TaskRegistry::new();
     let (task_id, lifecycle) = registry.register_next_task();
     let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
     let polls = Arc::new(AtomicUsize::new(0));
     let drops = Arc::new(AtomicUsize::new(0));
     let state = AsyncFutureState::new(
-        Arc::clone(&gated_scheduler),
+        Arc::clone(&rejection.scheduler),
         UnpolledFuture {
             polls: Arc::clone(&polls),
             drops: Arc::clone(&drops),
@@ -212,8 +261,16 @@ fn shutdown_wake_during_first_rejection_preserves_completion_owner() {
     state.track(&tasks, task_id).expect("table admits task");
 
     let scheduled_state = Arc::clone(&state);
-    let admission = thread::spawn(move || scheduled_state.schedule());
-    gated_scheduler.entered.wait();
+    let (admission_sender, admission_receiver) = mpsc::sync_channel(1);
+    let admission = thread::spawn(move || {
+        admission_sender
+            .send(scheduled_state.schedule())
+            .expect("admission observer remains connected");
+    });
+    rejection
+        .entered
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("first admission enters gate before the deadline");
 
     let shutdown_wakers = tasks.close_and_snapshot();
     assert_eq!(shutdown_wakers.len(), 1);
@@ -225,21 +282,25 @@ fn shutdown_wake_during_first_rejection_preserves_completion_owner() {
         wake.wake();
     }
 
-    gated_scheduler.release.wait();
-    let rejection = admission.join().expect("first admission thread exits");
+    rejection
+        .release
+        .send(())
+        .expect("admission gate remains connected");
+    let admission_result = admission_receiver
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("first admission rejects before the deadline");
+    admission.join().expect("first admission thread exits");
     assert!(matches!(
-        rejection,
+        admission_result,
         Err(ExecutorError::ResourceExhausted(_))
     ));
-    assert_eq!(gated_scheduler.attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(rejection.scheduler.attempts.load(Ordering::SeqCst), 1);
     assert_eq!(state.complete_rejected(), Ok(()));
     assert_eq!(polls.load(Ordering::SeqCst), 0);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     assert_eq!(handle.join(), Some(Err(TaskError::Cancelled)));
     assert!(tasks.close_and_snapshot().is_empty());
-    worker_release.release();
-    scheduler.join().expect("accepted filler jobs drain");
-    assert_eq!(filler_runs.load(Ordering::SeqCst), 2);
+    saturated.release_and_join();
 }
 
 /// A rejected wake polls inline with no retry or lost output.

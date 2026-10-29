@@ -26,11 +26,11 @@ pub struct ExecutorMetrics {
     pub tasks_spawned: AtomicU64,
     /// Tasks whose body ran to completion.
     pub tasks_completed: AtomicU64,
-    /// Tasks whose body panicked or reported failure.
+    /// Tasks whose execution or destruction panicked or reported failure.
     pub tasks_failed: AtomicU64,
     /// Panics during result publication or lifecycle notification.
     pub publication_panics: AtomicU64,
-    /// Tasks whose cancel request was honored before the body ran.
+    /// Tasks that settled as cancelled without a destruction failure.
     pub tasks_cancelled: AtomicU64,
 
     // Timing metrics

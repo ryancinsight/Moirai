@@ -16,6 +16,20 @@ pub(super) enum TaskEnd<T> {
     Cancelled,
 }
 
+/// Dispose an unrun closure before a notification can start unwinding.
+pub(super) fn cancel_task_result<F, T>(
+    func: F,
+    sender: Option<TaskResultSender<T>>,
+    metrics: &ExecutorMetrics,
+    completion: TaskCompletion,
+) {
+    let end = match catch_unwind(AssertUnwindSafe(|| drop(func))) {
+        Ok(()) => TaskEnd::Cancelled,
+        Err(payload) => TaskEnd::Completed(Err(payload)),
+    };
+    send_task_result(end, sender, metrics, completion);
+}
+
 pub(super) fn send_task_result<T>(
     end: TaskEnd<T>,
     sender: Option<TaskResultSender<T>>,

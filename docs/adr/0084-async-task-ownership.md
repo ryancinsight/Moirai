@@ -55,6 +55,10 @@ after settlement using the scheduler panic boundary. A panic in that cleanup
 payload, or in final-owner fallback destruction without a completion owner,
 aborts under the existing fatal destructor policy.
 
+Unrun closure captures are destroyed under an unwind guard before cancellation
+notifications. A capture destruction failure reports `Panicked`; lifecycle
+cancellation still records that the body never ran.
+
 Synchronous, blocking, and detached jobs use the same result-publication and
 notification operation as async tasks. An external exhaustive `ExecutorMetrics`
 literal must initialize `publication_panics`, or use `ExecutorMetrics::new()`;

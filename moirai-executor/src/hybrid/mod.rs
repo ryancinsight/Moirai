@@ -38,7 +38,7 @@ pub(crate) mod spawner;
 #[cfg(test)]
 mod tests;
 
-use result::{TaskEnd, send_task_result};
+use result::{TaskEnd, cancel_task_result, send_task_result};
 
 #[derive(Clone, Copy)]
 struct MetricsRef {
@@ -189,12 +189,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
                 let running = match lifecycle.start_unless_cancelled(worker_id) {
                     Ok(running) => running,
                     Err(receipt) => {
-                        send_task_result(
-                            TaskEnd::Cancelled,
-                            Some(result_sender),
-                            metrics.get(),
-                            receipt,
-                        );
+                        cancel_task_result(func, Some(result_sender), metrics.get(), receipt);
                         return;
                     }
                 };

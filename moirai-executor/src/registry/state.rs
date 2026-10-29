@@ -137,7 +137,8 @@ pub(crate) struct TaskState {
     pub(super) cancel_requested: AtomicBool,
     /// Set when the task ended without a result: a cancel request was honored,
     /// or its lifecycle token was dropped before completing. The task's handle
-    /// reports `TaskError::Cancelled` in both cases.
+    /// normally reports `TaskError::Cancelled`; destruction failures are
+    /// reported separately by the result handle.
     pub(super) cancelled: AtomicBool,
 }
 
