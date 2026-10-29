@@ -60,12 +60,12 @@
 //!    `IDLE` before waking or dropping a waiter, because those operations may
 //!    re-enter the cell. A separate atomic presence flag mirrors the slot only
 //!    for safe diagnostics; it grants no access to the waiter.
-//! 3. **No lost wakeup.** [`complete`](ResultCell::complete) on the `PENDING ->
-//!    WRITING` path (it beat registration) deliberately does not wake: no waiter
-//!    is registered yet. Liveness therefore requires the consumer to check →
-//!    [`register`](ResultCell::register) → **re-check**; should `complete` land in that
-//!    window, the re-check observes `READY`. That re-check is load-bearing, not
-//!    defensive — dropping it reintroduces a hang.
+//! 3. **No lost wakeup.** [`complete`](ResultCell::complete) publishes `READY`
+//!    before it attempts waiter notification. Registration that races with
+//!    completion may observe `READY` or `WAKING` and install nothing. Liveness
+//!    therefore requires the consumer to check → [`register`](ResultCell::register)
+//!    → **re-check**; the re-check observes `READY` even when no waiter was
+//!    installed or woken. It is load-bearing, not defensive.
 //!
 //! # Ordering
 //!
@@ -96,7 +96,12 @@
 
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
+
+#[cfg(not(loom))]
+use core::sync::atomic::{AtomicBool as WaiterAtomicBool, AtomicU8 as WaiterAtomicU8};
+#[cfg(loom)]
+use loom::sync::atomic::{AtomicBool as WaiterAtomicBool, AtomicU8 as WaiterAtomicU8};
 
 mod state_word;
 
@@ -154,8 +159,8 @@ impl Waiter for core::task::Waker {
 pub struct ResultCell<T, W: Waiter, S: StateWord = AtomicU8> {
     result: UnsafeCell<MaybeUninit<T>>,
     state: S,
-    waiter_state: AtomicU8,
-    waiter_present: AtomicBool,
+    waiter_state: WaiterAtomicU8,
+    waiter_present: WaiterAtomicBool,
     waiter: UnsafeCell<Option<W>>,
 }
 
@@ -176,8 +181,8 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         Self {
             result: UnsafeCell::new(MaybeUninit::uninit()),
             state: S::pending(),
-            waiter_state: AtomicU8::new(WAITER_IDLE),
-            waiter_present: AtomicBool::new(false),
+            waiter_state: WaiterAtomicU8::new(WAITER_IDLE),
+            waiter_present: WaiterAtomicBool::new(false),
             waiter: UnsafeCell::new(None),
         }
     }
@@ -398,7 +403,7 @@ impl<T, W: Waiter, S: StateWord> Default for ResultCell<T, W, S> {
 
 impl<T, W: Waiter, S: StateWord> Drop for ResultCell<T, W, S> {
     fn drop(&mut self) {
-        if *self.state.get_mut() == RESULT_READY {
+        if self.state.exclusive_state() == RESULT_READY {
             // Safety: READY means the result cell is initialized and no
             // consumer took it, because drop has exclusive access.
             unsafe {

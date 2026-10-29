@@ -117,8 +117,8 @@ unsafe impl StateWord for GatedStateWord {
         self.state.compare_exchange(current, new, success, failure)
     }
 
-    fn get_mut(&mut self) -> &mut u8 {
-        self.state.get_mut()
+    fn exclusive_state(&mut self) -> u8 {
+        *self.state.get_mut()
     }
 }
 

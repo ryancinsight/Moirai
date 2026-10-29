@@ -1640,6 +1640,7 @@ name = "moirai-utils"
 version = "0.11.3"
 dependencies = [
  "criterion",
+ "loom",
  "proptest",
 ]
 

@@ -20,9 +20,9 @@ use super::RESULT_PENDING;
 /// - `load`, `store`, and `compare_exchange` are atomic and honor the ordering
 ///   they are given (at least as strong as the requested one), because the
 ///   cell publishes and consumes its result through those edges;
-/// - `load` returns only values a `store` or successful `compare_exchange`
-///   wrote, or [`pending`](Self::pending)'s initial value, and `get_mut`
-///   exposes that same cell.
+/// - `load` and [`exclusive_state`](Self::exclusive_state) return only values a
+///   `store` or successful `compare_exchange` wrote, or
+///   [`pending`](Self::pending)'s initial value.
 ///
 /// A state word that reports `READY` before the result was written, or that
 /// drops the release/acquire edge, makes the cell read uninitialized memory.
@@ -41,7 +41,7 @@ use super::RESULT_PENDING;
 ///     fn load(&self, _: Ordering) -> u8 { 4 }
 ///     fn store(&self, _: u8, _: Ordering) {}
 ///     fn compare_exchange(&self, c: u8, _: u8, _: Ordering, _: Ordering) -> Result<u8, u8> { Ok(c) }
-///     fn get_mut(&mut self) -> &mut u8 { &mut self.0 }
+///     fn exclusive_state(&mut self) -> u8 { self.0 }
 /// }
 /// ```
 pub unsafe trait StateWord: Send + Sync {
@@ -63,8 +63,8 @@ pub unsafe trait StateWord: Send + Sync {
         failure: Ordering,
     ) -> Result<u8, u8>;
 
-    /// Exclusive access for `Drop`, which needs no atomicity.
-    fn get_mut(&mut self) -> &mut u8;
+    /// Read the state under exclusive ownership for `Drop`.
+    fn exclusive_state(&mut self) -> u8;
 }
 
 // SAFETY: `AtomicU8` is the atomic `u8` cell the contract describes, and each
@@ -97,8 +97,8 @@ unsafe impl StateWord for AtomicU8 {
     }
 
     #[inline]
-    fn get_mut(&mut self) -> &mut u8 {
-        Self::get_mut(self)
+    fn exclusive_state(&mut self) -> u8 {
+        *Self::get_mut(self)
     }
 }
 
@@ -132,7 +132,7 @@ unsafe impl StateWord for crate::cache::CacheAligned<AtomicU8> {
     }
 
     #[inline]
-    fn get_mut(&mut self) -> &mut u8 {
-        self.0.get_mut()
+    fn exclusive_state(&mut self) -> u8 {
+        *self.0.get_mut()
     }
 }

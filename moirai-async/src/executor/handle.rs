@@ -32,10 +32,10 @@ impl<T> Future for AsyncHandle<T> {
         // can run.
         unsafe { self.result_slot.register_waker(cx.waker()) };
 
-        // Re-check is mandatory, not defensive: a `complete` that raced in on the
-        // slot's PENDING->WRITING path does not wake (no waker was registered when
-        // it ran), so this second take is what closes the lost-wakeup window. See
-        // the `result_slot` module docs.
+        // Re-check is mandatory, not defensive: completion publishes READY before
+        // notifying a waiter. Registration that races with completion may observe
+        // READY or WAKING and install nothing, so this second take closes the
+        // lost-wakeup window. See the `result_slot` module docs.
 
         self.result_slot
             .try_take_ready()

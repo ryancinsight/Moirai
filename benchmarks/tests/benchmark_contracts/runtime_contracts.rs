@@ -56,47 +56,39 @@ fn async_executor_uses_monomorphized_erased_future_queue() {
 }
 
 #[test]
-fn async_executor_handle_uses_inline_result_slot() {
-    let source = format!(
-        "{}\n{}\n{}",
-        read_benchmark("../moirai-async/src/executor.rs"),
-        read_benchmark("../moirai-async/src/executor/result_slot.rs"),
-        // The machine itself, now shared with the blocking side: the adapter is
-        // `ResultCell` with a `Waker`, so the inline-cell shape this test guards
-        // lives there.
-        read_benchmark("../moirai-utils/src/result_cell.rs")
-    );
+fn result_cell_replaces_waker_and_transfers_value_once() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::task::{Wake, Waker};
 
-    for required in [
-        "struct AsyncResultSlot<T>",
-        "cell: ResultCell<T, Waker>",
-        "result: UnsafeCell<MaybeUninit<T>>",
-        "S: StateWord = AtomicU8",
-        "const RESULT_WAITING",
-        "const RESULT_UPDATING_WAITER",
-        "fn complete(&self, result: T)",
-        "fn register_waker(&self, waker: &Waker)",
-        "fn begin_completion(&self) -> Option<bool>",
-        "test_ready_task_completion_wakes_registered_handle",
-    ] {
-        assert!(
-            source.contains(required),
-            "async handle result path must retain inline atomic result/waker slot through {required}"
-        );
+    struct WakeCount(AtomicUsize);
+
+    impl Wake for WakeCount {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
-    for prohibited in [
-        "result_receiver: Arc<Mutex<Option<T>>>",
-        "struct WakerRegistry",
-        "HashMap<TaskId, Waker>",
-        "register_waker(&self, task_id",
-        "waker_registry",
-    ] {
-        assert!(
-            !source.contains(prohibited),
-            "async handle result path must not reintroduce mutex/hashmap waker storage through {prohibited}"
-        );
-    }
+    let first_count = Arc::new(WakeCount(AtomicUsize::new(0)));
+    let replacement_count = Arc::new(WakeCount(AtomicUsize::new(0)));
+    let first = Waker::from(Arc::clone(&first_count));
+    let replacement = Waker::from(Arc::clone(&replacement_count));
+    let cell = moirai_utils::ResultCell::<usize, Waker>::new();
+
+    // SAFETY: this test is the cell's sole consumer and registrations are serial.
+    unsafe { cell.register(&first) };
+    // SAFETY: this test remains the cell's sole consumer.
+    unsafe { cell.register(&replacement) };
+    assert!(cell.has_registered_waiter());
+
+    cell.complete(42);
+
+    assert_eq!(first_count.0.load(Ordering::Relaxed), 0);
+    assert_eq!(replacement_count.0.load(Ordering::Relaxed), 1);
+    assert_eq!(cell.try_take_ready(), Some(42));
+    assert_eq!(cell.try_take_ready(), None);
 }
 
 #[test]
