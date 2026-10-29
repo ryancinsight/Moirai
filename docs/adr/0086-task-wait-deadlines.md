@@ -41,7 +41,9 @@ high-fan-out timer efficiency or parity with a shared timer driver.
 
 Executor tests assert a positive deadline's wake and typed timeout, completion
 before expiry, and the existing zero and unknown-task outcomes. PAL tests retain
-real pending/wake/ready coverage and assert cancellation and waker release. The
+real pending/wake/ready coverage. Bounded worker events establish sleeper exit
+after cancellation before or during its wait, spurious-wake re-parking without
+completion, and borrowed-ready waker release. The
 obsolete benchmark-source assertion requiring `std::thread::sleep` is removed;
 the runtime tests establish behavior independent of that implementation spelling.
 
