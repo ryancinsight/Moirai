@@ -56,15 +56,17 @@ impl AsyncTasks {
         }
     }
 
+    pub(in crate::hybrid) fn close_and_snapshot(&self) -> BTreeMap<u64, Waker> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        entries.closed = true;
+        entries.tasks.clone()
+    }
+
     pub(crate) fn shutdown(&self, registry: &crate::registry::TaskRegistry) {
-        let tasks = {
-            let mut entries = self
-                .entries
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            entries.closed = true;
-            std::mem::take(&mut entries.tasks)
-        };
+        let tasks = self.close_and_snapshot();
         for (id, wake) in tasks {
             match registry.request_cancel(id) {
                 Some(crate::registry::CancelOutcome::Requested) => wake.wake(),

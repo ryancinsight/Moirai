@@ -69,7 +69,7 @@
 //! removes the entry; the task holds only a weak table reference. Cancellation
 //! publishes the registry flag before waking the task. The poll owner observes
 //! that flag at each poll boundary and owns future destruction. Shutdown closes
-//! registration and drains the table before joining workers, so an external
+//! registration and snapshots live tasks before joining workers, so an external
 //! event source is never required to wake an idle task for cancellation.
 
 mod admission;

@@ -71,6 +71,8 @@ fn settle_parked(settlement: Settlement) {
     observed
         .recv_timeout(Duration::from_secs(5))
         .expect("future reaches first poll");
+    // On the sole worker this sentinel runs after the pending poll returns.
+    assert_eq!(runtime.spawn_async(async { 13_usize }).join(), Some(Ok(13)));
     match settlement {
         Settlement::Shutdown => runtime.shutdown(),
         Settlement::Cancel => runtime
