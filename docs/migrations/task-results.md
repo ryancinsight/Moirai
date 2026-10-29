@@ -31,6 +31,15 @@ result handle. A positive timeout owns a PAL timer; expiry returns a typed error
 and leaves the underlying task running. `None` creates no timer. Completion
 already visible when polled wins a simultaneous timeout observation.
 
+`TaskRegistry::register_waker(id, &waker)` now returns `Option<TaskWaiter>`.
+Retain the token while waiting and call `token.update(&waker)` on subsequent
+polls. `None` means the task is unknown or completion already closed its waiter
+set; recheck the task status. `update` returns false after the set closes.
+Dropping the non-cloneable token unregisters that wait, including after timeout.
+Independent tokens remain independent even when they use the same waker.
+`wait_for_task` owns this token internally and releases it and its timer before
+any terminal result. See [ADR 0089](../adr/0089-owned-completion-waiters.md).
+
 `shutdown()` cancels pending async work and joins the worker drain.
 `shutdown_timeout(duration)` bounds only the caller's wait; the drain continues
 and runtime destruction joins it. Neither call preempts a running synchronous

@@ -1,17 +1,22 @@
 //! Published lifecycle state and its deferred waiter notification.
 
-use std::{task::Waker, time::Duration};
+use std::time::Duration;
+
+use super::waiter::WaiterNotifications;
 
 /// Metadata is visible before notifying code that may collect the task result.
 #[must_use]
 pub(crate) struct TaskCompletion {
     elapsed: Duration,
-    wake: Option<Waker>,
+    notifications: WaiterNotifications,
 }
 
 impl TaskCompletion {
-    pub(super) fn new(elapsed: Duration, wake: Option<Waker>) -> Self {
-        Self { elapsed, wake }
+    pub(super) fn new(elapsed: Duration, notifications: WaiterNotifications) -> Self {
+        Self {
+            elapsed,
+            notifications,
+        }
     }
 
     pub(crate) fn duration(&self) -> Duration {
@@ -19,9 +24,7 @@ impl TaskCompletion {
     }
 
     pub(crate) fn notify(self) -> Duration {
-        if let Some(wake) = self.wake {
-            wake.wake();
-        }
+        self.notifications.notify();
         self.elapsed
     }
 }

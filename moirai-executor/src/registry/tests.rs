@@ -385,10 +385,7 @@ mod tests {
         registry.mark_started(id, 0);
         registry.mark_completed(id);
 
-        assert!(
-            registry.register_waker(id, &waker),
-            "the slot is still registered, so registration reports success"
-        );
+        assert!(registry.register_waker(id, &waker).is_none());
         drop(waker);
 
         assert_eq!(

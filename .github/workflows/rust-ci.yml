@@ -21,6 +21,9 @@ on:
       - ".config/release-tools.toml"
       - "scripts/release_preflight.py"
       - "scripts/tests/test_release_preflight.py"
+      - "scripts/release_sbom.py"
+      - "scripts/release_minimum_versions.py"
+      - "scripts/tests/test_release_minimum_versions.py"
   schedule:
     # Weekly parser-fuzz campaign (MOI-SEC-001-B) and Miri run; main only.
     - cron: "0 6 * * 1"
@@ -525,7 +528,7 @@ jobs:
         run: >-
           cargo miri test --locked -p moirai-executor --lib --
           hybrid:: schedule::job schedule::queue
-          schedule::runtime::tests::scope registry::tests:: registry::state
+          schedule::runtime::tests::scope registry::tests:: registry::state registry::waiter_tests::
           -Zunstable-options --report-time --test-threads=1
 
       - name: Interpret the scheduler deque tests

@@ -8,7 +8,7 @@ use moirai_core::{
 };
 
 use super::HybridExecutor;
-use crate::registry::CancelOutcome;
+use crate::registry::{CancelOutcome, TaskRegistry, TaskWaiter};
 use crate::schedule::WorkScheduler;
 use crate::task::TaskMetadata;
 
@@ -23,6 +23,84 @@ fn status_of(metadata: &TaskMetadata) -> TaskStatus {
     } else {
         TaskStatus::Queued
     }
+}
+
+/// Build the owned completion wait around a caller-supplied deadline future.
+///
+/// Production supplies the PAL timer. Tests supply an event-driven future so
+/// expiry and cleanup do not depend on wall-clock progress.
+pub(super) fn completion_wait<F, E>(
+    registry: Arc<TaskRegistry>,
+    id: TaskId,
+    mut deadline: Option<F>,
+) -> impl Future<Output = ExecutorResult<()>> + Send
+where
+    F: Future<Output = Result<(), E>> + Send + Unpin,
+{
+    let mut waiter: Option<TaskWaiter> = None;
+
+    std::future::poll_fn(move |context| {
+        match registry.completion(id.0) {
+            Some(true) => {
+                waiter.take();
+                deadline.take();
+                return std::task::Poll::Ready(Ok(()));
+            }
+            Some(false) => {}
+            None => {
+                waiter.take();
+                deadline.take();
+                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
+                    TaskError::InvalidOperation,
+                )));
+            }
+        }
+
+        let deadline_poll = deadline
+            .as_mut()
+            .map(|deadline| Pin::new(deadline).poll(context));
+        match deadline_poll {
+            Some(std::task::Poll::Ready(Ok(()))) => {
+                waiter.take();
+                deadline.take();
+                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(TaskError::Timeout)));
+            }
+            Some(std::task::Poll::Ready(Err(_))) => {
+                waiter.take();
+                deadline.take();
+                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
+                    TaskError::ExecutionFailed(TaskErrorKind::Io),
+                )));
+            }
+            Some(std::task::Poll::Pending) | None => {}
+        }
+
+        let registration_live = if let Some(waiter) = waiter.as_mut() {
+            waiter.update(context.waker())
+        } else {
+            waiter = registry.register_waker(id.0, context.waker());
+            waiter.is_some()
+        };
+        if !registration_live {
+            waiter.take();
+        }
+
+        // Completion publishes before closing the waiter set. This recheck
+        // covers completion racing either initial registration or an update.
+        match registry.completion(id.0) {
+            Some(true) => {
+                waiter.take();
+                deadline.take();
+                std::task::Poll::Ready(Ok(()))
+            }
+            Some(false) => std::task::Poll::Pending,
+            None => {
+                waiter.take();
+                deadline.take();
+                std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation)))
+            }
+        }
+    })
 }
 
 impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
@@ -62,45 +140,11 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
         id: TaskId,
         timeout: Option<core::time::Duration>,
     ) -> impl core::future::Future<Output = ExecutorResult<()>> + Send {
-        let registry = Arc::clone(&self.task_registry);
-        let mut timer = timeout.map(moirai_pal::timer::sleep);
-
-        std::future::poll_fn(move |context| {
-            match registry.completion(id.0) {
-                Some(true) => return std::task::Poll::Ready(Ok(())),
-                Some(false) => {}
-                None => {
-                    return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
-                        TaskError::InvalidOperation,
-                    )));
-                }
-            }
-            if let Some(timer) = timer.as_mut() {
-                match Pin::new(timer).poll(context) {
-                    std::task::Poll::Ready(Ok(())) => {
-                        return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
-                            TaskError::Timeout,
-                        )));
-                    }
-                    std::task::Poll::Ready(Err(_)) => {
-                        return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
-                            TaskError::ExecutionFailed(TaskErrorKind::Io),
-                        )));
-                    }
-                    std::task::Poll::Pending => {}
-                }
-            }
-
-            registry.register_waker(id.0, context.waker());
-            // Re-check after registration: completion publishes the timestamp
-            // before taking the waker, so a completion that raced ahead of the
-            // registration is visible here and must not be lost.
-            if registry.is_completed(id.0) {
-                return std::task::Poll::Ready(Ok(()));
-            }
-
-            std::task::Poll::Pending
-        })
+        completion_wait(
+            Arc::clone(&self.task_registry),
+            id,
+            timeout.map(moirai_pal::timer::sleep),
+        )
     }
 
     /// Statistics limited to what the executor actually tracks.

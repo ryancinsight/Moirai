@@ -2,6 +2,9 @@
 
 Status: Accepted
 
+Revision 2026-10-29: owned completion registrations and timers are released on
+every terminal poll, including when the completed future remains allocated.
+
 ## Context
 
 A deadline checked only when a completion waiter is polled does not cause an
@@ -13,8 +16,10 @@ therefore requires an independent timer notification.
 Each timed task wait owns one PAL timer, constructed once and polled with the
 completion waiter. The PAL already sits below the executor, avoiding an executor
 dependency on the higher-level async crate. Timer failures become typed task
-errors. Untimed waits allocate no timer. Dropping the wait cancels its timer and
-releases its registered waker.
+errors. Untimed waits allocate no timer. Each wait owns a completion registration
+under [ADR 0089](0089-owned-completion-waiters.md). Dropping the wait cancels its
+timer and unregisters its waker. Completion, timeout and error paths dispose both
+resources before returning Ready; destruction of the future is not required.
 
 Completion visible at a poll wins a simultaneous timeout observation. A timeout
 ends only the wait; it does not cancel the task. A separate cancellation request

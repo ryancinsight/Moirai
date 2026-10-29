@@ -3,7 +3,6 @@
 mod completion;
 pub(crate) mod diagnostics;
 mod directory;
-mod fan_out;
 #[allow(clippy::module_inception)]
 pub(crate) mod registry;
 mod retention;
@@ -15,6 +14,7 @@ mod tests;
 pub(crate) mod token;
 #[cfg(test)]
 mod token_tests;
+mod waiter;
 #[cfg(test)]
 mod waiter_tests;
 
@@ -25,3 +25,4 @@ pub use retention::RetentionPolicy;
 pub(crate) use token::{
     OwnedStateLease, RunningTaskToken, SchedulerStateLease, StateLease, TaskLifecycleToken,
 };
+pub use waiter::TaskWaiter;

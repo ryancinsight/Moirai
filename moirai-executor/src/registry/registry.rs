@@ -7,6 +7,7 @@ use std::{
 };
 
 use super::super::task::TaskMetadata;
+use super::TaskWaiter;
 use super::directory::{BlockDirectory, BlockLookup};
 use super::retention::RetentionPolicy;
 use super::state::{TaskState, TaskStateBlock, task_location};
@@ -335,15 +336,25 @@ impl TaskRegistry {
         }
     }
 
-    /// Register a waker to be notified when the task completes.
+    /// Register an owned notification for a pending task.
     ///
-    /// Every distinct waker registered before completion is woken by it; a
-    /// waker that `will_wake` one already registered is normally not added
-    /// again (`Waker::will_wake` is best-effort). A task that already completed
-    /// wakes the waker at once and keeps nothing. Returns `false` for an id the registry does not hold.
-    pub fn register_waker(&self, task_id: u64, waker: &std::task::Waker) -> bool {
+    /// The returned [`TaskWaiter`] has a stable identity. Re-polls update that
+    /// registration through [`TaskWaiter::update`], and dropping it removes the
+    /// waker immediately. Independent registrations remain independent even
+    /// when they present the same caller waker.
+    ///
+    /// Returns `None` when the task is unknown, already completed, or completed
+    /// while registration was being installed. No callback is retained in
+    /// those cases.
+    ///
+    /// # Panics
+    ///
+    /// Propagates a panic from the caller waker's clone callback or from
+    /// destruction of an unused clone after a completion race.
+    #[must_use = "dropping the returned waiter unregisters it immediately"]
+    pub fn register_waker(&self, task_id: u64, waker: &std::task::Waker) -> Option<TaskWaiter> {
         self.with_state(task_id, |state| state.register_waker(waker))
-            .is_some()
+            .flatten()
     }
 }
 

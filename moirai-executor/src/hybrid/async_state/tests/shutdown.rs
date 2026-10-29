@@ -64,7 +64,9 @@ fn wake_refused_by_shutdown_completes_the_task_as_cancelled() {
         .take()
         .expect("first poll published its waker");
     let waiter = Arc::new(CompletionWaiter(AtomicUsize::new(0)));
-    assert!(registry.register_waker(task_id, &Waker::from(Arc::clone(&waiter))));
+    let _completion_waiter = registry
+        .register_waker(task_id, &Waker::from(Arc::clone(&waiter)))
+        .unwrap();
     assert!(!registry.is_completed(task_id));
 
     injector.shutting_down.store(true, Ordering::SeqCst);
