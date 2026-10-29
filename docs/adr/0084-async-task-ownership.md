@@ -35,8 +35,10 @@ Future destruction stays under the poll or rejected-admission owner. A destructo
 panic reports `TaskError::Panicked` after settling state, tracking, lifecycle,
 metrics, and the result sender. Lifecycle publication returns an explicit
 notification receipt; its callbacks run only after result publication. Both
-notification channels are attempted before a callback panic can reach the
-scheduler boundary. Caught payloads and displaced results are dropped
+notification channels are attempted and retained output/payload destruction is
+guarded before a callback panic can reach the scheduler boundary. The
+`waiter_panics` metric counts callback failures; shutdown contains each wake so
+one failure cannot skip cancellation of the remaining tasks. Caught payloads and displaced results are dropped
 after settlement using the scheduler panic boundary. A panic in that cleanup
 payload, or in final-owner fallback destruction without a completion owner,
 aborts under the existing fatal destructor policy.
@@ -68,7 +70,9 @@ waker. The synchronous running-task contract remains covered by existing tests.
 Admission tests saturate the real scheduler and assert that rejected futures
 are never polled and drop once. A shutdown test retains an earlier snapshot
 while another shutdown settles the same idle tasks. These are deterministic
-regression cases, not an exhaustive interleaving proof.
+regression cases, not an exhaustive interleaving proof. Structural benchmark
+checks follow the receipt return type while retaining their elapsed-time
+arithmetic and single-sample requirements.
 
 ## Overturning evidence
 

@@ -133,7 +133,7 @@ fn cancellation_wake_cannot_claim_first_admission() {
         registry.request_cancel(task_id),
         Some(CancelOutcome::Requested)
     );
-    tasks.cancel(task_id);
+    tasks.cancel(task_id).expect("cancellation wake completes");
     assert_eq!(
         injector.rejections.load(Ordering::SeqCst),
         0,

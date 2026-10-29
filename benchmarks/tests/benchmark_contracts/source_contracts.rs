@@ -88,9 +88,8 @@ fn registry_lifecycle_keeps_qpc_out_of_production_path() {
         "mark_completed_since(self.started_after_ns)",
         "elapsed_nanos_since(self.created_at).max(started_after_ns)",
         "Duration::from_nanos(completed_after_ns - started_after_ns)",
-        "pub(crate) fn complete(mut self) -> Duration",
+        "pub(crate) fn complete(mut self) -> TaskCompletion",
         "self.completed = true;",
-        "mark_completed_since(self.started_after_ns)",
     ] {
         assert!(
             source.contains(required),

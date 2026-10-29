@@ -108,21 +108,28 @@ where
         &self,
         result: Result<F::Output, TaskError>,
         completion: Option<TaskCompletion>,
-    ) {
+    ) -> Option<PanicPayload> {
         let publication = catch_unwind(AssertUnwindSafe(|| self.publish_result(result)));
         let notification = catch_unwind(AssertUnwindSafe(|| {
             if let Some(completion) = completion {
                 completion.notify();
             }
         }));
-        // Both channels are settled before propagating any callback panic to
-        // the scheduler boundary. Neither panic can strand the other channel.
+        // These counters report notification failures without changing the
+        // already-published task result. They carry no synchronization edge.
+        for failed in [publication.is_err(), notification.is_err()] {
+            if failed {
+                self.metrics.waiter_panics.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        // Return callback panics so the completion owner can destroy displaced
+        // output and original panic payloads before resuming unwinding.
         match (publication, notification) {
-            (Ok(()), Ok(())) => {}
-            (Err(payload), Ok(())) | (Ok(()), Err(payload)) => resume_unwind(payload),
+            (Ok(()), Ok(())) => None,
+            (Err(payload), Ok(())) | (Ok(()), Err(payload)) => Some(payload),
             (Err(first), Err(second)) => {
                 drop_after_settlement(second);
-                resume_unwind(first);
+                Some(first)
             }
         }
     }
@@ -136,18 +143,19 @@ where
             .map_or(core::time::Duration::ZERO, TaskCompletion::duration);
         if let Some(panic_payload) = future_drop_panic {
             self.metrics.record_task_failed();
-            self.finish_result(Err(TaskError::Panicked), completion);
+            let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(result);
             drop_after_settlement(panic_payload);
+            resume_callback(callback_panic);
         } else {
             match result {
                 Ok(output) => {
                     self.metrics.record_task_completed(execution_time);
-                    self.finish_result(Ok(output), completion);
+                    resume_callback(self.finish_result(Ok(output), completion));
                 }
                 Err(error) => {
                     self.metrics.record_task_failed();
-                    self.finish_result(Err(error), completion);
+                    resume_callback(self.finish_result(Err(error), completion));
                 }
             }
         }
@@ -163,11 +171,12 @@ where
         let future_drop_panic = self.store_completed();
         let completion = self.complete_lifecycle();
         self.metrics.record_task_failed();
-        self.finish_result(Err(TaskError::Panicked), completion);
+        let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
         drop_after_settlement(poll_panic);
         if let Some(future_drop_panic) = future_drop_panic {
             drop_after_settlement(future_drop_panic);
         }
+        resume_callback(callback_panic);
     }
 
     /// Complete the task as cancelled: its future is dropped unfinished, the
@@ -181,14 +190,15 @@ where
         if let Some(panic_payload) = self.store_completed() {
             let completion = self.complete_lifecycle();
             self.metrics.record_task_failed();
-            self.finish_result(Err(TaskError::Panicked), completion);
+            let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(panic_payload);
+            resume_callback(callback_panic);
         } else {
             let completion = self.cancel_lifecycle();
             // Record before publishing the result so a joiner observes the
             // cancelled counter as soon as the handle resolves.
             self.metrics.record_task_cancelled();
-            self.finish_result(Err(TaskError::Cancelled), completion);
+            resume_callback(self.finish_result(Err(TaskError::Cancelled), completion));
         }
     }
 
@@ -200,12 +210,13 @@ where
     pub(crate) fn complete_rejected(&self) -> Result<(), TaskError> {
         if let Some(panic_payload) = self.store_completed() {
             let completion = self.complete_lifecycle();
-            self.finish_result(Err(TaskError::Panicked), completion);
+            let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(panic_payload);
+            resume_callback(callback_panic);
             Err(TaskError::Panicked)
         } else {
             let completion = self.cancel_lifecycle();
-            self.finish_result(Err(TaskError::Cancelled), completion);
+            resume_callback(self.finish_result(Err(TaskError::Cancelled), completion));
             Ok(())
         }
     }
@@ -231,4 +242,11 @@ fn drop_after_settlement<T>(value: T) {
     // The primary failure is already published. Reuse the scheduler boundary
     // to contain a cleanup panic and abort if its panic payload also panics.
     crate::schedule::job::run_caught(|| drop(value));
+}
+
+/// Resume only after result channels and retained completion values are settled.
+fn resume_callback(panic: Option<PanicPayload>) {
+    if let Some(payload) = panic {
+        resume_unwind(payload);
+    }
 }

@@ -36,8 +36,7 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()> {
         match self.task_registry.request_cancel(id.0) {
             Some(CancelOutcome::Requested | CancelOutcome::AlreadyCompleted) => {
-                self.async_tasks.cancel(id.0);
-                Ok(())
+                self.async_tasks.cancel(id.0)
             }
             None => Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation)),
         }

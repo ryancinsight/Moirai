@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, sync::Mutex, task::Waker};
 
-use moirai_core::error::{ExecutorError, ExecutorResult};
+use moirai_core::error::{ExecutorError, ExecutorResult, TaskError};
 
 #[derive(Default)]
 struct Entries {
@@ -43,7 +43,7 @@ impl AsyncTasks {
         drop(removed);
     }
 
-    pub(crate) fn cancel(&self, id: u64) {
+    pub(crate) fn cancel(&self, id: u64) -> ExecutorResult<()> {
         let cancel = self
             .entries
             .lock()
@@ -52,8 +52,11 @@ impl AsyncTasks {
             .get(&id)
             .cloned();
         if let Some(cancel) = cancel {
-            cancel.wake();
+            if !crate::schedule::job::run_caught(|| cancel.wake()) {
+                return Err(ExecutorError::SpawnFailed(TaskError::Panicked));
+            }
         }
+        Ok(())
     }
 
     pub(in crate::hybrid) fn close_and_snapshot(&self) -> BTreeMap<u64, Waker> {
@@ -69,7 +72,12 @@ impl AsyncTasks {
         let tasks = self.close_and_snapshot();
         for (id, wake) in tasks {
             match registry.request_cancel(id) {
-                Some(crate::registry::CancelOutcome::Requested) => wake.wake(),
+                Some(crate::registry::CancelOutcome::Requested) => {
+                    // Completion counts callback panics after publishing all
+                    // channels. Contain them here so shutdown still cancels
+                    // every remaining task and reaches scheduler teardown.
+                    crate::schedule::job::run_caught(|| wake.wake());
+                }
                 Some(crate::registry::CancelOutcome::AlreadyCompleted) => {}
                 None => unreachable!("invariant: live futures have registered task ids"),
             }

@@ -3,11 +3,13 @@
 mod admission_ownership;
 mod cancel;
 mod completion_callbacks;
+mod completion_cleanup;
 mod construction;
 mod fixtures;
 mod future_destruction;
 mod priority;
 mod shutdown;
+mod shutdown_callbacks;
 mod shutdown_ownership;
 mod spawn;
 mod wait;

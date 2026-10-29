@@ -67,7 +67,7 @@ fn public_handle_metrics_reuse_lifecycle_duration() {
 
     for required in [
         ".schedule::<BlockingTask, _>(Priority::Normal, None, move |worker_id|",
-        "record_task_completed(running.complete())",
+        "record_task_completed(running.complete().notify())",
         "let execution_time = running.complete()",
         "send_task_result(result, result_sender, metrics.get(), execution_time)",
         "fn send_task_result<T>",
