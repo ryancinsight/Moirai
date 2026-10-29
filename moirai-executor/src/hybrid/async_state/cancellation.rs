@@ -26,10 +26,4 @@ where
         );
         tasks.register(id, Waker::from(Arc::clone(self)))
     }
-
-    pub(in crate::hybrid) fn untrack(&self) {
-        if let Some(registration) = self.registration.get() {
-            registration.remove();
-        }
-    }
 }

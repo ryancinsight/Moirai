@@ -29,6 +29,13 @@ registers before closure or receives `ShuttingDown`. Rejected scheduler admissio
 unregisters the task and drops its unpolled future. Executor destruction uses the same shutdown path.
 External event sources are not required to wake cancelled tasks.
 
+Future destruction stays under the poll or rejected-admission owner. A destructor
+panic reports `TaskError::Panicked` after settling state, tracking, lifecycle,
+metrics, and the result sender. Caught payloads and displaced results are dropped
+after settlement using the scheduler panic boundary. A panic in that cleanup
+payload, or in final-owner fallback destruction without a completion owner,
+aborts under the existing fatal destructor policy.
+
 The runtime implements the existing `TaskManager` trait so applications can
 cancel and observe tasks through the public facade. Blocking `join` retains its
 existing result contract. Task-wait timeout does not cancel its underlying task.

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use moirai_core::{
     Priority,
-    error::ExecutorResult,
+    error::{ExecutorError, ExecutorResult},
     executor::TaskSpawner,
     task::{Task, TaskHandle},
 };
@@ -56,11 +56,16 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
             result_sender,
             Arc::clone(&self.metrics),
         );
-        state.track(&self.async_tasks, task_id.0)?;
-        if let Err(error) = Arc::clone(&state).schedule() {
-            state.untrack();
+        let admission = state
+            .track(&self.async_tasks, task_id.0)
+            .and_then(|()| Arc::clone(&state).schedule());
+        if let Err(error) = admission {
+            let rejection = state.complete_rejected();
             drop(state);
-            return Err(error);
+            return match rejection {
+                Ok(()) => Err(error),
+                Err(drop_error) => Err(ExecutorError::SpawnFailed(drop_error)),
+            };
         }
 
         self.metrics.record_task_spawned();

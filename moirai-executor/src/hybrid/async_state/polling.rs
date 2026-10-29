@@ -9,8 +9,6 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use moirai_core::error::TaskError;
-
 use super::{
     future_state::AsyncFutureState,
     lifecycle::AsyncLifecycle,
@@ -76,8 +74,7 @@ where
 
             match poll_result {
                 Ok(Poll::Ready(output)) => {
-                    let execution_time = self.complete_with_result(Ok(output));
-                    self.metrics.record_task_completed(execution_time);
+                    self.complete_with_result(Ok(output));
                     return;
                 }
                 Ok(Poll::Pending) => match self.finish_pending_poll(&mut inline_repolls) {
@@ -88,8 +85,8 @@ where
                         return;
                     }
                 },
-                Err(_) => {
-                    self.complete_failed(TaskError::Panicked);
+                Err(panic_payload) => {
+                    self.complete_panicked(panic_payload);
                     return;
                 }
             }

@@ -204,6 +204,16 @@ impl<L: StateLease> TaskLifecycleToken<L> {
         lease.retire();
     }
 
+    /// Settle a failure before the task body starts, without inventing a start.
+    pub(crate) fn complete(mut self) {
+        let lease = self
+            .lease
+            .take()
+            .expect("invariant: lifecycle token retains its state lease");
+        lease.state().mark_completed();
+        lease.retire();
+    }
+
     /// Start the task unless it was cancelled while queued.
     ///
     /// Returns `None` after marking the task cancelled (the body must not run);

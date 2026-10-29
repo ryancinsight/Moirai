@@ -4,6 +4,7 @@ use std::{
     cell::UnsafeCell,
     future::Future,
     mem::MaybeUninit,
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr,
     sync::{Arc, OnceLock, atomic::AtomicU8},
 };
@@ -96,11 +97,21 @@ where
         if let Some(registration) = self.registration.get() {
             registration.remove();
         }
-        if *self.future_present.get_mut() {
+        let future_present = self.future_present.get_mut();
+        if *future_present {
+            *future_present = false;
             // Safety: `Drop` has exclusive access to the state because the last
             // `Arc` reference is being destroyed.
-            unsafe {
+            let future_drop = catch_unwind(AssertUnwindSafe(|| unsafe {
                 ptr::drop_in_place((*self.future.get()).as_mut_ptr());
+            }));
+            if let Err(_payload) = future_drop {
+                // Production admissions settle through complete_rejected, and
+                // accepted futures remain tracked until explicit completion.
+                // This final-owner fallback has no completion owner to report
+                // a destruction failure, so it follows the fatal Drop policy.
+                // Aborting also avoids invoking an untrusted panic destructor.
+                std::process::abort();
             }
         }
     }
