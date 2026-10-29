@@ -37,7 +37,7 @@ fn completion_wakes_two_waiters_on_one_task() {
     assert!(registry.register_waker(id, &second_waker));
     assert_eq!(first.wakes() + second.wakes(), 0, "nothing completed yet");
 
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     assert_eq!(first.wakes(), 1, "the first waiter was overwritten");
     assert_eq!(second.wakes(), 1);
@@ -56,7 +56,7 @@ fn completion_wakes_every_distinct_waiter_once() {
             assert!(registry.register_waker(id, waker));
         }
     }
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     for (index, (target, _)) in waiters.iter().enumerate() {
         assert_eq!(target.wakes(), 1, "waiter {index}");
@@ -77,7 +77,7 @@ fn one_waker_registered_repeatedly_is_held_and_woken_once() {
         3,
         "the test's handle, the waker, and exactly one registry entry"
     );
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     assert_eq!(target.wakes(), 1);
     assert_eq!(
@@ -95,7 +95,7 @@ fn waiters_registered_after_completion_are_woken_and_not_retained() {
     let (early_second, early_second_waker) = counting_waker();
     registry.register_waker(id, &early_waker);
     registry.register_waker(id, &early_second_waker);
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     let (late, late_waker) = counting_waker();
     let (late_second, late_second_waker) = counting_waker();
@@ -166,7 +166,7 @@ fn waiters_on_separate_threads_are_all_woken_by_completion() {
         .collect();
 
     registered.wait();
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     for (index, (target, thread)) in waiters.into_iter().enumerate() {
         assert!(
@@ -202,7 +202,7 @@ fn completion_racing_registrations_never_strands_a_waiter() {
             .unzip();
 
         start.wait();
-        lifecycle.start(0).complete();
+        lifecycle.start(0).complete().notify();
 
         // Join every thread before asserting: a recheck on one thread may take
         // another waiter's waker and wake it before that waiter's thread

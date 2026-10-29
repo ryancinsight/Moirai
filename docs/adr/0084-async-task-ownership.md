@@ -26,12 +26,17 @@ It releases that mutex before publishing cancellation and waking tasks, then
 joins scheduler workers. Each concurrent shutdown caller can settle the same
 live tasks; only completion removes their entries. Spawn racing closure either
 registers before closure or receives `ShuttingDown`. Rejected scheduler admission
-unregisters the task and drops its unpolled future. Executor destruction uses the same shutdown path.
+retains its exclusive queued epoch until it unregisters and drops its unpolled
+future. The initial created phase prevents cancellation wakes from scheduling
+a first poll before the admission owner. Executor destruction uses the same shutdown path.
 External event sources are not required to wake cancelled tasks.
 
 Future destruction stays under the poll or rejected-admission owner. A destructor
 panic reports `TaskError::Panicked` after settling state, tracking, lifecycle,
-metrics, and the result sender. Caught payloads and displaced results are dropped
+metrics, and the result sender. Lifecycle publication returns an explicit
+notification receipt; its callbacks run only after result publication. Both
+notification channels are attempted before a callback panic can reach the
+scheduler boundary. Caught payloads and displaced results are dropped
 after settlement using the scheduler panic boundary. A panic in that cleanup
 payload, or in final-owner fallback destruction without a completion owner,
 aborts under the existing fatal destructor policy.

@@ -29,7 +29,7 @@ impl Retire {
     fn apply(self, lifecycle: TaskLifecycleToken<SchedulerStateLease>) {
         match self {
             Self::Complete => {
-                lifecycle.start(0).complete();
+                lifecycle.start(0).complete().notify();
             }
             Self::DropUnstarted => drop(lifecycle),
             Self::Cancel => {
@@ -55,7 +55,7 @@ fn retire_last_slot_during_sweep(retire: Retire) {
     // of block 0 and the next id is its last slot.
     for _ in 1..TASK_STATE_BLOCK_SIZE - 1 {
         let (_, lifecycle) = registry.register_next_task();
-        lifecycle.start(0).complete();
+        lifecycle.start(0).complete().notify();
     }
     // SAFETY: `registry` outlives the token: the token moves into the scoped
     // thread below, which joins before `registry` drops.

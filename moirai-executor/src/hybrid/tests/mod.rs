@@ -2,6 +2,7 @@
 
 mod admission_ownership;
 mod cancel;
+mod completion_callbacks;
 mod construction;
 mod fixtures;
 mod future_destruction;

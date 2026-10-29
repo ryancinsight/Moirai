@@ -104,10 +104,12 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
                 // `send_task_result`.
                 match catch_unwind(AssertUnwindSafe(func)) {
                     Ok(()) => {
-                        metrics.get().record_task_completed(running.complete());
+                        metrics
+                            .get()
+                            .record_task_completed(running.complete().notify());
                     }
                     Err(_) => {
-                        running.complete();
+                        running.complete().notify();
                         metrics.get().record_task_failed();
                     }
                 }

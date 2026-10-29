@@ -189,7 +189,9 @@ impl TaskRegistry {
 
     /// Mark a task as completed.
     pub fn mark_completed(&self, task_id: u64) {
-        self.with_state(task_id, TaskState::mark_completed);
+        if let Some(completion) = self.with_state(task_id, TaskState::mark_completed) {
+            completion.notify();
+        }
     }
 
     /// Check if a task is completed.

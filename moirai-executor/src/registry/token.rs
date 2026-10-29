@@ -1,8 +1,11 @@
-use std::{fmt::Debug, ptr::NonNull, sync::Arc, time::Duration};
+use std::{fmt::Debug, ptr::NonNull, sync::Arc};
 
 use moirai_core::Priority;
 
-use super::state::{TaskState, TaskStateBlock};
+use super::{
+    TaskCompletion,
+    state::{TaskState, TaskStateBlock},
+};
 
 /// Storage policy that keeps a lifecycle token's task state valid.
 ///
@@ -193,25 +196,27 @@ impl<L: StateLease> TaskLifecycleToken<L> {
     }
 
     /// Honor a pending cancel request: mark the task cancelled + completed
-    /// (waking any registered waiter) without running its body.
+    /// without running its body; return the pending waiter notification.
     #[inline]
-    pub(crate) fn cancel(mut self) {
+    pub(crate) fn cancel(mut self) -> TaskCompletion {
         let lease = self
             .lease
             .take()
             .expect("invariant: lifecycle token retains its state lease");
-        lease.state().mark_cancelled();
+        let completion = lease.state().mark_cancelled();
         lease.retire();
+        completion
     }
 
     /// Settle a failure before the task body starts, without inventing a start.
-    pub(crate) fn complete(mut self) {
+    pub(crate) fn complete(mut self) -> TaskCompletion {
         let lease = self
             .lease
             .take()
             .expect("invariant: lifecycle token retains its state lease");
-        lease.state().mark_completed();
+        let completion = lease.state().mark_completed();
         lease.retire();
+        completion
     }
 
     /// Start the task unless it was cancelled while queued.
@@ -221,7 +226,7 @@ impl<L: StateLease> TaskLifecycleToken<L> {
     #[inline]
     pub(crate) fn start_unless_cancelled(self, worker_id: usize) -> Option<RunningTaskToken<L>> {
         if self.cancel_requested() {
-            self.cancel();
+            self.cancel().notify();
             None
         } else {
             Some(self.start(worker_id))
@@ -249,8 +254,9 @@ impl<L: StateLease> Drop for TaskLifecycleToken<L> {
             // task is recorded the same way. Publish that terminal state before
             // retiring the lease so block retirement cannot reclaim the slot
             // during publication.
-            lease.state().mark_cancelled();
+            let completion = lease.state().mark_cancelled();
             lease.retire();
+            completion.notify();
         }
     }
 }
@@ -265,15 +271,19 @@ impl<L: StateLease> RunningTaskToken<L> {
     }
 
     /// Abandon a started task whose body will not finish: record it cancelled
-    /// and completed (waking any registered waiter), as its handle reports.
+    /// and completed, returning its pending waiter notification.
     #[inline]
-    pub(crate) fn cancel(mut self) {
-        self.abandon();
+    pub(crate) fn cancel(mut self) -> TaskCompletion {
+        let completion = self.publish_cancelled();
+        if let Some(lease) = self.lease.take() {
+            lease.retire();
+        }
+        completion
     }
 
-    /// Mark the task as completed exactly once.
+    /// Publish completion exactly once and return the pending notification.
     #[inline]
-    pub(crate) fn complete(mut self) -> Duration {
+    pub(crate) fn complete(mut self) -> TaskCompletion {
         let execution_time = self
             .lease
             .as_ref()
@@ -285,15 +295,15 @@ impl<L: StateLease> RunningTaskToken<L> {
     }
 
     /// Record a task that never reported completion as cancelled.
-    fn abandon(&mut self) {
-        if !self.completed {
-            self.lease
-                .as_ref()
-                .expect("invariant: running token retains its state lease")
-                .state()
-                .mark_cancelled();
-            self.completed = true;
-        }
+    fn publish_cancelled(&mut self) -> TaskCompletion {
+        let completion = self
+            .lease
+            .as_ref()
+            .expect("invariant: running token retains its state lease")
+            .state()
+            .mark_cancelled();
+        self.completed = true;
+        completion
     }
 }
 
@@ -302,9 +312,16 @@ impl<L: StateLease> Drop for RunningTaskToken<L> {
         // Every path that finishes the body calls `complete`; reaching Drop
         // without it means the task was discarded mid-run, and its result
         // sender drops with it.
-        self.abandon();
+        let completion = if self.completed {
+            None
+        } else {
+            Some(self.publish_cancelled())
+        };
         if let Some(lease) = self.lease.take() {
             lease.retire();
+        }
+        if let Some(completion) = completion {
+            completion.notify();
         }
     }
 }

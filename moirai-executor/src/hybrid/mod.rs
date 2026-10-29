@@ -191,7 +191,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
                     return;
                 };
                 let result = catch_unwind(AssertUnwindSafe(func));
-                let execution_time = running.complete();
+                let execution_time = running.complete().notify();
                 send_task_result(result, result_sender, metrics.get(), execution_time);
             })?;
 

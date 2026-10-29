@@ -9,7 +9,7 @@ use std::{
 use moirai_core::Priority;
 
 use super::super::task::TaskMetadata;
-use super::fan_out;
+use super::{TaskCompletion, fan_out};
 
 /// Inverse of [`Priority::index`]: `PRIORITY_FROM_INDEX[p.index()] == p` for
 /// every variant (asserted by `priority_index_round_trips` in the registry tests).
@@ -239,9 +239,9 @@ impl TaskState {
 
     /// Publish that a cancel request was honored: the task completes without
     /// its body having run, and any registered waiter is woken.
-    pub(super) fn mark_cancelled(&self) {
+    pub(super) fn mark_cancelled(&self) -> TaskCompletion {
         self.cancelled.store(true, Ordering::Release);
-        self.mark_completed();
+        self.mark_completed()
     }
 
     #[inline]
@@ -259,7 +259,7 @@ impl TaskState {
     }
 
     #[inline]
-    pub(super) fn mark_completed_since(&self, started_after_ns: u64) -> Duration {
+    pub(super) fn mark_completed_since(&self, started_after_ns: u64) -> TaskCompletion {
         // `Instant` documents saturation for rare platform monotonicity
         // violations. Preserve that contract across thread/core migration by
         // clamping the published completion offset to the recorded start.
@@ -272,21 +272,20 @@ impl TaskState {
         // so a waker that waits on this task cannot deadlock against the
         // slot. Same discipline as `moirai-async`'s sync primitives.
         let waker = self.waker.with_slot(|slot| slot.take());
-        if let Some(waker) = waker {
-            waker.wake();
-        }
-
-        Duration::from_nanos(completed_after_ns - started_after_ns)
+        TaskCompletion::new(
+            Duration::from_nanos(completed_after_ns - started_after_ns),
+            waker,
+        )
     }
 
-    pub(super) fn mark_completed(&self) {
+    pub(super) fn mark_completed(&self) -> TaskCompletion {
         let started_after_ns = self.started_after_ns.load(Ordering::Acquire);
         let started_after_ns = if started_after_ns == TIMESTAMP_NOT_RECORDED {
             elapsed_nanos_since(self.created_at)
         } else {
             started_after_ns
         };
-        self.mark_completed_since(started_after_ns);
+        self.mark_completed_since(started_after_ns)
     }
 
     /// Register a waker to be notified when the task completes.
@@ -482,7 +481,7 @@ mod tests {
             .started_after_ns
             .store(future_start, Ordering::Release);
 
-        let elapsed = state.mark_completed_since(future_start);
+        let elapsed = state.mark_completed_since(future_start).notify();
         let snapshot = state.snapshot(7);
 
         assert_eq!(elapsed, Duration::ZERO);

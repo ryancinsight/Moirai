@@ -11,7 +11,7 @@ use std::{
 
 use moirai_core::task::TaskResultSender;
 
-use super::{lifecycle::AsyncLifecycle, phase::ASYNC_IDLE};
+use super::{lifecycle::AsyncLifecycle, phase::ASYNC_CREATED};
 use crate::{
     metrics::ExecutorMetrics,
     registry::{OwnedStateLease, StateLease, TaskLifecycleToken},
@@ -80,7 +80,7 @@ where
             future: UnsafeCell::new(MaybeUninit::new(future)),
             result_sender: UnsafeCell::new(Some(result_sender)),
             metrics,
-            state: AtomicU8::new(ASYNC_IDLE),
+            state: AtomicU8::new(ASYNC_CREATED),
             future_present: UnsafeCell::new(true),
             registration: OnceLock::new(),
             scheduler,

@@ -13,7 +13,7 @@ use moirai_core::{
 use super::{
     future_state::AsyncFutureState,
     inline_poll::InlinePollDepthGuard,
-    phase::{ASYNC_IDLE, ASYNC_NOTIFIED, ASYNC_POLLING, ASYNC_QUEUED},
+    phase::{ASYNC_CREATED, ASYNC_IDLE, ASYNC_NOTIFIED, ASYNC_POLLING, ASYNC_QUEUED},
 };
 use crate::{
     registry::StateLease,
@@ -32,6 +32,7 @@ where
     /// Returns `true` when this caller transitioned `IDLE → QUEUED` and now
     /// owns admitting exactly one poll job (module docs: enqueue obligation).
     /// Every other outcome hands the wake to a transition another party owns:
+    /// `CREATED` leaves first admission with the spawner,
     /// `POLLING → NOTIFIED` hands it to the current poll owner, and
     /// `QUEUED`/`NOTIFIED` mean a poll is already pending while `COMPLETED`
     /// means no poll can ever run again.
@@ -76,24 +77,27 @@ where
     ///
     /// # Errors
     /// Propagates scheduler admission failure (queue saturation or shutdown)
-    /// to the spawner. The failed `IDLE → QUEUED` claim is reverted first, so
-    /// the returned state is clean: droppable, and retryable by a new spawn
-    /// attempt. The revert cannot race a wake — wakers are minted only inside
-    /// `poll`, which has not run before the first successful admission.
+    /// to the spawner. This caller exclusively transfers `CREATED → QUEUED`;
+    /// executor-table wakers cannot claim `CREATED`. A rejected admission stays
+    /// `QUEUED` until the spawner calls `complete_rejected`, preserving the
+    /// exclusive completion permission after the table waker is exposed.
     /// Woken-path rescheduling instead goes through [`Self::schedule_wake`],
     /// which never drops the wake on a full queue.
     #[inline]
     pub(crate) fn schedule(self: Arc<Self>) -> ExecutorResult<()> {
-        if !self.claim_enqueue() {
+        if self
+            .state
+            .compare_exchange(
+                ASYNC_CREATED,
+                ASYNC_QUEUED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
             return Ok(());
         }
-        let admitted = Arc::clone(&self).enqueue();
-        if admitted.is_err() {
-            // The rejected job never entered a queue, so this caller still
-            // owns the QUEUED epoch and no poll can be racing the revert.
-            self.revert_queued_to_idle();
-        }
-        admitted
+        Arc::clone(&self).enqueue()
     }
 
     /// Wake-path admission: never loses the wake (module docs: enqueue
@@ -177,10 +181,5 @@ where
                 self.complete_cancelled();
             }
         }
-    }
-
-    #[inline]
-    fn revert_queued_to_idle(&self) {
-        self.state.store(ASYNC_IDLE, Ordering::Release);
     }
 }

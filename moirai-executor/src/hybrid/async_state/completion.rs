@@ -4,7 +4,7 @@
 use std::{
     any::Any,
     future::Future,
-    panic::{AssertUnwindSafe, catch_unwind},
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     ptr,
     sync::atomic::Ordering,
 };
@@ -16,7 +16,10 @@ use super::{
     lifecycle::AsyncLifecycle,
     phase::{ASYNC_COMPLETED, ASYNC_QUEUED},
 };
-use crate::{registry::StateLease, schedule::WorkSubmit};
+use crate::{
+    registry::{StateLease, TaskCompletion},
+    schedule::WorkSubmit,
+};
 
 // `catch_unwind` erases the compile-time-unknown panic payload at this cold
 // scheduler boundary; task polling and completion remain monomorphized.
@@ -30,30 +33,27 @@ where
     L: StateLease,
 {
     /// Consume the lifecycle token, registered or running, as cancelled.
-    fn cancel_lifecycle(&self) {
+    fn cancel_lifecycle(&self) -> Option<TaskCompletion> {
         // Safety: only the poll owner or the rejected-queue completion owner
         // calls this method. Their POLLING/QUEUED states exclude every other
         // accessor, so lifecycle mutation is single-threaded.
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
         match std::mem::replace(lifecycle, AsyncLifecycle::Completed) {
-            AsyncLifecycle::Registered(token) => token.cancel(),
-            AsyncLifecycle::Running(token) => token.cancel(),
-            AsyncLifecycle::Completed => {}
+            AsyncLifecycle::Registered(token) => Some(token.cancel()),
+            AsyncLifecycle::Running(token) => Some(token.cancel()),
+            AsyncLifecycle::Completed => None,
         }
     }
 
-    fn complete_lifecycle(&self) -> core::time::Duration {
+    fn complete_lifecycle(&self) -> Option<TaskCompletion> {
         // Safety: only the poll owner or the rejected-queue completion owner
         // calls this method. Their POLLING/QUEUED states exclude every other
         // accessor, so lifecycle mutation is single-threaded.
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
         match std::mem::replace(lifecycle, AsyncLifecycle::Completed) {
-            AsyncLifecycle::Registered(token) => {
-                token.complete();
-                core::time::Duration::ZERO
-            }
-            AsyncLifecycle::Running(token) => token.complete(),
-            AsyncLifecycle::Completed => core::time::Duration::ZERO,
+            AsyncLifecycle::Registered(token) => Some(token.complete()),
+            AsyncLifecycle::Running(token) => Some(token.complete()),
+            AsyncLifecycle::Completed => None,
         }
     }
 
@@ -103,24 +103,51 @@ where
         }
     }
 
+    /// Publish the handle before invoking registry callbacks that may join it.
+    fn finish_result(
+        &self,
+        result: Result<F::Output, TaskError>,
+        completion: Option<TaskCompletion>,
+    ) {
+        let publication = catch_unwind(AssertUnwindSafe(|| self.publish_result(result)));
+        let notification = catch_unwind(AssertUnwindSafe(|| {
+            if let Some(completion) = completion {
+                completion.notify();
+            }
+        }));
+        // Both channels are settled before propagating any callback panic to
+        // the scheduler boundary. Neither panic can strand the other channel.
+        match (publication, notification) {
+            (Ok(()), Ok(())) => {}
+            (Err(payload), Ok(())) | (Ok(()), Err(payload)) => resume_unwind(payload),
+            (Err(first), Err(second)) => {
+                drop_after_settlement(second);
+                resume_unwind(first);
+            }
+        }
+    }
+
     #[inline]
     pub(super) fn complete_with_result(&self, result: Result<F::Output, TaskError>) {
         let future_drop_panic = self.store_completed();
-        let execution_time = self.complete_lifecycle();
+        let completion = self.complete_lifecycle();
+        let execution_time = completion
+            .as_ref()
+            .map_or(core::time::Duration::ZERO, TaskCompletion::duration);
         if let Some(panic_payload) = future_drop_panic {
             self.metrics.record_task_failed();
-            self.publish_result(Err(TaskError::Panicked));
+            self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(result);
             drop_after_settlement(panic_payload);
         } else {
             match result {
                 Ok(output) => {
                     self.metrics.record_task_completed(execution_time);
-                    self.publish_result(Ok(output));
+                    self.finish_result(Ok(output), completion);
                 }
                 Err(error) => {
                     self.metrics.record_task_failed();
-                    self.publish_result(Err(error));
+                    self.finish_result(Err(error), completion);
                 }
             }
         }
@@ -134,9 +161,9 @@ where
     /// Complete a poll panic without destroying either panic payload first.
     pub(super) fn complete_panicked(&self, poll_panic: PanicPayload) {
         let future_drop_panic = self.store_completed();
-        self.complete_lifecycle();
+        let completion = self.complete_lifecycle();
         self.metrics.record_task_failed();
-        self.publish_result(Err(TaskError::Panicked));
+        self.finish_result(Err(TaskError::Panicked), completion);
         drop_after_settlement(poll_panic);
         if let Some(future_drop_panic) = future_drop_panic {
             drop_after_settlement(future_drop_panic);
@@ -152,16 +179,16 @@ where
     /// that scheduler shutdown refused.
     pub(super) fn complete_cancelled(&self) {
         if let Some(panic_payload) = self.store_completed() {
-            self.complete_lifecycle();
+            let completion = self.complete_lifecycle();
             self.metrics.record_task_failed();
-            self.publish_result(Err(TaskError::Panicked));
+            self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(panic_payload);
         } else {
-            self.cancel_lifecycle();
+            let completion = self.cancel_lifecycle();
             // Record before publishing the result so a joiner observes the
             // cancelled counter as soon as the handle resolves.
             self.metrics.record_task_cancelled();
-            self.publish_result(Err(TaskError::Cancelled));
+            self.finish_result(Err(TaskError::Cancelled), completion);
         }
     }
 
@@ -172,13 +199,13 @@ where
     /// task error after the lifecycle and private result handle are settled.
     pub(crate) fn complete_rejected(&self) -> Result<(), TaskError> {
         if let Some(panic_payload) = self.store_completed() {
-            self.complete_lifecycle();
-            self.publish_result(Err(TaskError::Panicked));
+            let completion = self.complete_lifecycle();
+            self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(panic_payload);
             Err(TaskError::Panicked)
         } else {
-            self.cancel_lifecycle();
-            self.publish_result(Err(TaskError::Cancelled));
+            let completion = self.cancel_lifecycle();
+            self.finish_result(Err(TaskError::Cancelled), completion);
             Ok(())
         }
     }
