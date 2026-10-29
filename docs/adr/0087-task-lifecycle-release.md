@@ -17,6 +17,10 @@ Revision 2026-10-29: preflight fixes its cohort from every publishable workspace
 package before classifying registry availability. An interrupted upload changes
 the pending subset, never the checked artifact set or its expected hashes.
 
+Revision 2026-10-29: preflight selects Cargo workspace members explicitly and
+rejects empty, duplicate-name or mixed-version publication units before reading
+the registry. The one workspace version remains fixed through partial uploads.
+
 ## Context
 
 Awaitable task results, owned cancellation, bounded shutdown calls and autonomous

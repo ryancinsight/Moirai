@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      version: ${{ steps.plan.outputs.version }}
       packages: ${{ steps.plan.outputs.packages }}
       bootstrap: ${{ steps.plan.outputs.bootstrap }}
       cohort: ${{ steps.plan.outputs.cohort }}

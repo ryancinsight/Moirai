@@ -46,21 +46,89 @@ class ReleasePreflightTests(unittest.TestCase):
         packages = [{"name": "root", "version": "1.0.0", "publish": None, "targets": []}]
         self.assertEqual(
             release_preflight.select_cohort(packages, lambda _name: None),
-            {"packages": ["root"], "bootstrap": ["root"], "pending": ["root"], "cohort": [{"name": "root", "version": "1.0.0"}]},
+            {"version": "1.0.0", "packages": ["root"], "bootstrap": ["root"], "pending": ["root"], "cohort": [{"name": "root", "version": "1.0.0"}]},
         )
 
     def test_plan_preserves_indexed_versions_in_the_checked_cohort(self):
         packages = [
             {"name": "ready", "version": "1.0.0", "publish": None, "targets": []},
-            {"name": "pending", "version": "1.1.0", "publish": ["crates-io"], "targets": []},
+            {"name": "pending", "version": "1.0.0", "publish": ["crates-io"], "targets": []},
             {"name": "private", "version": "1.0.0", "publish": False, "targets": []},
         ]
         def versions(name):
-            return {"1.0.0": "0" * 64} if name != "private" else None
+            return {"1.0.0" if name == "ready" else "0.9.0": "0" * 64}
         self.assertEqual(
             release_preflight.select_cohort(packages, versions),
-            {"packages": ["pending", "ready"], "bootstrap": [], "pending": ["pending"], "cohort": [{"name": "pending", "version": "1.1.0"}, {"name": "ready", "version": "1.0.0"}]},
+            {"version": "1.0.0", "packages": ["pending", "ready"], "bootstrap": [], "pending": ["pending"], "cohort": [{"name": "pending", "version": "1.0.0"}, {"name": "ready", "version": "1.0.0"}]},
         )
+
+    def test_workspace_unit_rejects_missing_or_conflicting_members_before_registry_reads(self):
+        cases = [
+            ([], "no publishable members"),
+            ([{"name": "private", "version": "1.0.0", "publish": []}], "no publishable members"),
+            ([{"name": "root", "version": "1.0.0"}, {"name": "leaf", "version": "1.1.0"}], "different versions"),
+            ([{"name": "root", "version": "1.0.0"}] * 2, "duplicate package names"),
+        ]
+        for packages, message in cases:
+            with self.subTest(message=message):
+                queries = []
+                with self.assertRaisesRegex(RuntimeError, message):
+                    release_preflight.select_cohort(packages, queries.append)
+                self.assertEqual(queries, [])
+
+    def test_native_workspace_plan_fixes_membership_and_one_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "Cargo.toml"
+            manifest.write_text(
+                '[workspace]\nmembers = ["leaf", "root", "private"]\nresolver = "3"\n'
+                '[workspace.package]\nversion = "1.0.0"\nedition = "2024"\n',
+                encoding="utf-8",
+            )
+            for name in ("leaf", "root", "private"):
+                member = root / name
+                (member / "src").mkdir(parents=True)
+                (member / "src/lib.rs").write_text("", encoding="utf-8")
+                (member / "Cargo.toml").write_text(
+                    f'[package]\nname = "{name}"\nversion.workspace = true\nedition.workspace = true\n'
+                    + ("publish = false\n" if name == "private" else ""),
+                    encoding="utf-8",
+                )
+            (root / "Cargo.lock").write_text(
+                "version = 4\n" + "".join(
+                    f'\n[[package]]\nname = "{name}"\nversion = "1.0.0"\n'
+                    for name in ("leaf", "private", "root")
+                ), encoding="utf-8",
+            )
+            queries = []
+            registry = {"leaf": {"1.0.0": "0" * 64}, "root": None}
+
+            def versions(name):
+                queries.append(name)
+                return registry[name]
+
+            self.assertEqual(
+                release_preflight.plan(manifest, versions),
+                {"version": "1.0.0", "packages": ["leaf", "root"],
+                 "bootstrap": ["root"], "pending": ["root"],
+                 "cohort": [{"name": "leaf", "version": "1.0.0"},
+                            {"name": "root", "version": "1.0.0"}]},
+            )
+            self.assertEqual(queries, ["leaf", "root"])
+            member = root / "leaf/Cargo.toml"
+            member.write_text(
+                member.read_text(encoding="utf-8").replace('version.workspace = true', 'version = "1.1.0"'),
+                encoding="utf-8",
+            )
+            lock = root / "Cargo.lock"
+            lock.write_text(
+                lock.read_text(encoding="utf-8").replace('name = "leaf"\nversion = "1.0.0"', 'name = "leaf"\nversion = "1.1.0"'),
+                encoding="utf-8",
+            )
+            queries.clear()
+            with self.assertRaisesRegex(RuntimeError, "different versions"):
+                release_preflight.plan(manifest, versions)
+            self.assertEqual(queries, [])
 
     def test_plan_uses_the_shared_registry_reader_and_propagates_its_error(self):
         reader = self.registry_reader()
@@ -88,7 +156,7 @@ class ReleasePreflightTests(unittest.TestCase):
 
             self.assertEqual(
                 release_preflight.plan(manifest, versions),
-                {"packages": ["root"], "bootstrap": [], "pending": [], "cohort": [{"name": "root", "version": "1.0.0"}]},
+                {"version": "1.0.0", "packages": ["root"], "bootstrap": [], "pending": [], "cohort": [{"name": "root", "version": "1.0.0"}]},
             )
 
             def failing_versions(name):
@@ -115,6 +183,7 @@ class ReleasePreflightTests(unittest.TestCase):
 
                 result = release_preflight.select_cohort(list(reversed(packages)), versions)
                 self.assertEqual(queries, ["leaf", "root"])
+                self.assertEqual(result["version"], "1.0.0")
                 self.assertEqual(result["packages"], ["leaf", "root"])
                 self.assertEqual(result["cohort"], cohort)
                 self.assertEqual(result["pending"], [name for name in queries if name not in published])

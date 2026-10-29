@@ -89,6 +89,14 @@ def select_cohort(packages: list[dict[str, Any]], versions_for: Any) -> dict[str
         (package for package in packages if is_publishable(package)),
         key=lambda package: package["name"],
     )
+    if not release:
+        raise RuntimeError("workspace release has no publishable members")
+    versions = {package["version"] for package in release}
+    if len(versions) != 1:
+        raise RuntimeError("workspace release members have different versions")
+    names = [package["name"] for package in release]
+    if len(names) != len(set(names)):
+        raise RuntimeError("workspace release has duplicate package names")
     first: list[str] = []
     pending: list[str] = []
     for package in release:
@@ -98,7 +106,8 @@ def select_cohort(packages: list[dict[str, Any]], versions_for: Any) -> dict[str
         if versions is None or package["version"] not in versions:
             pending.append(package["name"])
     return {
-        "packages": [package["name"] for package in release],
+        "version": release[0]["version"],
+        "packages": names,
         "bootstrap": first,
         "pending": pending,
         "cohort": [cohort_entry(package) for package in release],
@@ -106,7 +115,12 @@ def select_cohort(packages: list[dict[str, Any]], versions_for: Any) -> dict[str
 
 
 def plan(manifest: Path, versions_for: Any) -> dict[str, Any]:
-    return select_cohort(cargo_metadata(manifest)["packages"], versions_for)
+    metadata = cargo_metadata(manifest)
+    members = set(metadata["workspace_members"])
+    packages = [package for package in metadata["packages"] if package["id"] in members]
+    if {package["id"] for package in packages} != members:
+        raise RuntimeError("Cargo metadata omits a workspace member")
+    return select_cohort(packages, versions_for)
 
 
 def sha256(path: Path) -> str:
@@ -249,7 +263,7 @@ def main() -> int:
                 bootstrap = ",".join(result["bootstrap"])
                 cohort = json.dumps(result["cohort"], separators=(",", ":"))
                 args.github_output.write_text(
-                    f"packages={encoded}\nbootstrap={bootstrap}\ncohort={cohort}\n", encoding="utf-8"
+                    f"version={result['version']}\npackages={encoded}\nbootstrap={bootstrap}\ncohort={cohort}\n", encoding="utf-8"
                 )
         elif args.command == "record":
             record(args.paths, args.output, json.loads(args.context), json.loads(args.cohort))
