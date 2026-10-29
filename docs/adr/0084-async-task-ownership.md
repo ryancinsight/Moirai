@@ -31,6 +31,13 @@ future. The initial created phase prevents cancellation wakes from scheduling
 a first poll before the admission owner. Executor destruction uses the same shutdown path.
 External event sources are not required to wake cancelled tasks.
 
+Timed shutdown performs cancellation and scheduler drain in its helper; user
+notification code cannot hold the caller before the timed wait begins. Setup
+time counts against the caller budget. The existing destructor still joins
+the drain to preserve its documented shutdown contract; this is an exception
+to the default nonblocking-destructor preference. Non-yielding work remains
+nonpreemptible, so only the explicit timed call has a caller deadline.
+
 Future destruction stays under the poll or rejected-admission owner. A destructor
 panic reports `TaskError::Panicked` after settling state, tracking, lifecycle,
 metrics, and the result sender. Lifecycle publication returns an explicit

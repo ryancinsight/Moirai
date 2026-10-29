@@ -10,6 +10,7 @@ mod future_destruction;
 mod priority;
 mod shutdown;
 mod shutdown_callbacks;
+mod shutdown_deadlines;
 mod shutdown_ownership;
 mod spawn;
 mod sync_completion_callbacks;

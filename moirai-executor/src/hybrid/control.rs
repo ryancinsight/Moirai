@@ -1,4 +1,5 @@
-use std::sync::atomic::Ordering;
+use core::convert::Infallible;
+use std::sync::{Arc, atomic::Ordering, mpsc};
 
 #[cfg(feature = "metrics")]
 use moirai_core::executor::ExecutorStats;
@@ -33,19 +34,25 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
     /// lapses, workers keep draining in the background and the (idempotent)
     /// scheduler shutdown is re-joined on executor drop.
     fn shutdown_timeout(&self, timeout: core::time::Duration) {
+        let wait_started = std::time::Instant::now();
         self.shutdown_signal.store(true, Ordering::Release);
-        self.async_tasks.shutdown(&self.task_registry);
 
+        let async_tasks = Arc::clone(&self.async_tasks);
+        let task_registry = Arc::clone(&self.task_registry);
         let scheduler = self.scheduler.clone();
-        let (done_sender, done_receiver) = std::sync::mpsc::sync_channel::<()>(1);
-        std::thread::spawn(move || {
+        let (done_sender, done_receiver) = mpsc::channel::<Infallible>();
+        drop(std::thread::spawn(move || {
+            let completion = done_sender;
+            async_tasks.shutdown(&task_registry);
             scheduler.shutdown();
-            let _ = done_sender.send(());
-        });
+            drop(completion);
+        }));
 
-        // A timeout here is the expected bounded outcome, not a failure to
-        // mask: the drain continues in the background by contract (above).
-        let _ = done_receiver.recv_timeout(timeout);
+        let remaining = timeout.saturating_sub(wait_started.elapsed());
+        match done_receiver.recv_timeout(remaining) {
+            Ok(completion) => match completion {},
+            Err(mpsc::RecvTimeoutError::Disconnected | mpsc::RecvTimeoutError::Timeout) => {}
+        }
     }
 
     fn is_shutting_down(&self) -> bool {
