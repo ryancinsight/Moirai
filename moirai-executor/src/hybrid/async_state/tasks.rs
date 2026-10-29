@@ -51,10 +51,10 @@ impl AsyncTasks {
             .tasks
             .get(&id)
             .cloned();
-        if let Some(cancel) = cancel {
-            if !crate::schedule::job::run_caught(|| cancel.wake()) {
-                return Err(ExecutorError::SpawnFailed(TaskError::Panicked));
-            }
+        if let Some(cancel) = cancel
+            && !crate::schedule::job::run_caught(|| cancel.wake())
+        {
+            return Err(ExecutorError::SpawnFailed(TaskError::Panicked));
         }
         Ok(())
     }
