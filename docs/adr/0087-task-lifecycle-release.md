@@ -2,6 +2,11 @@
 
 Status: Accepted
 
+Revision 2026-10-29: automatic publication requires the complete successful
+main-branch verification workflow at the identical commit, in addition to
+release preflight. A pending or failed run rejects publication; the existing
+scheduled release can collect a later successful result without polling.
+
 Workspace version: 0.12.0
 
 ## Context
@@ -14,8 +19,10 @@ and literals. Cargo's pre-1.0 compatibility boundary therefore requires 0.12.0.
 
 The main-branch publisher runs when manifest versions change. Separate bumped
 merges could publish only part of this runtime. The user authorizes the version
-change and registry release subject to full release gates. PR 649 contains the
-complete unit and preserves the reviewed source branches as ancestors.
+change and registry release subject to full release gates.
+[PR 650](https://github.com/ryancinsight/Moirai/pull/650) preserves the composition
+and its reviewed source branches while verification and release prerequisites
+are completed.
 
 ## Decision
 

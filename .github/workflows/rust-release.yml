@@ -26,6 +26,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verification:
+    name: Require verified main revision
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: read
+    steps:
+      - name: Require the complete main-branch gate at this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/workflows/rust-ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success&per_page=100" > "$RUNNER_TEMP/release-verification.json"
+          jq -e --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '[.[].workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and .head_repository.full_name == $repo and .event == "push" and .conclusion == "success")] | length > 0' "$RUNNER_TEMP/release-verification.json"
+
+  release-preflight:
+    needs: verification
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    uses: ./.github/workflows/release-preflight.yml
+    permissions:
+      contents: read
+
   # A public-surface break the manifest version does not cover
   # stops the release here. The baseline is the latest published
   # version, so the list is the crates the registry carries.
@@ -65,6 +87,7 @@ jobs:
   # the tag-creating and OIDC permissions; the release and dispatch jobs above
   # skip on push and schedule events.
   publish-pending:
+    needs: release-preflight
     if: github.event_name == 'push' || github.event_name == 'schedule'
     uses: ryancinsight/atlas/.github/workflows/crates-publish-pending.yml@50802ef4c975bdb1e668b94a700d8310f0348e9c
     permissions:
