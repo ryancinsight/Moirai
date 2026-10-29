@@ -10,7 +10,7 @@ use windows::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
 use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 /// Extended Windows path capacity includes the terminating UTF16 unit.
-/// https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
+/// <https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation>
 pub(crate) const MAX_PROFILE_PATH_UNITS: usize = 32_767 - 1;
 
 pub(super) fn validate(folder: &Path) -> io::Result<PathBuf> {
