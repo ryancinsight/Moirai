@@ -34,3 +34,18 @@ fn async_context_runs_parallel_compute_on_same_runtime() {
     });
     assert_eq!(total, (0..100_000u64).sum::<u64>());
 }
+
+#[test]
+fn one_worker_awaits_its_child() {
+    let runtime = moirai::Moirai::builder()
+        .worker_threads(1)
+        .build()
+        .expect("test runtime builds");
+    let parent_runtime = runtime.clone();
+    let parent = runtime.spawn_async(async move {
+        let child = parent_runtime.spawn_async(async { 37_usize });
+        child.await
+    });
+    assert_eq!(runtime.block_on(parent), Some(Ok(Some(Ok(37)))));
+    runtime.shutdown();
+}
