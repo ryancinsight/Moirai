@@ -3,7 +3,10 @@
 mod completion;
 pub(crate) mod diagnostics;
 mod directory;
-#[allow(clippy::module_inception)]
+#[expect(
+    clippy::module_inception,
+    reason = "the registry facade owns its module"
+)]
 pub(crate) mod registry;
 mod retention;
 #[cfg(test)]

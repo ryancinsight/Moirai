@@ -22,7 +22,7 @@
 //! Under a normal build the `#![cfg(loom)]` gate makes this file empty.
 
 #![cfg(loom)]
-#![allow(clippy::unwrap_used, reason = "test scope")]
+#![expect(clippy::unwrap_used, reason = "test scope")]
 
 use loom::cell::UnsafeCell;
 use loom::sync::atomic::{AtomicBool, Ordering};

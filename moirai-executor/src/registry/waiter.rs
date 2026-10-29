@@ -240,7 +240,7 @@ impl WaiterSet {
 /// let task_id = registry.register_task();
 /// let mut waiter = registry
 ///     .register_waker(task_id, std::task::Waker::noop())
-///     .expect("the task is pending");
+///     .expect("invariant: a newly registered task is pending");
 /// assert!(waiter.update(std::task::Waker::noop()));
 /// drop(waiter);
 /// registry.mark_completed(task_id);
@@ -254,7 +254,7 @@ pub struct TaskWaiter {
 impl TaskWaiter {
     /// Replace this registration's waker.
     ///
-    /// Returns `false` when completion already detached the registration. The
+    /// Returns `false` after completion closes the registration set. The
     /// incoming waker is cloned before any lock is acquired, and destruction
     /// of the replaced or unused clone runs after every lock is released.
     ///
