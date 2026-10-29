@@ -17,9 +17,9 @@ use std::{
 
 use moirai_core::{
     Priority,
-    error::{ExecutorResult, TaskError},
+    error::ExecutorResult,
     executor::ExecutorConfig,
-    task::{TaskHandle, TaskId, TaskResultSender},
+    task::{TaskHandle, TaskId},
 };
 
 use crate::{
@@ -31,11 +31,14 @@ use crate::{
 mod async_state;
 pub(crate) mod control;
 pub(crate) mod manager;
+mod result;
 #[cfg(test)]
 mod retention_tests;
 pub(crate) mod spawner;
 #[cfg(test)]
 mod tests;
+
+use result::{TaskEnd, send_task_result};
 
 #[derive(Clone, Copy)]
 struct MetricsRef {
@@ -183,16 +186,26 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 
         self.scheduler
             .schedule::<C, _>(priority, locality_hint, move |worker_id| {
-                let Some(running) = lifecycle.start_unless_cancelled(worker_id) else {
-                    // Record before publishing the result so a joiner observes
-                    // the cancelled counter as soon as the handle resolves.
-                    metrics.get().record_task_cancelled();
-                    result_sender.send(Err(TaskError::Cancelled));
-                    return;
+                let running = match lifecycle.start_unless_cancelled(worker_id) {
+                    Ok(running) => running,
+                    Err(receipt) => {
+                        send_task_result(
+                            TaskEnd::Cancelled,
+                            Some(result_sender),
+                            metrics.get(),
+                            receipt,
+                        );
+                        return;
+                    }
                 };
                 let result = catch_unwind(AssertUnwindSafe(func));
-                let execution_time = running.complete().notify();
-                send_task_result(result, result_sender, metrics.get(), execution_time);
+                let receipt = running.complete();
+                send_task_result(
+                    TaskEnd::Completed(result),
+                    Some(result_sender),
+                    metrics.get(),
+                    receipt,
+                );
             })?;
 
         self.metrics.record_task_spawned();
@@ -302,26 +315,5 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 impl<S: WorkScheduler> Drop for HybridExecutor<S> {
     fn drop(&mut self) {
         let _ = Self::shutdown(self);
-    }
-}
-
-#[inline]
-fn send_task_result<T>(
-    result: Result<T, Box<dyn std::any::Any + Send>>,
-    sender: TaskResultSender<T>,
-    metrics: &ExecutorMetrics,
-    execution_time: core::time::Duration,
-) where
-    T: Send + 'static,
-{
-    match result {
-        Ok(value) => {
-            sender.send(Ok(value));
-            metrics.record_task_completed(execution_time);
-        }
-        Err(_) => {
-            sender.send(Err(TaskError::Panicked));
-            metrics.record_task_failed();
-        }
     }
 }

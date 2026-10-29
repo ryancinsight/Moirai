@@ -2,9 +2,8 @@
 //! and publishing the task result.
 
 use std::{
-    any::Any,
     future::Future,
-    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr,
     sync::atomic::Ordering,
 };
@@ -21,9 +20,7 @@ use crate::{
     schedule::WorkSubmit,
 };
 
-// `catch_unwind` erases the compile-time-unknown panic payload at this cold
-// scheduler boundary; task polling and completion remain monomorphized.
-type PanicPayload = Box<dyn Any + Send>;
+use crate::hybrid::result::{PanicPayload, drop_after_settlement, publish_result, resume_callback};
 
 impl<S, F, L> AsyncFutureState<S, F, L>
 where
@@ -96,42 +93,12 @@ where
         future_drop_panic
     }
 
-    #[inline]
-    fn publish_result(&self, result: Result<F::Output, TaskError>) {
-        if let Some(sender) = self.take_result_sender() {
-            sender.send(result);
-        }
-    }
-
-    /// Publish the handle before invoking registry callbacks that may join it.
     fn finish_result(
         &self,
         result: Result<F::Output, TaskError>,
         completion: Option<TaskCompletion>,
     ) -> Option<PanicPayload> {
-        let publication = catch_unwind(AssertUnwindSafe(|| self.publish_result(result)));
-        let notification = catch_unwind(AssertUnwindSafe(|| {
-            if let Some(completion) = completion {
-                completion.notify();
-            }
-        }));
-        // These counters report notification failures without changing the
-        // already-published task result. They carry no synchronization edge.
-        for failed in [publication.is_err(), notification.is_err()] {
-            if failed {
-                self.metrics.waiter_panics.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        // Return callback panics so the completion owner can destroy displaced
-        // output and original panic payloads before resuming unwinding.
-        match (publication, notification) {
-            (Ok(()), Ok(())) => None,
-            (Err(payload), Ok(())) | (Ok(()), Err(payload)) => Some(payload),
-            (Err(first), Err(second)) => {
-                drop_after_settlement(second);
-                Some(first)
-            }
-        }
+        publish_result(self.take_result_sender(), result, completion, &self.metrics)
     }
 
     #[inline]
@@ -230,23 +197,5 @@ where
     pub(super) fn complete_resource_exhausted(&self) {
         debug_assert_eq!(self.state.load(Ordering::Acquire), ASYNC_QUEUED);
         self.complete_failed(TaskError::ResourceExhausted);
-    }
-}
-
-/// Destroy a value only after every observable completion channel is settled.
-///
-/// A panic here is secondary to the already-published `TaskError::Panicked`.
-/// The scheduler boundary contains it; a second panic while destroying that
-/// panic payload aborts, matching the existing scheduled-job policy.
-fn drop_after_settlement<T>(value: T) {
-    // The primary failure is already published. Reuse the scheduler boundary
-    // to contain a cleanup panic and abort if its panic payload also panics.
-    crate::schedule::job::run_caught(|| drop(value));
-}
-
-/// Resume only after result channels and retained completion values are settled.
-fn resume_callback(panic: Option<PanicPayload>) {
-    if let Some(payload) = panic {
-        resume_unwind(payload);
     }
 }

@@ -32,7 +32,13 @@ impl Drop for PanickingOutput {
     }
 }
 
+enum FutureDestruction {
+    Complete,
+    Panic,
+}
+
 struct GatedCompletionFuture {
+    destruction: FutureDestruction,
     ready: Arc<AtomicBool>,
     task_waker: Arc<Mutex<Option<Waker>>>,
     parked: Option<mpsc::SyncSender<()>>,
@@ -63,7 +69,9 @@ impl Future for GatedCompletionFuture {
 impl Drop for GatedCompletionFuture {
     fn drop(&mut self) {
         self.future_drops.fetch_add(1, Ordering::AcqRel);
-        panic!("future destructor panic");
+        if matches!(self.destruction, FutureDestruction::Panic) {
+            panic!("future destructor panic");
+        }
     }
 }
 
@@ -98,6 +106,7 @@ fn callback_panic_waits_for_panicking_completion_values() {
     let (parked_sender, parked_receiver) = mpsc::sync_channel(1);
     let handle = executor
         .spawn_async(GatedCompletionFuture {
+            destruction: FutureDestruction::Panic,
             ready: Arc::clone(&ready),
             task_waker: Arc::clone(&task_waker),
             parked: Some(parked_sender),
@@ -136,7 +145,62 @@ fn callback_panic_waits_for_panicking_completion_values() {
     assert_eq!(sentinel.join(), Some(Ok(53)));
     assert_eq!(output_drops.load(Ordering::Acquire), 1);
     assert_eq!(future_drops.load(Ordering::Acquire), 1);
-    assert_eq!(executor.metrics().waiter_panics.load(Ordering::Acquire), 1);
+    assert_eq!(
+        executor
+            .metrics()
+            .publication_panics
+            .load(Ordering::Acquire),
+        1
+    );
 
+    ExecutorControl::shutdown(&executor);
+}
+
+#[test]
+fn uncollected_output_destruction_is_a_publication_failure() {
+    let executor = HybridExecutor::new(ExecutorConfig {
+        worker_threads: 1,
+        ..ExecutorConfig::default()
+    })
+    .unwrap();
+    let ready = Arc::new(AtomicBool::new(false));
+    let task_waker = Arc::new(Mutex::new(None));
+    let future_drops = Arc::new(AtomicUsize::new(0));
+    let output_drops = Arc::new(AtomicUsize::new(0));
+    let (parked_sender, parked_receiver) = mpsc::sync_channel(1);
+    let handle = executor
+        .spawn_async(GatedCompletionFuture {
+            destruction: FutureDestruction::Complete,
+            ready: Arc::clone(&ready),
+            task_waker: Arc::clone(&task_waker),
+            parked: Some(parked_sender),
+            future_drops: Arc::clone(&future_drops),
+            output_drops: Arc::clone(&output_drops),
+        })
+        .unwrap();
+    parked_receiver
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("future parks before release");
+    drop(handle);
+    ready.store(true, Ordering::Release);
+    task_waker
+        .lock()
+        .unwrap()
+        .take()
+        .expect("future saved its waker")
+        .wake();
+    let sentinel = executor
+        .spawn_result::<SyncTask, _>(Priority::Normal, None, || 59usize)
+        .unwrap();
+    assert_eq!(sentinel.join(), Some(Ok(59)));
+    assert_eq!(output_drops.load(Ordering::Acquire), 1);
+    assert_eq!(future_drops.load(Ordering::Acquire), 1);
+    assert_eq!(
+        executor
+            .metrics()
+            .publication_panics
+            .load(Ordering::Acquire),
+        1
+    );
     ExecutorControl::shutdown(&executor);
 }

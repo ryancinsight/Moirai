@@ -33,7 +33,10 @@ impl Retire {
             }
             Self::DropUnstarted => drop(lifecycle),
             Self::Cancel => {
-                assert!(lifecycle.start_unless_cancelled(0).is_none());
+                let Err(completion) = lifecycle.start_unless_cancelled(0) else {
+                    panic!("cancelled lifecycle must not yield a running token");
+                };
+                completion.notify();
             }
         }
     }

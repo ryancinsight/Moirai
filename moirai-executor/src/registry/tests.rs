@@ -258,7 +258,10 @@ mod tests {
         );
 
         // The job-start gate observes the request and never yields a running token.
-        assert!(lifecycle.start_unless_cancelled(4).is_none());
+        let Err(completion) = lifecycle.start_unless_cancelled(4) else {
+            panic!("cancelled lifecycle must not yield a running token");
+        };
+        completion.notify();
 
         let metadata = registry.get_metadata(task_id).unwrap();
         assert!(metadata.cancelled);

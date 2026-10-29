@@ -34,14 +34,24 @@ External event sources are not required to wake cancelled tasks.
 Future destruction stays under the poll or rejected-admission owner. A destructor
 panic reports `TaskError::Panicked` after settling state, tracking, lifecycle,
 metrics, and the result sender. Lifecycle publication returns an explicit
-notification receipt; its callbacks run only after result publication. Both
+notification receipt; completion-owned callbacks run after result publication.
+A concurrently registered waiter may observe the published lifecycle timestamp
+while result publication is still in progress; registration runs on that
+consumer thread, with no registry lock held during its callback. The public
+status API remains eventually consistent with the one-shot handle. Both
 notification channels are attempted and retained output/payload destruction is
 guarded before a callback panic can reach the scheduler boundary. The
-`waiter_panics` metric counts callback failures; shutdown contains each wake so
+`publication_panics` metric counts result-publication and lifecycle-notification
+failures, including destruction of uncollected results; shutdown contains each wake so
 one failure cannot skip cancellation of the remaining tasks. Caught payloads and displaced results are dropped
 after settlement using the scheduler panic boundary. A panic in that cleanup
 payload, or in final-owner fallback destruction without a completion owner,
 aborts under the existing fatal destructor policy.
+
+Synchronous, blocking, and detached jobs use the same result-publication and
+notification operation as async tasks. An external exhaustive `ExecutorMetrics`
+literal must initialize `publication_panics`, or use `ExecutorMetrics::new()`;
+adding the observable field is a breaking public struct change.
 
 The runtime implements the existing `TaskManager` trait so applications can
 cancel and observe tasks through the public facade. Blocking `join` retains its

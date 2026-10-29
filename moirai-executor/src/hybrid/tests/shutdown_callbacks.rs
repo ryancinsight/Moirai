@@ -155,5 +155,11 @@ fn panicking_waiter_does_not_interrupt_saturated_shutdown_cancellation() {
     assert_eq!(second_filler.join(), Some(Ok(())));
     assert!(!executor.has_work());
     assert!(executor.async_tasks.close_and_snapshot().is_empty());
-    assert_eq!(executor.metrics().waiter_panics.load(Ordering::Acquire), 1);
+    assert_eq!(
+        executor
+            .metrics()
+            .publication_panics
+            .load(Ordering::Acquire),
+        1
+    );
 }

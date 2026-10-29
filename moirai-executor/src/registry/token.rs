@@ -221,15 +221,18 @@ impl<L: StateLease> TaskLifecycleToken<L> {
 
     /// Start the task unless it was cancelled while queued.
     ///
-    /// Returns `None` after marking the task cancelled (the body must not run);
-    /// otherwise transfers completion authority like [`Self::start`].
+    /// Returns the pending completion notification after marking the task
+    /// cancelled (the body must not run); otherwise transfers completion
+    /// authority like [`Self::start`].
     #[inline]
-    pub(crate) fn start_unless_cancelled(self, worker_id: usize) -> Option<RunningTaskToken<L>> {
+    pub(crate) fn start_unless_cancelled(
+        self,
+        worker_id: usize,
+    ) -> Result<RunningTaskToken<L>, TaskCompletion> {
         if self.cancel_requested() {
-            self.cancel().notify();
-            None
+            Err(self.cancel())
         } else {
-            Some(self.start(worker_id))
+            Ok(self.start(worker_id))
         }
     }
 

@@ -12,4 +12,5 @@ mod shutdown;
 mod shutdown_callbacks;
 mod shutdown_ownership;
 mod spawn;
+mod sync_completion_callbacks;
 mod wait;
