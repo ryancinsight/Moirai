@@ -17,6 +17,10 @@
 //! - **Memory Overhead**: < 64 bytes per task for metadata and context
 //! - **Cache Efficiency**: Task data structures are cache-line aligned
 //!
+//! `TaskHandle` and executor completion endpoints require `std`. Task values,
+//! builders, combinators, and [`TaskFuture`] remain available with `core` and
+//! `alloc` when default features are disabled.
+//!
 //! ## Examples
 //!
 //! ### Basic Task Creation
@@ -37,13 +41,14 @@
 //!
 //! ### Task Chaining and Composition
 //!
-//! ```rust,ignore
+//! ```rust
 //! use moirai_core::{TaskBuilder, TaskExt, Task};
+//! use moirai_core::task::Chained;
 //!
 //! let base_task = TaskBuilder::new().build(|| 21);
 //!
 //! // Chain operations
-//! let doubled = base_task.then(|x| x * 2);
+//! let doubled = Chained::new(base_task, |x| x * 2);
 //! let result = doubled.execute();
 //! assert_eq!(result, 42);
 //!
@@ -63,6 +68,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
 /// Maximum generic spin attempts before falling back to blocking
+#[cfg(feature = "std")]
 pub(crate) const MAX_SPIN_ATTEMPTS: usize = 64;
 
 /// Task builder types: `TaskBuilder`, `BaseTask`, `Closure`, `Chained`, `Mapped`, `Parameterized`, `Group`, `Spawner`.
@@ -72,6 +78,7 @@ pub(crate) mod ext;
 /// `TaskFuture<T>`: fused one-shot future that runs a task synchronously on first poll.
 pub(crate) mod future;
 /// Task handle and result-slot types: `TaskHandle`, `TaskResultSender`, `BlockingResultWait`, `ResultWaitPolicy`.
+#[cfg(feature = "std")]
 pub(crate) mod handle;
 /// Core identity and context types: `TaskId`, `Priority`, `TaskContext`.
 pub(crate) mod id_and_context;
@@ -83,6 +90,7 @@ pub(crate) mod traits;
 pub use builder::{BaseTask, Chained, Closure, Group, Mapped, Parameterized, Spawner, TaskBuilder};
 pub use ext::{ContextualTask, TaskExt};
 pub use future::TaskFuture;
+#[cfg(feature = "std")]
 pub use handle::TaskHandle;
 pub use id_and_context::{Priority, TaskContext, TaskId};
 pub use traits::Task;
@@ -151,25 +159,31 @@ mod tests {
 
     #[test]
     fn test_task_group() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let total = Arc::new(AtomicUsize::new(0));
         let mut group = Group::new(TaskId::new(1));
 
-        let task1 = TaskBuilder::new().with_id(TaskId::new(2)).build(|| 42);
+        let task1 = TaskBuilder::new().with_id(TaskId::new(2)).build(|| 42usize);
 
-        let task2 = TaskBuilder::new().with_id(TaskId::new(3)).build(|| 24);
+        let task2 = TaskBuilder::new().with_id(TaskId::new(3)).build(|| 24usize);
 
-        // Wrap tasks in closures for the group
-        group.add_task(|| {
-            let _ = task1.execute();
+        let first_total = Arc::clone(&total);
+        group.add_task(move || {
+            // Execution is sequential; these counters carry no synchronization.
+            first_total.fetch_add(task1.execute(), Ordering::Relaxed);
         });
-        group.add_task(|| {
-            let _ = task2.execute();
+        let second_total = Arc::clone(&total);
+        group.add_task(move || {
+            second_total.fetch_add(task2.execute(), Ordering::Relaxed);
         });
 
         assert_eq!(group.len(), 2);
         assert!(!group.is_empty());
 
-        // Execute the group
         group.execute();
+        assert_eq!(total.load(Ordering::Relaxed), 66);
     }
 
     #[test]
@@ -182,17 +196,26 @@ mod tests {
 
     #[test]
     fn test_spawner_task() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
         let id = TaskId::new(1);
+        let output = Arc::new(AtomicUsize::new(0));
+        let spawned_output = Arc::clone(&output);
         let spawner = Spawner::new(
-            || {
-                // This would spawn other tasks in a real implementation
+            move || {
+                let task = TaskBuilder::new().build(|| 7usize * 3);
+                // The task executes before the caller reads this value.
+                spawned_output.store(task.execute(), Ordering::Relaxed);
             },
             TaskContext::new(id),
         );
 
-        spawner.execute(); // Should not panic
+        spawner.execute();
+        assert_eq!(output.load(Ordering::Relaxed), 21);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn task_handle_returns_sent_result() {
         let (handle, sender) = TaskHandle::new_pending(TaskId::new(10));
@@ -203,6 +226,7 @@ mod tests {
         assert_eq!(handle.join(), Some(Ok(42)));
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn task_handle_ready_returns_stored_result() {
         let handle = TaskHandle::ready(TaskId::new(12), Ok(84usize));
@@ -212,6 +236,7 @@ mod tests {
         assert_eq!(handle.join(), Some(Ok(84)));
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn task_handle_reports_cancelled_when_sender_drops() {
         let (handle, sender) = TaskHandle::<usize>::new_pending(TaskId::new(11));
@@ -222,6 +247,7 @@ mod tests {
         assert_eq!(handle.join(), Some(Err(crate::error::TaskError::Cancelled)));
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn task_handle_waits_for_cross_thread_completion() {
         let (handle, sender) = TaskHandle::new_pending(TaskId::new(13));
@@ -234,6 +260,7 @@ mod tests {
         worker.join().unwrap();
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn task_handle_parks_until_delayed_completion() {
         let (handle, sender) = TaskHandle::new_pending(TaskId::new(14));
@@ -254,6 +281,7 @@ mod tests {
         worker.join().unwrap();
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn result_wait_policy_is_zero_sized_and_const_bounded() {
         assert_eq!(core::mem::size_of::<BlockingResultWait>(), 0);

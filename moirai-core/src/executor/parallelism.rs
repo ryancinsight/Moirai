@@ -14,32 +14,18 @@
 /// is the fallback when no topology is available.
 #[must_use]
 pub fn logical_parallelism() -> usize {
-    #[cfg(feature = "std")]
-    {
-        static CACHED: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-        *CACHED.get_or_init(detect_logical_parallelism)
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        detect_logical_parallelism()
-    }
+    static CACHED: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(detect_logical_parallelism)
 }
 
 fn detect_logical_parallelism() -> usize {
-    #[cfg(feature = "std")]
-    {
-        themis::CpuTopology::detect()
-            .map(|topology| topology.logical_processors())
-            .or_else(|| {
-                std::thread::available_parallelism()
-                    .ok()
-                    .map(std::num::NonZeroUsize::get)
-            })
-            .unwrap_or(1)
-            .max(1)
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        4 // Reasonable default for no_std
-    }
+    themis::CpuTopology::detect()
+        .map(|topology| topology.logical_processors())
+        .or_else(|| {
+            std::thread::available_parallelism()
+                .ok()
+                .map(std::num::NonZeroUsize::get)
+        })
+        .unwrap_or(1)
+        .max(1)
 }

@@ -1,5 +1,6 @@
 //! Error types and handling for the Moirai runtime.
 
+use alloc::string::String;
 use core::fmt;
 
 /// Errors that can occur during task operations.
@@ -256,6 +257,8 @@ impl std::error::Error for SchedulerError {}
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+
     use super::*;
 
     #[test]

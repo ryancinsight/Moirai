@@ -1,4 +1,6 @@
-use super::{RESULT_PENDING, RESULT_READY, ResultCell, StateWord, Waiter};
+#[cfg(feature = "std")]
+use super::Waiter;
+use super::{RESULT_PENDING, RESULT_READY, ResultCell, StateWord};
 use std::sync::{
     Arc, Condvar, Mutex,
     atomic::{AtomicU8, AtomicUsize, Ordering},
@@ -191,6 +193,7 @@ fn registration_returns_while_the_producer_is_writing() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn a_waker_may_be_replaced_but_a_thread_registration_is_once() {
     const _: () = assert!(<Waker as Waiter>::REPLACE_ON_REPEAT);
     const _: () = assert!(!<thread::Thread as Waiter>::REPLACE_ON_REPEAT);
@@ -210,6 +213,7 @@ fn a_waker_may_be_replaced_but_a_thread_registration_is_once() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn a_thread_waiter_is_unparked_across_the_hand_off() {
     let cell = ResultCell::<u32, thread::Thread>::new();
     // SAFETY: this test thread is the cell's only consumer.
@@ -255,16 +259,14 @@ fn an_aligned_state_word_keeps_the_publish_off_the_result_line() {
     use core::mem::{align_of, size_of};
     use core::sync::atomic::AtomicU8;
 
-    type Aligned = ResultCell<u32, thread::Thread, CacheAligned<AtomicU8>>;
+    type Aligned = ResultCell<u32, Waker, CacheAligned<AtomicU8>>;
 
-    // This is the layout `moirai-core`'s blocking slot is written against: the
-    // state owns one interference sector and the result lies outside it, so the
-    // producer's publish does not invalidate the line the consumer reads the
-    // result from. The packed default is what the async handle wants instead,
-    // one allocation per spawned task. The sector claim is the whole assertion —
+    // This is the aligned state-word layout used when publication must not
+    // invalidate the line containing the result. The packed default instead
+    // keeps one allocation small. The sector claim is the whole assertion:
     // two fields cannot overlap, so a state word that fills its sector already
-    // excludes the result — and it is a property of the types, so it is checked
-    // at compile time.
+    // excludes the result. It is a property of the types, so it is checked at
+    // compile time.
     const _: () = assert!(size_of::<CacheAligned<AtomicU8>>() >= DESTRUCTIVE_INTERFERENCE_SIZE);
     const _: () = assert!(align_of::<Aligned>() >= DESTRUCTIVE_INTERFERENCE_SIZE);
 

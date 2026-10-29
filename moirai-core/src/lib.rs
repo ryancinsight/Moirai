@@ -5,6 +5,12 @@
 //! This crate provides the fundamental building blocks that all other
 //! Moirai crates build upon, including task abstractions, executor traits,
 //! and scheduling interfaces.
+//!
+//! With default features disabled, the crate uses `core` and `alloc`. Host
+//! capabilities such as threads, clocks, task completion handles, executor
+//! lifecycle traits, and automatic topology selection require the `std`
+//! feature; the allocation-backed task, scheduler, memory, and pool vocabulary
+//! remains available.
 
 #![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -15,8 +21,9 @@
 #![allow(clippy::borrowed_box)]
 #![allow(clippy::new_ret_no_self)]
 
-#[cfg(not(feature = "std"))]
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 // Platform abstraction layer
 pub mod platform;
@@ -46,9 +53,13 @@ pub mod ipc;
 
 // Core type definitions
 pub use error::{ExecutorError, PlacementFailure, SchedulerError, TaskError};
-pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus, WorkerPlacement};
+pub use executor::{ExecutorConfig, WorkerPlacement};
+#[cfg(feature = "std")]
+pub use executor::{TaskManager, TaskSpawner, TaskStatus};
 pub use scheduler::SchedulerId;
-pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId};
+#[cfg(feature = "std")]
+pub use task::TaskHandle;
+pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskId};
 
 // `channel::unbounded` is deliberately not re-exported here or in `prelude`:
 // an unbounded queue turns a slow consumer into unbounded memory growth, so
@@ -84,12 +95,13 @@ pub type Result<T> = core::result::Result<T, BoxError>;
 pub mod prelude {
     pub use crate::{
         ExecutorError, Priority, SchedulerError, SchedulerId, Task, TaskContext, TaskError,
-        TaskExt, TaskFuture, TaskId, TaskManager, TaskSpawner, TaskStatus,
+        TaskExt, TaskFuture, TaskId,
     };
 
     #[cfg(feature = "std")]
     pub use crate::{
         Channel, ChannelError, Consumer, DEFAULT_CHANNEL_CAPACITY, MpmcReceiver, MpmcSender,
-        Producer, SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, mpmc, spsc,
+        Producer, SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, TaskManager,
+        TaskSpawner, TaskStatus, mpmc, spsc,
     };
 }

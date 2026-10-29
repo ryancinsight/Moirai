@@ -402,35 +402,5 @@ impl<T> Drop for TaskResultSender<T> {
     }
 }
 
-// ── TaskHandle (no_std) ───────────────────────────────────────────────────────
-
-// For no_std environments, provide a simpler handle
-#[cfg(not(feature = "std"))]
-pub struct TaskHandle<T> {
-    id: TaskId,
-    _phantom: core::marker::PhantomData<T>,
-}
-
-#[cfg(not(feature = "std"))]
-impl<T> TaskHandle<T> {
-    /// Create a new task handle.
-    pub fn new(id: TaskId) -> Self {
-        Self {
-            id,
-            _phantom: core::marker::PhantomData,
-        }
-    }
-
-    /// Create a new detached task handle (alias for new in no_std).
-    pub fn new_detached(id: TaskId) -> Self {
-        Self::new(id)
-    }
-
-    /// Get the task ID.
-    pub fn id(&self) -> TaskId {
-        self.id
-    }
-}
-
 #[cfg(all(test, feature = "std"))]
 mod tests;

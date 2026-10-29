@@ -227,8 +227,8 @@ mod tests {
         // sector: the byte distance between consecutive elements is the
         // separation the wrapper promises.
         let pair = [CacheAligned::new(0_u8), CacheAligned::new(0_u8)];
-        let first = std::ptr::addr_of!(pair[0].0) as usize;
-        let second = std::ptr::addr_of!(pair[1].0) as usize;
+        let first = core::ptr::addr_of!(pair[0].0) as usize;
+        let second = core::ptr::addr_of!(pair[1].0) as usize;
         assert_eq!(second - first, DESTRUCTIVE_INTERFERENCE_SIZE);
     }
 

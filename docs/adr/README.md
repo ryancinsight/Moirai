@@ -93,3 +93,4 @@
 | [0085](0085-result-state-storage.md) | Result state storage | Accepted |
 | [0086](0086-task-wait-deadlines.md) | Task-wait deadlines | Accepted |
 | [0087](0087-task-lifecycle-release.md) | Task lifecycle release boundary | Accepted |
+| [0088](0088-core-runtime-capabilities.md) | Core runtime capabilities without the standard library | Accepted |

@@ -54,7 +54,7 @@ moirai-crypto = { path = "moirai-crypto", version = "0.12.0" }
 moirai-http = { path = "moirai-http", version = "0.12.0" }
 moirai-quic = { path = "moirai-quic", version = "0.1.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.12.0" }
-moirai-utils = { path = "moirai-utils", version = "0.12.0", features = ["std"] }
+moirai-utils = { path = "moirai-utils", version = "0.12.0", default-features = false }
 moirai-gpu = { path = "moirai-gpu", version = "0.12.0" }
 melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.10.0", default-features = false }
 themis = { package = "themis-topology", git = "https://github.com/ryancinsight/themis", version = "0.11.1", default-features = false, features = ["std"] }

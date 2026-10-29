@@ -95,6 +95,7 @@ pub fn prefetch_slice_read<T>(slice: &[T]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::vec;
 
     #[test]
     fn test_prefetch_slice() {

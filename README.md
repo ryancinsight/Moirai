@@ -105,13 +105,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`TaskHandle::join` returns `Option<Result<T, TaskError>>`: `Some(Ok(_))` on
-success, `Some(Err(_))` when the task failed, and `None` when the task was
-detached.
+`TaskHandle::join` and awaiting a handle both return
+`Option<Result<T, TaskError>>`: `Some(Ok(_))` on success, `Some(Err(_))` when
+the task failed or was cancelled, and `None` when the handle was detached or
+its result was already consumed by polling. Dropping a handle detaches result
+collection; it does not cancel the task. Cancellation and completion waits are
+explicit through `TaskManager`; a wait timeout leaves the task running.
+`shutdown_timeout` bounds the caller's wait while shutdown continues and is
+joined when the runtime is dropped.
 
 Default features: `async`, `iter`, `parallel`, `local`, `mnemosyne-memory`,
 `melinoe`. Optional: `distributed`, `network`, `metrics`, `gpu`,
-`encryption`, `compression`, `tokio-compat`, `no-std`, and `full`.
+`encryption`, `compression`, `tokio-compat`, and `full`.
+
+The facade requires the standard library. `moirai-core` and `moirai-utils`
+provide a core/alloc subset with `default-features = false`; see the
+[0.12 no_std migration](docs/migrations/no-std.md) for its supported boundary.
 
 When an application calls Melinoe's partition functions directly, initialize
 the shared provider before the first call:

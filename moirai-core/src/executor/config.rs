@@ -28,6 +28,9 @@ pub const DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY: usize = 128;
 ///
 /// This struct encapsulates all tunable parameters that affect executor operation,
 /// including thread pool sizes, queue capacities, and various performance optimizations.
+/// With `std`, [`Default`] derives worker counts from the host topology. Without
+/// `std`, consumers construct the public fields from their platform's explicit
+/// values; no processor count is assumed.
 #[allow(clippy::module_name_repetitions)]
 pub struct ExecutorConfig {
     /// Number of worker threads for parallel tasks
@@ -62,6 +65,7 @@ pub struct ExecutorConfig {
     pub cleanup: CleanupConfig,
 }
 
+#[cfg(feature = "std")]
 impl Default for ExecutorConfig {
     fn default() -> Self {
         Self {

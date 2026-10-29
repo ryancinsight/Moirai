@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
 use super::*;
+use alloc::{vec, vec::Vec};
 
 #[test]
 fn test_memory_pool() {

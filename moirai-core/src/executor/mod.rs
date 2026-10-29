@@ -2,21 +2,34 @@
 //!
 //! This module provides the core executor abstraction for the Moirai runtime.
 //! It defines traits for task spawning, management, and lifecycle control.
+//! Without `std`, only configuration and worker-placement vocabulary remains;
+//! spawning, lifecycle, task completion, clocks, and host topology require
+//! operating-system capabilities.
 
+#[cfg(feature = "std")]
 pub mod builder;
 pub mod config;
+#[cfg(feature = "std")]
 pub mod control;
+#[cfg(feature = "std")]
 pub mod manager;
+#[cfg(feature = "std")]
 pub mod parallelism;
 pub mod placement;
+#[cfg(feature = "std")]
 pub mod spawner;
 
+#[cfg(feature = "std")]
 pub use builder::ExecutorBuilder;
 pub use config::{CleanupConfig, ExecutorConfig, MemoryConfig, PreemptionConfig};
+#[cfg(feature = "std")]
 pub use control::ExecutorControl;
+#[cfg(feature = "std")]
 pub use manager::{TaskManager, TaskStats, TaskStatus};
+#[cfg(feature = "std")]
 pub use parallelism::logical_parallelism;
 pub use placement::WorkerPlacement;
+#[cfg(feature = "std")]
 pub use spawner::TaskSpawner;
 
 /// Combined executor trait with all capabilities.
@@ -29,6 +42,7 @@ pub use spawner::TaskSpawner;
 /// - Single interface for complete functionality
 /// - Maintains internal separation of concerns
 /// - Enables easy mocking and testing
+#[cfg(feature = "std")]
 pub trait Executor: TaskSpawner + TaskManager + ExecutorControl {
     /// Get comprehensive executor statistics.
     ///
@@ -47,12 +61,12 @@ pub trait Executor: TaskSpawner + TaskManager + ExecutorControl {
 }
 
 /// Executor statistics (basic implementation when metrics feature is disabled)
-#[cfg(not(feature = "metrics"))]
+#[cfg(all(feature = "std", not(feature = "metrics")))]
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorStats;
 
 /// Executor statistics with full metrics
-#[cfg(feature = "metrics")]
+#[cfg(all(feature = "std", feature = "metrics"))]
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorStats {
     /// Number of tasks executed

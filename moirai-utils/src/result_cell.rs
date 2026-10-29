@@ -419,5 +419,5 @@ impl<T, W: Waiter, S: StateWord> Drop for ResultCell<T, W, S> {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests;

@@ -8,12 +8,7 @@ use core::{
     num::NonZeroUsize,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-
-#[cfg(feature = "std")]
-use std::sync::Arc;
-
-#[cfg(not(feature = "std"))]
-use alloc::sync::Arc;
+use std::{sync::Arc, vec::Vec};
 
 #[test]
 fn slot_costs_one_machine_word_over_its_payload() {
@@ -131,7 +126,6 @@ fn a_stale_tail_position_is_not_a_full_queue() {
 /// A dequeue moves its item out before reopening the slot. A producer that
 /// reaches that slot in between must wait for it: the queue is below capacity,
 /// and reporting it full made the scheduler drop tasks as resource-exhausted.
-#[cfg(feature = "std")]
 #[test]
 fn a_producer_waits_for_a_claimed_slot_instead_of_reporting_full() {
     // Capacity two fills the two-slot ring; claiming the front leaves one item
@@ -193,7 +187,6 @@ fn test_lock_free_queue_drop_runs_destructors() {
     assert_eq!(counter.load(Ordering::Relaxed), 3);
 }
 
-#[cfg(feature = "std")]
 #[test]
 fn test_lock_free_queue_concurrent_mpmc() {
     use std::thread;
