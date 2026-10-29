@@ -26,7 +26,7 @@ mnemosyne = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
 
 # Comparison libraries
-tokio = { version = "1.54.1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 rayon = "1.12.0"
 crossbeam = "0.8.5"
 num_cpus = "1.17.0"

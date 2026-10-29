@@ -89,6 +89,7 @@ criterion = "0.5.1"
 fastrand = "2.5.0"
 proptest = "1.11.0"
 pyo3 = "0.29.3"
+tokio = "1.54.1"
 # Exhaustive-interleaving model checker for lock-free code (gated behind
 # `--cfg loom`; not built in normal/CI test runs).
 loom = "0.7.2"
