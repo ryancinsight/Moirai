@@ -96,12 +96,15 @@ jobs:
         run: |
           test -n "$QUIC_PROFILE_CASE"
           mkdir -p output/quic
-          timeout --kill-after=30s 300s sudo perf record -F 99 --call-graph dwarf -o output/quic/cpu.perf.data -- sudo -H -u "$(id -un)" env "PATH=$PATH" MOIRAI_QUIC_RECOVERY_TRACE=1 python3 scripts/quic_profiles.py --binary target/release/examples/quic_load --network netem --tc "$RUNNER_TEMP/quic-iproute2/tc/tc" --case "$QUIC_PROFILE_CASE" --output output/quic/profiles.json
+          rustc_dir="$(dirname "$(rustup which rustc)")"
+          timeout --kill-after=30s 300s sudo env "PATH=$rustc_dir:$PATH" MOIRAI_QUIC_RECOVERY_TRACE=1 perf record -F 99 --call-graph dwarf -o output/quic/cpu.perf.data -- python3 scripts/quic_profiles.py --binary target/release/examples/quic_load --network netem --tc "$RUNNER_TEMP/quic-iproute2/tc/tc" --case "$QUIC_PROFILE_CASE" --output output/quic/profiles.json
       - name: Render the diagnostic CPU samples
         if: ${{ always() && inputs.profile }}
         run: |
-          sudo chown "$(id -u):$(id -g)" output/quic/cpu.perf.data
+          sudo chown "$(id -u):$(id -g)" output/quic/cpu.perf.data output/quic/profiles.json
           perf report --stdio --input output/quic/cpu.perf.data > output/quic/cpu.txt
+          perf script --input output/quic/cpu.perf.data -F comm > output/quic/cpu.commands
+          grep -Eq '^[[:space:]]*quic_load[[:space:]]*$' output/quic/cpu.commands
       - name: Preserve complete measurements and failure evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
