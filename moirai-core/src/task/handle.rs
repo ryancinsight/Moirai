@@ -246,12 +246,18 @@ pub fn diagnostic_result_slot_complete_waiting() -> usize {
 /// # Examples
 ///
 /// ```
+/// use core::future::Future;
+/// use core::pin::Pin;
+/// use core::task::{Context, Poll, Waker};
 /// use moirai_core::{TaskHandle, TaskId};
 ///
-/// async fn completed_task() {
-///     let handle = TaskHandle::ready(TaskId::new(1), Ok(42usize));
-///     assert_eq!(handle.await, Some(Ok(42)));
-/// }
+/// let mut handle = TaskHandle::ready(TaskId::new(1), Ok(42usize));
+/// let mut context = Context::from_waker(Waker::noop());
+///
+/// assert_eq!(
+///     Pin::new(&mut handle).poll(&mut context),
+///     Poll::Ready(Some(Ok(42))),
+/// );
 /// ```
 #[cfg(feature = "std")]
 #[allow(clippy::module_name_repetitions)]
