@@ -3,6 +3,23 @@ use moirai_core::executor::{ExecutorConfig, ExecutorControl, TaskManager, TaskSp
 use super::{super::HybridExecutor, fixtures::gate_single_worker};
 use crate::{BlockingTask, counting_wake::CountingWake};
 
+struct WakeSignal(std::sync::mpsc::SyncSender<()>);
+
+impl std::task::Wake for WakeSignal {
+    fn wake(self: std::sync::Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &std::sync::Arc<Self>) {
+        if let Err(error) = self.0.try_send(()) {
+            assert!(
+                matches!(error, std::sync::mpsc::TrySendError::Full(())),
+                "deadline wake receiver must remain connected"
+            );
+        }
+    }
+}
+
 #[test]
 fn wait_for_task_is_woken_by_completion_not_polling() {
     use std::future::Future;
@@ -144,6 +161,76 @@ fn wait_for_task_timeout_expires_and_unknown_task_errors() {
 
     release.send(()).unwrap();
     assert_eq!(handle.join().unwrap().unwrap(), 1);
+    gate_handle.join().unwrap().unwrap();
+    executor.shutdown();
+}
+
+#[test]
+fn wait_for_task_positive_timeout_wakes_and_reports_timeout() {
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Waker};
+    use std::time::Duration;
+
+    let executor = HybridExecutor::new(ExecutorConfig {
+        worker_threads: 1,
+        ..ExecutorConfig::default()
+    })
+    .unwrap();
+    let (release, gate_handle) = gate_single_worker::<BlockingTask>(&executor);
+    let handle = executor.spawn_blocking(|| 1usize).unwrap();
+    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+    let waker = Waker::from(Arc::new(WakeSignal(wake_tx)));
+    let mut context = Context::from_waker(&waker);
+    let mut wait =
+        std::pin::pin!(executor.wait_for_task(handle.id(), Some(Duration::from_millis(20))));
+
+    assert!(wait.as_mut().poll(&mut context).is_pending());
+    wake_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("PAL timer must wake the task waiter at its deadline");
+    assert_eq!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
+            moirai_core::TaskError::Timeout
+        )))
+    );
+
+    release.send(()).unwrap();
+    assert_eq!(handle.join().unwrap().unwrap(), 1);
+    gate_handle.join().unwrap().unwrap();
+    executor.shutdown();
+}
+
+#[test]
+fn wait_for_task_completion_precedes_unexpired_timeout_and_drop_cancels_timer() {
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Waker};
+    use std::time::Duration;
+
+    let executor = HybridExecutor::new(ExecutorConfig {
+        worker_threads: 1,
+        ..ExecutorConfig::default()
+    })
+    .unwrap();
+    let (release, gate_handle) = gate_single_worker::<BlockingTask>(&executor);
+    let handle = executor.spawn_blocking(|| 1usize).unwrap();
+    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+    let waker = Waker::from(Arc::new(WakeSignal(wake_tx)));
+    let mut context = Context::from_waker(&waker);
+    {
+        let mut wait =
+            std::pin::pin!(executor.wait_for_task(handle.id(), Some(Duration::from_secs(5))));
+        assert!(wait.as_mut().poll(&mut context).is_pending());
+        release.send(()).unwrap();
+        assert_eq!(handle.join().unwrap().unwrap(), 1);
+        wake_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("completion must wake the timer-backed task waiter");
+        assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    }
+
     gate_handle.join().unwrap().unwrap();
     executor.shutdown();
 }

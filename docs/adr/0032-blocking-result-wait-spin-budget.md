@@ -2,12 +2,14 @@
 
 Status: Accepted
 
+Revision 2026-10-29: retain the blocking spin budget while moving waiter ownership to the independent protocol in [ADR 0085](0085-result-state-storage.md).
+
 **Date**: 2026-05-24
 **Context**: `TaskHandle::join` uses the sealed zero-sized `BlockingResultWait` policy to probe a pending result slot before entering the single-waiter park fallback. Caller-side attribution measured the previous 100-spin pending miss at 1.1886-1.4520 us.
 
 ### Decision
 
-Set `MAX_SPIN_ATTEMPTS` to 64 for the blocking result-wait policy. Preserve the direct first READY-to-TAKEN CAS for already-ready handles, the relaxed-load gated pending probes, and the existing `WAITING` plus `thread::park` fallback.
+Set `MAX_SPIN_ATTEMPTS` to 64 for the blocking result-wait policy. Preserve the direct first READY-to-TAKEN CAS for already-ready handles, the relaxed-load gated pending probes, and waiter registration followed by `thread::park` under the protocol in ADR 0085.
 
 ### Rationale
 
@@ -27,4 +29,6 @@ Set `MAX_SPIN_ATTEMPTS` to 64 for the blocking result-wait policy. Preserve the 
 
 ### Residual Risk
 
-The 64-spin budget keeps Moirai ahead of same-run Tokio/Rayon public rows and leaves `task_scheduling_overhead` statistically unchanged, but captured, wake-once, oversized, and scope rows still show local Criterion baseline regressions. Further work should split scheduler result-publication variance before changing the wait budget again.
+The original spin-budget measurements put Moirai ahead of same-run Tokio/Rayon
+public rows and left `task_scheduling_overhead` statistically unchanged, but captured, wake-once, oversized, and scope rows still show local Criterion baseline regressions. Those historical measurements do not establish performance of the revised
+completion protocol in ADR 0085; that protocol has no new speedup claim.

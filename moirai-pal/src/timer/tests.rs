@@ -5,12 +5,71 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use futures::task::{ArcWake, waker};
 
-use super::sleep;
+use super::{SleeperEvent, TimerState, sleep};
+
+const SLEEPER_DEADLINE: Duration = Duration::from_secs(60);
+const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn event_deadline() -> Instant {
+    Instant::now()
+        .checked_add(EVENT_TIMEOUT)
+        .expect("invariant: five seconds fits in the platform instant range")
+}
+
+fn receive_event_before(
+    receiver: &std::sync::mpsc::Receiver<SleeperEvent>,
+    deadline: Instant,
+) -> SleeperEvent {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .expect("sleeper event must arrive before the test deadline");
+    receiver
+        .recv_timeout(remaining)
+        .expect("sleeper must publish the expected event")
+}
+
+fn receive_until(
+    receiver: &std::sync::mpsc::Receiver<SleeperEvent>,
+    expected: SleeperEvent,
+    deadline: Instant,
+) {
+    loop {
+        let event = receive_event_before(receiver, deadline);
+        if event == expected {
+            return;
+        }
+        assert_eq!(
+            event,
+            SleeperEvent::Waiting,
+            "only a genuine spurious wake may precede the expected event"
+        );
+    }
+}
+
+fn observe_sleeper(state: &TimerState) -> std::sync::mpsc::Receiver<SleeperEvent> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(8);
+    state
+        .observe_sleeper_with(sender)
+        .expect("invariant: each timer test installs one sleeper observer");
+    receiver
+}
+
+fn wait_until_parked<'state>(
+    state: &'state TimerState,
+    receiver: &std::sync::mpsc::Receiver<SleeperEvent>,
+    deadline: Instant,
+) -> std::sync::MutexGuard<'state, ()> {
+    receive_until(receiver, SleeperEvent::Waiting, deadline);
+    state
+        .sleeper_wait_lock
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
 
 struct WakeFlag {
     woke: AtomicBool,
@@ -36,6 +95,17 @@ impl ArcWake for WakeFlag {
             );
         }
     }
+}
+
+fn tracked_waker() -> (
+    std::sync::Weak<WakeFlag>,
+    std::task::Waker,
+    std::sync::mpsc::Receiver<()>,
+) {
+    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+    let flag = Arc::new(WakeFlag::new(wake_tx));
+    let observer = Arc::downgrade(&flag);
+    (observer, waker(flag), wake_rx)
 }
 
 #[test]
@@ -84,4 +154,97 @@ fn pal_timer_extreme_duration_does_not_panic() {
 
     let timer = super::Timer::new(Duration::from_secs(u64::MAX));
     assert!(timer.deadline() > std::time::Instant::now());
+}
+
+#[test]
+fn pal_timer_cancellation_before_wait_exits_without_parking() {
+    let timer = sleep(SLEEPER_DEADLINE);
+    let deadline = timer.deadline;
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let (observer, task_waker, _wake_events) = tracked_waker();
+
+    state.register_waker(&task_waker);
+    drop(task_waker);
+    assert_eq!(observer.strong_count(), 1);
+    drop(timer);
+    assert_eq!(observer.strong_count(), 0);
+
+    state
+        .spawn_sleeper(deadline)
+        .expect("real sleeper must spawn after pre-cancellation");
+    assert_eq!(
+        receive_event_before(&events, event_deadline()),
+        SleeperEvent::Exited
+    );
+}
+
+#[test]
+fn pal_timer_drop_during_wait_exits_and_releases_waker() {
+    let (observer, task_waker, _wake_events) = tracked_waker();
+    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let deadline = event_deadline();
+
+    {
+        let mut context = Context::from_waker(&task_waker);
+        assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    }
+    let wait_guard = wait_until_parked(&state, &events, deadline);
+    drop(wait_guard);
+    drop(task_waker);
+    assert_eq!(observer.strong_count(), 1);
+
+    drop(timer);
+    receive_until(&events, SleeperEvent::Exited, deadline);
+    assert_eq!(observer.strong_count(), 0);
+}
+
+#[test]
+fn pal_timer_spurious_notification_reparks_the_sleeper() {
+    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    let deadline = event_deadline();
+
+    assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    let wait_guard = wait_until_parked(&state, &events, deadline);
+    state.sleeper_wait.notify_one();
+    drop(wait_guard);
+
+    let reparked_guard = wait_until_parked(&state, &events, deadline);
+    assert!(!state.completed.load(Ordering::Acquire));
+    drop(reparked_guard);
+
+    drop(timer);
+    receive_until(&events, SleeperEvent::Exited, deadline);
+}
+
+#[test]
+fn pal_timer_borrowed_ready_exits_and_releases_waker() {
+    let (observer, task_waker, _wake_events) = tracked_waker();
+    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let deadline = event_deadline();
+
+    {
+        let mut context = Context::from_waker(&task_waker);
+        assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    }
+    let wait_guard = wait_until_parked(&state, &events, deadline);
+    drop(wait_guard);
+    drop(task_waker);
+    assert_eq!(observer.strong_count(), 1);
+
+    timer.as_mut().get_mut().deadline = Instant::now();
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    assert!(matches!(
+        timer.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
+    receive_until(&events, SleeperEvent::Exited, deadline);
+    assert_eq!(observer.strong_count(), 0);
 }

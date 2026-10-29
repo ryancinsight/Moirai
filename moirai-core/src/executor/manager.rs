@@ -47,25 +47,15 @@ pub trait TaskManager: Send + Sync + 'static {
     /// - Non-blocking: Never blocks calling thread
     fn task_status(&self, id: TaskId) -> Option<TaskStatus>;
 
-    /// Wait for a task to complete.
+    /// Wait for a task to settle, optionally bounded by a timer.
     ///
-    /// Returns a future that resolves when the task completes or the timeout expires.
-    /// This enables async/await patterns for task coordination.
+    /// Completion includes success, failure, and cancellation; collect the task
+    /// handle to inspect its result. A timeout stops this wait and leaves the
+    /// underlying task running. Completion already visible when polled wins a
+    /// simultaneous deadline observation.
     ///
-    /// # Arguments
-    /// - `id`: The task ID to wait for
-    /// - `timeout`: Optional timeout duration
-    ///
-    /// # Returns
-    /// A future that resolves to:
-    /// - `Ok(())` when the task completes successfully
-    /// - `Err(TaskError::Timeout)` if the timeout expires
-    /// - `Err(TaskError::NotFound)` if the task doesn't exist
-    ///
-    /// # Performance
-    /// - Immediate return: < 10ns if already complete
-    /// - Waiting overhead: Event-driven, no busy polling
-    /// - Memory: Minimal waker chain overhead
+    /// # Errors
+    /// Returns a typed timeout, timer-service failure, or unknown-task error.
     fn wait_for_task(
         &self,
         id: TaskId,

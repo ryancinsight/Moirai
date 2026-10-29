@@ -1,7 +1,8 @@
 use std::sync::Arc;
+use std::{future::Future, pin::Pin};
 
 use moirai_core::{
-    error::{ExecutorError, ExecutorResult, TaskError},
+    error::{ExecutorError, ExecutorResult, TaskError, TaskErrorKind},
     executor::{TaskManager, TaskStats, TaskStatus},
     task::TaskId,
 };
@@ -28,7 +29,7 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
     /// Cooperative cancellation.
     ///
     /// Contract: a queued task that has not started skips its body when a
-    /// worker dequeues it â€” the task completes with `TaskError::Cancelled` and
+    /// worker dequeues it — the task completes with `TaskError::Cancelled` and
     /// status `Cancelled`. A running synchronous closure is not preempted and
     /// runs to completion. An async task receives cancellation at its next
     /// poll boundary. Cancelling an already-completed task is a no-op `Ok(())`.
@@ -52,19 +53,17 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
     ///
     /// The future registers a completion waker with the task registry and
     /// returns `Pending`; `mark_completed`/`mark_cancelled` wake it exactly
-    /// (no polling loop and no thread-blocking sleep). The deadline is checked
-    /// on every poll — at creation, on each completion wake, and on any
-    /// external poll after expiry. No in-scope timer exists (the async timer
-    /// lives in `moirai-async`), so if the task never completes, observing the
-    /// expiry requires the caller to poll after the deadline (e.g. a
-    /// timeout-aware runtime); a completion wake always resolves promptly.
+    /// (no polling loop and no thread-blocking sleep). A positive timeout owns
+    /// one PAL timer, which wakes the same task when its deadline expires.
+    /// Completion is observed before the deadline on every poll, so a task
+    /// already published as complete wins a simultaneous timeout observation.
     fn wait_for_task(
         &self,
         id: TaskId,
         timeout: Option<core::time::Duration>,
     ) -> impl core::future::Future<Output = ExecutorResult<()>> + Send {
         let registry = Arc::clone(&self.task_registry);
-        let deadline = timeout.and_then(|timeout| std::time::Instant::now().checked_add(timeout));
+        let mut timer = timeout.map(moirai_pal::timer::sleep);
 
         std::future::poll_fn(move |context| {
             match registry.completion(id.0) {
@@ -76,8 +75,20 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
                     )));
                 }
             }
-            if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
-                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(TaskError::Timeout)));
+            if let Some(timer) = timer.as_mut() {
+                match Pin::new(timer).poll(context) {
+                    std::task::Poll::Ready(Ok(())) => {
+                        return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
+                            TaskError::Timeout,
+                        )));
+                    }
+                    std::task::Poll::Ready(Err(_)) => {
+                        return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
+                            TaskError::ExecutionFailed(TaskErrorKind::Io),
+                        )));
+                    }
+                    std::task::Poll::Pending => {}
+                }
             }
 
             registry.register_waker(id.0, context.waker());

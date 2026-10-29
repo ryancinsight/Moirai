@@ -1081,6 +1081,9 @@ dependencies = [
 [[package]]
 name = "moirai-utils"
 version = "0.11.3"
+dependencies = [
+ "loom",
+]
 
 [[package]]
 name = "nu-ansi-term"
