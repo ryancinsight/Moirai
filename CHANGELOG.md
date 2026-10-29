@@ -5,6 +5,19 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] - Unreleased
+
+### Fixed
+
+- [patch] Harden the closed-socket reactor tests against Winsock value
+  recycling: observation loops carry a 10 s deadline so a socket value a
+  foreign test thread reissued reads live instead of failing the assertion,
+  a poll rejected with `WSAENOTSOCK` mid-teardown is retried instead of
+  aborting the test, and the reuse drain walks the free set rather than
+  rescanning its top, so a retired value the suite left deep in the free list
+  is still found. The observation helpers are gated to the Windows suite they
+  serve, which also keeps a unix lib-test build free of dead code.
+
 ## [0.11.3] - Unreleased
 
 ### Changed
