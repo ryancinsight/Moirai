@@ -66,8 +66,8 @@ mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", versio
 mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.10.0", package = "mnemosyne-memory", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
-# Pure-Rust crypto via moirai-crypto (RustCrypto backend) — no ring, no aws-lc-rs,
-# no C toolchain required.  Replaces the previous `features = ["ring", ...]`.
+# TLS uses moirai-crypto's RustCrypto provider. QUIC uses Quinn's rustls-ring
+# integration and its separate Ring provider; aws-lc-rs remains disabled.
 futures-io = "0.3.34"
 futures-rustls = { version = "0.26.0", default-features = false, features = ["logging", "tls12"] }
 rustls-pki-types = "1.15.1"

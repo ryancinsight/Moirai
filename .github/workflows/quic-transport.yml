@@ -77,6 +77,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Verify the measured source revision
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git status --porcelain --untracked-files=all > "$RUNNER_TEMP/quic-source-status"
+          if test -s "$RUNNER_TEMP/quic-source-status"; then
+            cat "$RUNNER_TEMP/quic-source-status"
+            exit 1
+          fi
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.97.0
@@ -129,6 +138,14 @@ jobs:
               selected_binary: $selected_binary, profile: "release",
               build_artifacts: $build[0],
               rustc_vv: $rustc}' > output/quic/provenance.json
+      - name: Record source status before measurement
+        shell: bash
+        run: |
+          git status --porcelain --untracked-files=all > output/quic/source-status-before.txt
+          if test -s output/quic/source-status-before.txt; then
+            cat output/quic/source-status-before.txt
+            exit 1
+          fi
       - name: Check the diagnostic CPU sampler
         if: inputs.profile
         run: perf --version
@@ -160,6 +177,16 @@ jobs:
           if grep -Fxq quic_load "$RUNNER_TEMP/quic-dso-wrong-prefix" || grep -Fxq quic_load_tokio "$RUNNER_TEMP/quic-dso-wrong-prefix"; then exit 1; fi
           normalize_dsos < output/quic/cpu.commands | sort -u > output/quic/cpu.dso-names
           grep -Fxq "$(basename "$QUIC_PROBE")" output/quic/cpu.dso-names
+      - name: Record source status after measurement
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p output/quic
+          git status --porcelain --untracked-files=all > output/quic/source-status-after.txt
+          if test -s output/quic/source-status-after.txt; then
+            cat output/quic/source-status-after.txt
+            exit 1
+          fi
       - name: Preserve complete measurements and failure evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
