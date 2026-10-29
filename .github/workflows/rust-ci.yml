@@ -21,6 +21,7 @@ on:
       - ".config/release-tools.toml"
       - "scripts/release_preflight.py"
       - "scripts/tests/test_release_preflight.py"
+      - "scripts/tests/test_release_sbom.py"
       - "scripts/release_sbom.py"
       - "scripts/release_minimum_versions.py"
       - "scripts/tests/test_release_minimum_versions.py"

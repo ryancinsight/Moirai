@@ -42,7 +42,7 @@ jobs:
       - id: plan
         run: python3 scripts/release_preflight.py plan --registry-reader-root "$RUNNER_TEMP/atlas-release-identity" --github-output "$GITHUB_OUTPUT"
       - name: Run release preflight regressions
-        run: python3 -m unittest scripts.tests.test_release_preflight
+        run: python3 -m unittest scripts.tests.test_release_preflight scripts.tests.test_release_sbom
         env:
           ATLAS_REGISTRY_READER_ROOT: ${{ runner.temp }}/atlas-release-identity
       - id: epoch
