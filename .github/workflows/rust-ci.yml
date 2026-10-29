@@ -155,6 +155,11 @@ jobs:
       - name: Run workspace tests
         run: cargo nextest run --locked --workspace --all-features --profile ci
 
+      - name: Verify task lifecycle example
+        run: |
+          timeout --kill-after=30s 60s cargo nextest run --locked -p moirai-runtime --example book_task_spawning --profile ci
+          timeout --kill-after=30s 60s cargo nextest run --locked -p moirai-runtime --example book_task_spawning --no-default-features --profile ci
+
       - name: Verify QUIC in default and minimal native builds
         run: |
           cargo nextest run --locked -p moirai-runtime --test quic
