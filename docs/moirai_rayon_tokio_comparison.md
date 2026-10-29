@@ -32,7 +32,7 @@ Latest example-cleanup benchmark refresh: `cargo bench -p moirai-benchmarks --no
 | --- | --- | --- | --- |
 | Primary domain | Unified sync, blocking, async-ready, and indexed scheduler work | CPU-bound data parallelism | Async I/O and task runtime |
 | Runtime model | One `Moirai` facade over `HybridExecutor` and `ThreadScheduler` | Work-stealing thread pool | Reactor plus async scheduler |
-| Public task result path | `Moirai::spawn_fn`, `Moirai::spawn_async`, `TaskHandle::join` | No equivalent per-task public result handle in scoped rows | `tokio::spawn`, `JoinHandle::await` |
+| Public task result path | `Moirai::spawn_fn`, `Moirai::spawn_async`, `TaskHandle::join`, and `TaskHandle` as a future | No equivalent per-task public result handle in scoped rows | `tokio::spawn`, `JoinHandle::await` |
 | Completion-only fan-out | `Moirai::scope` | `rayon::scope` | Spawn and await/join task sets |
 | Indexed map/reduce | `Moirai::map_reduce_indexed` | `into_par_iter().map(...).sum()` and related adapters | Not a primary Tokio primitive |
 | Bounded channel transfer | `moirai_core::channel::mpmc` | Not a primary Rayon primitive | `tokio::sync::mpsc::channel` |
@@ -144,6 +144,7 @@ Moirai has a direct public result-handle path:
 - `Moirai::spawn_fn`
 - `Moirai::spawn_async`
 - `TaskHandle::join`
+- `TaskHandle` as a future with the same result contract
 
 The benchmark audit compares these rows against Tokio `JoinHandle` where semantics match. Rayon is not used as a result-handle baseline because Rayon scoped work is completion-oriented and does not expose an equivalent per-task result handle.
 
@@ -174,7 +175,7 @@ sequenceDiagram
     Scheduler->>Worker: unpark selected worker
     Worker->>Worker: execute closure or poll future
     Worker->>Handle: publish result
-    App->>Handle: join
+    App->>Handle: join or await
     Handle-->>App: return value or task error
 ```
 
