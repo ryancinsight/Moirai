@@ -6,6 +6,10 @@ use super::id_and_context::TaskId;
 
 #[cfg(feature = "std")]
 use core::mem::ManuallyDrop;
+#[cfg(feature = "std")]
+use core::pin::Pin;
+#[cfg(feature = "std")]
+use core::task::{Context, Poll, Waker};
 
 #[cfg(feature = "std")]
 use std::sync::{Arc, atomic::AtomicU8};
@@ -13,7 +17,7 @@ use std::sync::{Arc, atomic::AtomicU8};
 use std::thread;
 
 #[cfg(feature = "std")]
-use moirai_utils::{CacheAligned, ResultCell};
+use moirai_utils::{CacheAligned, ResultCell, Waiter};
 
 // ── ResultWaitPolicy sealed module ────────────────────────────────────────────
 
@@ -68,17 +72,34 @@ pub use result_wait::{BlockingResultWait, ResultWaitPolicy};
 /// the per-target value lives in `moirai-utils`, not in a literal here.
 #[cfg(feature = "std")]
 struct TaskResultSlot<T> {
-    cell: ResultCell<Result<T, TaskError>, thread::Thread, CacheAligned<AtomicU8>>,
+    cell: ResultCell<Result<T, TaskError>, TaskWaiter, CacheAligned<AtomicU8>>,
 }
 
-/// The blocking side of the completion path.
+#[cfg(feature = "std")]
+#[derive(Clone)]
+enum TaskWaiter {
+    Thread(thread::Thread),
+    Waker(Waker),
+}
+
+#[cfg(feature = "std")]
+impl Waiter for TaskWaiter {
+    const REPLACE_ON_REPEAT: bool = true;
+
+    fn wake(self) {
+        match self {
+            Self::Thread(thread) => thread.unpark(),
+            Self::Waker(waker) => waker.wake(),
+        }
+    }
+}
+
+/// The consumer side of the completion path.
 ///
 /// The protocol — the state machine, its cell-access invariants and its ordering
-/// argument — lives with [`ResultCell`] in `moirai-utils`, and the async handle
-/// runs it too. This type adds only what blocking needs: a parked
-/// [`thread::Thread`] as the waiter, the cache-aligned state word its layout note
-/// above describes, and [`wait`](Self::wait)'s spin-then-park loop, which needs
-/// `thread::park` and so does not belong in the shared cell.
+/// argument — lives with [`ResultCell`] in `moirai-utils`. This type adds the
+/// cache-aligned state word, switches between a parked [`thread::Thread`] and a
+/// [`Waker`], and owns the blocking spin-then-park loop.
 #[cfg(feature = "std")]
 impl<T> TaskResultSlot<T> {
     fn new() -> Self {
@@ -141,7 +162,17 @@ impl<T> TaskResultSlot<T> {
     /// The caller is the slot's only consumer.
     unsafe fn register_waiter(&self) {
         // SAFETY: forwarded from this method's contract.
-        unsafe { self.cell.register(&thread::current()) };
+        unsafe {
+            self.cell.register(&TaskWaiter::Thread(thread::current()));
+        }
+    }
+
+    /// # Safety
+    ///
+    /// The caller is the slot's only consumer.
+    unsafe fn register_waker(&self, waker: &Waker) {
+        // SAFETY: forwarded from this method's contract.
+        unsafe { self.cell.register(&TaskWaiter::Waker(waker.clone())) };
     }
 
     #[cfg(feature = "result-diagnostics")]
@@ -208,6 +239,20 @@ pub fn diagnostic_result_slot_complete_waiting() -> usize {
 // ── TaskHandle (std) ──────────────────────────────────────────────────────────
 
 /// A handle to a task that may be running on another thread.
+///
+/// The handle can be consumed either by blocking [`join`](Self::join) or by
+/// awaiting it. Detached handles resolve to `None` in both cases.
+///
+/// # Examples
+///
+/// ```
+/// use moirai_core::{TaskHandle, TaskId};
+///
+/// async fn completed_task() {
+///     let handle = TaskHandle::ready(TaskId::new(1), Ok(42usize));
+///     assert_eq!(handle.await, Some(Ok(42)));
+/// }
+/// ```
 #[cfg(feature = "std")]
 #[allow(clippy::module_name_repetitions)]
 pub struct TaskHandle<T> {
@@ -292,6 +337,34 @@ impl<T> TaskHandle<T> {
     }
 }
 
+#[cfg(feature = "std")]
+impl<T> core::future::Future for TaskHandle<T> {
+    type Output = Option<Result<T, TaskError>>;
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let handle = self.get_mut();
+        let Some(slot) = handle.result_slot.as_ref() else {
+            return Poll::Ready(None);
+        };
+
+        if let Some(result) = slot.try_take_ready() {
+            handle.result_slot = None;
+            return Poll::Ready(Some(result));
+        }
+
+        // SAFETY: polling requires exclusive access to the handle, so this is
+        // the slot's only consumer registration.
+        unsafe { slot.register_waker(context.waker()) };
+
+        if let Some(result) = slot.try_take_ready() {
+            handle.result_slot = None;
+            Poll::Ready(Some(result))
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
 // ── TaskResultSender (std) ────────────────────────────────────────────────────
 
 /// Single-producer completion endpoint for a task result.
@@ -350,3 +423,6 @@ impl<T> TaskHandle<T> {
         self.id
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod tests;
