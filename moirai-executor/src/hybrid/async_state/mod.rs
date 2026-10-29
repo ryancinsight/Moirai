@@ -46,7 +46,7 @@
 //! entry. Cancellation needs no subsequent wake from an external event source.
 //!
 //! The poll or rejected-admission owner publishes lifecycle metadata and result
-//! state before registry notification callbacks. Result and registry callbacks
+//! state before its registry notification callbacks. Result and registry callbacks
 //! are both attempted; callback panics are counted and retained until guarded
 //! output/payload cleanup finishes. Shutdown contains each wake's unwind before
 //! continuing its snapshot and scheduler teardown. Final state destruction has

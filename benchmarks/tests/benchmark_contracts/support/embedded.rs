@@ -137,6 +137,7 @@ embedded_sources![
     "../moirai-executor/src/hybrid/control.rs",
     "../moirai-executor/src/hybrid/manager.rs",
     "../moirai-executor/src/hybrid/mod.rs",
+    "../moirai-executor/src/hybrid/result.rs",
     "../moirai-executor/src/hybrid/spawner.rs",
     "../moirai-executor/src/hybrid/tests/cancel.rs",
     "../moirai-executor/src/hybrid/tests/construction.rs",

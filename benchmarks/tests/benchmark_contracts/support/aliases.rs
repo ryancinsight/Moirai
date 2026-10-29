@@ -157,6 +157,7 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-executor/src/hybrid/async_state/tests/shutdown.rs",
             "../moirai-executor/src/hybrid/async_state/waker.rs",
             "../moirai-executor/src/hybrid/control.rs",
+            "../moirai-executor/src/hybrid/result.rs",
             "../moirai-executor/src/hybrid/spawner.rs",
             "../moirai-executor/src/hybrid/manager.rs",
             "../moirai-executor/src/hybrid/tests/cancel.rs",

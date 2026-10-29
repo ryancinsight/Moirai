@@ -94,8 +94,11 @@ fn public_handle_paths_retain_panic_containment() {
     for required in [
         "let result = catch_unwind(AssertUnwindSafe(func));",
         "self.spawn_result::<SyncTask, _>(priority, locality_hint, move || task.execute())",
-        "send_task_result(result, result_sender, metrics.get(), execution_time)",
-        "sender.send(Err(TaskError::Panicked));",
+        "TaskEnd::Completed(result)",
+        "TaskEnd::Completed(Err(payload))",
+        "Err(TaskError::Panicked), Some(payload)",
+        "drop_after_settlement(payload)",
+        "resume_callback(callback)",
         "fn spawn_blocking_reports_panicked_result()",
         "assert_eq!(handle.join(), Some(Err(moirai_core::TaskError::Panicked)))",
     ] {
