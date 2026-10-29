@@ -34,11 +34,15 @@
 //! waker owns) until completion, and each registration scans the members. A
 //! dropped waiter leaves its member behind the same way.
 //!
-//! A panic in one member's wake unwinds out of the fan-out's wake and drops the
-//! members after it unwoken, as a panicking waker leaves the wakes after it
-//! undone in any sequence of wakes.
+//! A panic in one member's wake is retained while every later member is still
+//! attempted. The first panic resumes after the fan-out has consumed each
+//! member exactly once.
 
-use std::task::{RawWaker, RawWakerVTable, Waker};
+use std::{
+    any::Any,
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    task::{RawWaker, RawWakerVTable, Waker},
+};
 
 /// Identity and behavior of a fan-out waker whose data is a `Box<Vec<Waker>>`.
 static FAN_OUT_VTABLE: RawWakerVTable = RawWakerVTable::new(
@@ -48,29 +52,25 @@ static FAN_OUT_VTABLE: RawWakerVTable = RawWakerVTable::new(
     drop_members,
 );
 
-/// Add `waker` to the wakers held in `slot`.
+/// Merge an owned `waker` with the owned waker already held by a slot.
 ///
-/// An empty slot stores a clone. A held waker that `will_wake` the new one
-/// makes the call a no-op, which also skips the clone. Otherwise the slot
-/// becomes, or already is, a fan-out that gains `waker` unless one of its
-/// members `will_wake` it; the scan is linear in the members. `will_wake` is
-/// best-effort, so a repeat can be added again.
-pub(super) fn register(slot: &mut Option<Waker>, waker: &Waker) {
-    let Some(held) = slot.as_mut() else {
-        *slot = Some(waker.clone());
-        return;
-    };
-    if held.will_wake(waker) {
-        return;
+/// A held waker that `will_wake` the new one returns the unused duplicate for
+/// its caller to drop. Otherwise the result becomes, or already is, a fan-out
+/// that gains `waker` unless one of its members `will_wake` it; the scan is
+/// linear in the members. `will_wake` is best-effort, so a repeat can be added
+/// again.
+pub(super) fn register(mut held: Waker, waker: Waker) -> (Waker, Option<Waker>) {
+    if held.will_wake(&waker) {
+        return (held, Some(waker));
     }
-    if let Some(members) = members_mut(held) {
-        if !members.iter().any(|member| member.will_wake(waker)) {
-            members.push(waker.clone());
+    if let Some(members) = members_mut(&mut held) {
+        if members.iter().any(|member| member.will_wake(&waker)) {
+            return (held, Some(waker));
         }
-        return;
+        members.push(waker);
+        return (held, None);
     }
-    let first = std::mem::replace(held, Waker::noop().clone());
-    *held = fan_out(vec![first, waker.clone()]);
+    (fan_out(vec![held, waker]), None)
 }
 
 /// A waker whose wake wakes every waker in `members`.
@@ -109,14 +109,17 @@ unsafe fn clone_members(data: *const ()) -> RawWaker {
 
 /// `RawWakerVTable::wake`: wake every member, consuming the allocation.
 ///
-/// A panic in one member's wake drops the members after it unwoken.
 unsafe fn wake_members(data: *const ()) {
     // SAFETY: `data` is a live `Box<Vec<Waker>>` allocation and `wake` consumes
     // the waker that owned it, so this is the last use.
     let members = unsafe { Box::from_raw(data.cast::<Vec<Waker>>().cast_mut()) };
+    let mut panics = Vec::with_capacity(members.len());
     for member in *members {
-        member.wake();
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| member.wake())) {
+            panics.push(payload);
+        }
     }
+    resume_callback_panics(panics.into_iter());
 }
 
 /// `RawWakerVTable::wake_by_ref`: wake every member, leaving the allocation.
@@ -124,9 +127,24 @@ unsafe fn wake_members_by_ref(data: *const ()) {
     // SAFETY: `data` is a live `Box<Vec<Waker>>` allocation, and this call only
     // reads it.
     let members = unsafe { &*data.cast::<Vec<Waker>>() };
+    let mut panics = Vec::with_capacity(members.len());
     for member in members {
-        member.wake_by_ref();
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| member.wake_by_ref())) {
+            panics.push(payload);
+        }
     }
+    resume_callback_panics(panics.into_iter());
+}
+
+/// Resume the first callback panic after safely disposing later payloads.
+pub(super) fn resume_callback_panics(mut panics: impl Iterator<Item = Box<dyn Any + Send>>) {
+    let Some(first) = panics.next() else {
+        return;
+    };
+    for secondary in panics {
+        crate::schedule::job::run_caught(|| drop(secondary));
+    }
+    resume_unwind(first);
 }
 
 /// `RawWakerVTable::drop`: release the members and the allocation.
@@ -146,13 +164,21 @@ mod tests {
 
     use super::register;
 
+    fn register_slot(slot: &mut Option<std::task::Waker>, waker: &std::task::Waker) {
+        let incoming = waker.clone();
+        *slot = Some(match slot.take() {
+            Some(held) => register(held, incoming).0,
+            None => incoming,
+        });
+    }
+
     #[test]
     fn a_single_waiter_stays_unwrapped() {
         let (target, waker) = counting_waker();
         let mut slot = None;
 
-        register(&mut slot, &waker);
-        register(&mut slot, &waker);
+        register_slot(&mut slot, &waker);
+        register_slot(&mut slot, &waker);
 
         let held = slot.take().unwrap();
         assert!(held.will_wake(&waker), "one waiter must not allocate");
@@ -166,7 +192,7 @@ mod tests {
         let mut slot = None;
         for _ in 0..2 {
             for (_, waker) in &members {
-                register(&mut slot, waker);
+                register_slot(&mut slot, waker);
             }
         }
         let held = slot.take().unwrap();
@@ -186,7 +212,7 @@ mod tests {
         let members: Vec<_> = (0..2).map(|_| counting_waker()).collect();
         let mut slot = None;
         for (_, waker) in &members {
-            register(&mut slot, waker);
+            register_slot(&mut slot, waker);
         }
         let held = slot.take().unwrap();
         let copy = held.clone();
@@ -204,7 +230,7 @@ mod tests {
         let members: Vec<_> = (0..3).map(|_| counting_waker()).collect();
         let mut slot = None;
         for (_, waker) in &members {
-            register(&mut slot, waker);
+            register_slot(&mut slot, waker);
         }
         // Each target is held by its waker here and by one slot member.
         for (target, _) in &members {

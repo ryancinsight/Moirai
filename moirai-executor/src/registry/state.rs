@@ -1,6 +1,7 @@
 use std::{
     cell::UnsafeCell,
     mem::MaybeUninit,
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
     sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
     time::{Duration, Instant},
@@ -66,14 +67,24 @@ unsafe impl Sync for TaskStateBlock {}
 /// 32 bytes on macOS, where std reaches its `pthread_mutex_t` through a lazily
 /// boxed pointer, against 24 on the futex targets (Linux, Windows), and with it
 /// the per-task state was 80 bytes on macOS. The lock here is one flag byte
-/// plus padding, and the critical sections clone a waker, run
-/// [`Waker::will_wake`](std::task::Waker::will_wake) over a short member list,
-/// or take the waker out — all
-/// bounded, never blocking, so spinning with a yield is safe under any
-/// scheduler.
+/// plus padding. Critical sections only move, take, inspect, compare, or merge
+/// already cloned wakers; cloning, wake, and callback-bearing destruction run
+/// after the lock is released. The locked work is bounded and never blocks,
+/// so spinning with a yield is safe under any scheduler.
 pub(super) struct WakerSlot {
     locked: AtomicBool,
     slot: UnsafeCell<Option<std::task::Waker>>,
+}
+
+/// Releases a claimed [`WakerSlot`] even when its operation unwinds.
+struct WakerSlotGuard<'a> {
+    slot: &'a WakerSlot,
+}
+
+impl Drop for WakerSlotGuard<'_> {
+    fn drop(&mut self) {
+        self.slot.locked.store(false, Ordering::Release);
+    }
 }
 
 impl WakerSlot {
@@ -84,8 +95,8 @@ impl WakerSlot {
         }
     }
 
-    /// Run `body` with exclusive access to the slot.
-    fn with_slot<R>(&self, body: impl FnOnce(&mut Option<std::task::Waker>) -> R) -> R {
+    /// Claim exclusive access to the slot.
+    fn lock(&self) -> WakerSlotGuard<'_> {
         let mut spins = 0_usize;
         while self
             .locked
@@ -101,18 +112,51 @@ impl WakerSlot {
             }
             spins += 1;
         }
+        WakerSlotGuard { slot: self }
+    }
+
+    /// Remove the held waker.
+    fn take(&self) -> Option<std::task::Waker> {
+        let guard = self.lock();
         // SAFETY: the `locked` flag is held by this call, so this borrow is the
         // only slot access; it ends before the flag is released.
         let slot = unsafe { &mut *self.slot.get() };
-        let result = body(slot);
-        self.locked.store(false, Ordering::Release);
+        let result = slot.take();
+        drop(guard);
         result
+    }
+
+    /// Register an already cloned waker and return an unused duplicate.
+    fn register(&self, incoming: std::task::Waker) -> Option<std::task::Waker> {
+        let guard = self.lock();
+        // SAFETY: the guard holds the slot's lock until the merged waker is
+        // restored. `fan_out::register` only moves wakers, compares identity,
+        // and allocates storage; it invokes no waker callback.
+        let slot = unsafe { &mut *self.slot.get() };
+        let unused = if let Some(incumbent) = slot.take() {
+            let (merged, unused) = fan_out::register(incumbent, incoming);
+            *slot = Some(merged);
+            unused
+        } else {
+            *slot = Some(incoming);
+            None
+        };
+        drop(guard);
+        unused
+    }
+
+    fn is_some(&self) -> bool {
+        let guard = self.lock();
+        // SAFETY: the guard holds the slot's lock for this shared observation.
+        let present = unsafe { (&*self.slot.get()).is_some() };
+        drop(guard);
+        present
     }
 }
 
-// SAFETY: the slot is reached only through `with_slot`, which serializes access
-// with the `locked` flag; a `Waker` is `Send`, so moving one between threads
-// through the slot is sound.
+// SAFETY: the slot is reached only while a `WakerSlotGuard` holds the `locked`
+// flag; a `Waker` is `Send`, so moving one between threads through the slot is
+// sound.
 unsafe impl Send for WakerSlot {}
 unsafe impl Sync for WakerSlot {}
 
@@ -156,10 +200,7 @@ impl std::fmt::Debug for TaskState {
             .field("started_after_ns", &self.started_after_ns)
             .field("completed_after_ns", &self.completed_after_ns)
             .field("worker_id", &self.worker_id)
-            .field(
-                "waker_registered",
-                &self.waker.with_slot(|slot| slot.is_some()),
-            )
+            .field("waker_registered", &self.waker.is_some())
             .finish()
     }
 }
@@ -272,7 +313,7 @@ impl TaskState {
         // waker out and releases the spin lock, and only then does it wake —
         // so a waker that waits on this task cannot deadlock against the
         // slot. Same discipline as `moirai-async`'s sync primitives.
-        let waker = self.waker.with_slot(|slot| slot.take());
+        let waker = self.waker.take();
         TaskCompletion::new(
             Duration::from_nanos(completed_after_ns - started_after_ns),
             waker,
@@ -294,7 +335,9 @@ impl TaskState {
     /// Wakers that do not `will_wake` the held one accumulate in the slot
     /// ([`fan_out`]), so every waiter is woken by completion.
     pub(super) fn register_waker(&self, waker: &std::task::Waker) {
-        self.waker.with_slot(|slot| fan_out::register(slot, waker));
+        // Clone before claiming the slot: `RawWakerVTable::clone` is arbitrary
+        // user code and may panic or re-enter this same task state.
+        let unused = self.waker.register(waker.clone());
         // Store first, then re-check completion, mirroring the ordering
         // `mark_completed_since` publishes: it stores the completion offset
         // before taking the waker. A task that completed before this store
@@ -305,12 +348,16 @@ impl TaskState {
         // completion lands after the store, it takes and wakes; if it
         // landed before, this take wins and wakes instead. Only one take
         // can succeed, and a spurious wake is always permitted.
-        if self.is_completed() {
-            let stranded = self.waker.with_slot(|slot| slot.take());
-            if let Some(stranded) = stranded {
-                stranded.wake();
-            }
-        }
+        let stranded = self.is_completed().then(|| self.waker.take()).flatten();
+
+        // Both callbacks run only after the slot is restored and unlocked.
+        // Reserve the stranded completion before either callback so a panic in
+        // duplicate destruction cannot skip its wake obligation.
+        let unused_panic =
+            unused.and_then(|unused| catch_unwind(AssertUnwindSafe(|| drop(unused))).err());
+        let stranded_panic =
+            stranded.and_then(|stranded| catch_unwind(AssertUnwindSafe(|| stranded.wake())).err());
+        fan_out::resume_callback_panics([unused_panic, stranded_panic].into_iter().flatten());
     }
 
     pub(super) fn is_completed(&self) -> bool {
