@@ -46,11 +46,11 @@ class ReleasePreflightTests(unittest.TestCase):
     def test_plan_keeps_an_unpublished_workspace_crate_in_the_cohort(self):
         packages = [{"name": "root", "version": "1.0.0", "publish": None, "targets": []}]
         self.assertEqual(
-            release_preflight.select_pending(packages, lambda _name: None),
-            {"packages": ["root"], "bootstrap": ["root"], "cohort": [{"name": "root", "version": "1.0.0"}]},
+            release_preflight.select_cohort(packages, lambda _name: None),
+            {"packages": ["root"], "bootstrap": ["root"], "pending": ["root"], "cohort": [{"name": "root", "version": "1.0.0"}]},
         )
 
-    def test_plan_selects_only_registry_missing_versions(self):
+    def test_plan_preserves_indexed_versions_in_the_checked_cohort(self):
         packages = [
             {"name": "ready", "version": "1.0.0", "publish": None, "targets": []},
             {"name": "pending", "version": "1.1.0", "publish": ["crates-io"], "targets": []},
@@ -59,8 +59,8 @@ class ReleasePreflightTests(unittest.TestCase):
         def versions(name):
             return {"1.0.0": "0" * 64} if name != "private" else None
         self.assertEqual(
-            release_preflight.select_pending(packages, versions),
-            {"packages": ["pending"], "bootstrap": [], "cohort": [{"name": "pending", "version": "1.1.0"}]},
+            release_preflight.select_cohort(packages, versions),
+            {"packages": ["pending", "ready"], "bootstrap": [], "pending": ["pending"], "cohort": [{"name": "pending", "version": "1.1.0"}, {"name": "ready", "version": "1.0.0"}]},
         )
 
     def test_plan_uses_the_shared_registry_reader_and_propagates_its_error(self):
@@ -89,7 +89,7 @@ class ReleasePreflightTests(unittest.TestCase):
 
             self.assertEqual(
                 release_preflight.plan(manifest, versions),
-                {"packages": [], "bootstrap": [], "cohort": []},
+                {"packages": ["root"], "bootstrap": [], "pending": [], "cohort": [{"name": "root", "version": "1.0.0"}]},
             )
 
             def failing_versions(name):
@@ -97,6 +97,44 @@ class ReleasePreflightTests(unittest.TestCase):
 
             with self.assertRaisesRegex(reader.IdentityError, "shared registry failure"):
                 release_preflight.plan(manifest, failing_versions)
+
+    def test_upload_progress_cannot_change_the_checked_archive_set(self):
+        packages = [
+            {"name": "root", "version": "1.0.0", "publish": None},
+            {"name": "leaf", "version": "1.0.0", "publish": ["crates-io"]},
+            {"name": "private", "version": "1.0.0", "publish": []},
+        ]
+        cohort = [{"name": name, "version": "1.0.0"} for name in ("leaf", "root")]
+        initial_evidence = None
+        for published in (frozenset(), frozenset({"leaf"}), frozenset({"leaf", "root"})):
+            with self.subTest(published=sorted(published)), tempfile.TemporaryDirectory() as directory:
+                queries = []
+
+                def versions(name):
+                    queries.append(name)
+                    return {"1.0.0": "0" * 64} if name in published else None
+
+                result = release_preflight.select_cohort(list(reversed(packages)), versions)
+                self.assertEqual(queries, ["leaf", "root"])
+                self.assertEqual(result["packages"], ["leaf", "root"])
+                self.assertEqual(result["cohort"], cohort)
+                self.assertEqual(result["pending"], [name for name in queries if name not in published])
+                self.assertEqual(result["bootstrap"], result["pending"])
+                root = Path(directory)
+                archives = [root / f"{name}-1.0.0.crate" for name in queries]
+                for name, archive in zip(queries, archives):
+                    self.write_crate(archive, name=name)
+                receipt = root / "evidence.json"
+                release_preflight.record(archives, receipt, self.context(), result["cohort"])
+                current_evidence = json.loads(receipt.read_text(encoding="utf-8"))
+                if initial_evidence is None:
+                    initial_evidence = current_evidence
+                else:
+                    self.assertEqual(current_evidence, initial_evidence)
+                self.assertEqual(
+                    sorted(current_evidence["artifacts"]),
+                    ["leaf-1.0.0.crate", "root-1.0.0.crate"],
+                )
 
     def test_evidence_matches_the_shared_atlas_artifact_schema(self):
         root = Path(os.environ["ATLAS_REGISTRY_READER_ROOT"])

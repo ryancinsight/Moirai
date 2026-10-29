@@ -3,9 +3,9 @@
 
 The release workflow invokes this from a clean checkout.  It deliberately
 queries the sparse index instead of inferring publication from Git tags: an
-absent crate is recorded as bootstrap work while remaining in the checked
-release cohort, so package, minimum-version, SBOM, and reproducibility gates
-cover first publications before the authorised registry upload.
+absent crate is recorded as bootstrap work. The checked cohort always contains
+every publishable workspace package, including versions already indexed, so an
+interrupted upload cannot narrow package, SBOM or reproducibility coverage.
 """
 
 from __future__ import annotations
@@ -84,21 +84,29 @@ def cohort_entry(package: dict[str, Any]) -> dict[str, Any]:
     return {"name": package["name"], "version": package["version"]}
 
 
-def select_pending(packages: list[dict[str, Any]], versions_for: Any) -> dict[str, Any]:
-    release = [package for package in packages if is_publishable(package)]
+def select_cohort(packages: list[dict[str, Any]], versions_for: Any) -> dict[str, Any]:
+    release = sorted(
+        (package for package in packages if is_publishable(package)),
+        key=lambda package: package["name"],
+    )
     first: list[str] = []
-    pending: list[dict[str, Any]] = []
+    pending: list[str] = []
     for package in release:
         versions = versions_for(package["name"])
         if versions is None:
             first.append(package["name"])
         if versions is None or package["version"] not in versions:
-            pending.append(cohort_entry(package))
-    return {"packages": [item["name"] for item in sorted(pending, key=lambda item: item["name"])], "bootstrap": sorted(first), "cohort": sorted(pending, key=lambda item: item["name"])}
+            pending.append(package["name"])
+    return {
+        "packages": [package["name"] for package in release],
+        "bootstrap": first,
+        "pending": pending,
+        "cohort": [cohort_entry(package) for package in release],
+    }
 
 
 def plan(manifest: Path, versions_for: Any) -> dict[str, Any]:
-    return select_pending(cargo_metadata(manifest)["packages"], versions_for)
+    return select_cohort(cargo_metadata(manifest)["packages"], versions_for)
 
 
 def sha256(path: Path) -> str:

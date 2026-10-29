@@ -13,6 +13,10 @@ have a prior independent release decision; both registry names remain absent.
 
 Workspace version: 0.12.0
 
+Revision 2026-10-29: preflight fixes its cohort from every publishable workspace
+package before classifying registry availability. An interrupted upload changes
+the pending subset, never the checked artifact set or its expected hashes.
+
 ## Context
 
 Awaitable task results, owned cancellation, bounded shutdown calls and autonomous
