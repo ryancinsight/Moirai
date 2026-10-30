@@ -7,41 +7,98 @@ STATE_FIELDS = {'reason', 'flight_bytes', 'flight_packets', 'window_bytes',
                 'connection_max_data', 'connection_data_sent', 'buffered_data', 'send_window',
                 'engine_handshake', 'tls_handshake', 'spaces', 'queued', 'sent', 'acked',
                 'streams', 'timers', 'pto'}
+CUBIC_CALLBACK_FIELDS = {
+    'callback', 'outcome', 'bytes', 'app_limited', 'rtt_ns', 'sent_age_ns',
+    'persistent', 'lost_bytes', 'recovery_active_before', 'recovery_age_ns_before',
+    'sent_after_recovery_before', 'recovery_active_after', 'recovery_age_ns_after',
+    'sent_after_recovery_after', 'state_before', 'state_after'}
+POINT_KINDS = {'engine recovery state', 'engine ack received',
+               'engine crypto received', 'engine packet sent',
+               'engine cubic callback', 'engine congestion blocked',
+               'engine pacing blocked'}
+
+
+def within_bits(value, width):
+    return type(value) is int and 0 <= value < 1 << width
 
 
 def rows(value, width):
     require(isinstance(value, list), 'engine rows are absent')
     require(all(isinstance(row, list) and len(row) == width and
-                all(type(n) is int and n >= 0 for n in row) for row in value),
+                all(within_bits(n, 64) for n in row) for row in value),
             'invalid numeric engine row')
 
 
+def cubic_callback(fields):
+    """Check serialized callback metadata; native tests own CUBIC arithmetic."""
+    require(set(fields) == CUBIC_CALLBACK_FIELDS, 'CUBIC callback metadata differs')
+    outcomes = {'ack': {'app_limited', 'recovery', 'slow_start', 'avoidance'},
+                'congestion': {'recovery', 'loss', 'persistent'}}
+    callback, outcome = fields['callback'], fields['outcome']
+    require(type(callback) is str and callback in outcomes and
+            type(outcome) is str and outcome in outcomes[callback],
+            'unknown CUBIC callback or outcome')
+    for key in ('app_limited', 'persistent', 'recovery_active_before',
+                'sent_after_recovery_before', 'recovery_active_after',
+                'sent_after_recovery_after'):
+        require(type(fields[key]) is bool, 'invalid CUBIC callback flag')
+    for key in ('bytes', 'rtt_ns', 'sent_age_ns', 'lost_bytes',
+                'recovery_age_ns_before', 'recovery_age_ns_after'):
+        require(within_bits(fields[key], 64), 'invalid CUBIC callback integer')
+    for key in ('state_before', 'state_after'):
+        rows([fields[key]], 6)
+        require(fields[key][2] < 1 << 16, 'CUBIC MTU exceeds source representation')
+
+
 def point(value):
-    require(type(value['elapsed_ns']) is int and value['elapsed_ns'] >= 0, 'invalid engine time')
+    require(type(value) is dict and set(value) == {'elapsed_ns', 'kind', 'fields'},
+            'engine point differs')
+    require(within_bits(value['elapsed_ns'], 128), 'invalid engine time')
+    require(type(value['kind']) is str and value['kind'] in POINT_KINDS,
+            'unknown engine point kind')
+    require(type(value['fields']) is dict, 'invalid engine point fields')
     f = value['fields']
     if value['kind'] != 'engine recovery state':
-        require(f.get('space') in ('Initial', 'Handshake', 'Data'), 'invalid frame space')
-        if value['kind'] == 'engine ack received':
+        if value['kind'] == 'engine cubic callback':
+            cubic_callback(f)
+        elif value['kind'] == 'engine congestion blocked':
+            require(set(f) == {'flight_bytes', 'bytes_to_send', 'window_bytes'},
+                    'congestion blocker metadata differs')
+            require(all(within_bits(f[key], 64) for key in f) and
+                    f['flight_bytes'] + f['bytes_to_send'] >= f['window_bytes'],
+                    'congestion blocker predicate is false')
+        elif value['kind'] == 'engine pacing blocked':
+            require(set(f) == {'flight_bytes', 'bytes_to_send', 'window_bytes',
+                               'smoothed_rtt_ns', 'delay_ns'},
+                    'pacing blocker metadata differs')
+            require(all(within_bits(f[key], 64) for key in f) and
+                    f['bytes_to_send'] > 0 and f['window_bytes'] > 0 and
+                    f['smoothed_rtt_ns'] > 0 and f['window_bytes'] < 1 << 32 and
+                    f['flight_bytes'] + f['bytes_to_send'] < f['window_bytes'],
+                    'pacing blocker predicate is false')
+        elif value['kind'] == 'engine ack received':
+            require(f.get('space') in ('Initial', 'Handshake', 'Data'), 'invalid frame space')
             require(set(f) == {'space', 'ranges'}, 'ACK metadata differs')
             rows(f['ranges'], 2)
             require(all(start <= end for start, end in f['ranges']), 'reversed ACK range')
         elif value['kind'] == 'engine crypto received':
+            require(f.get('space') in ('Initial', 'Handshake', 'Data'), 'invalid frame space')
             require(set(f) == {'space', 'offset', 'len'}, 'CRYPTO metadata differs')
-            require(all(type(f[k]) is int and f[k] >= 0 for k in ('offset', 'len')), 'invalid CRYPTO range')
+            require(all(within_bits(f[key], 64) for key in ('offset', 'len')),
+                    'invalid CRYPTO range')
         elif value['kind'] == 'engine packet sent':
+            require(f.get('space') in ('Initial', 'Handshake', 'Data'), 'invalid frame space')
             require(set(f) == {'space', 'pn', 'size', 'ack_eliciting', 'ranges'}, 'packet metadata differs')
             rows(f['ranges'], 2)
-            require(type(f['pn']) is int and f['pn'] >= 0 and type(f['size']) is int and f['size'] >= 0
-                    and type(f['ack_eliciting']) is bool, 'invalid sent packet')
-        else:
-            raise ValueError('unknown engine observation')
+            require(within_bits(f['pn'], 64) and within_bits(f['size'], 64) and
+                    type(f['ack_eliciting']) is bool, 'invalid sent packet')
         return
     require(set(f) == STATE_FIELDS, 'engine state inventory differs')
     for key in ('engine_handshake', 'tls_handshake'):
         require(type(f[key]) is bool, 'invalid handshake flag')
     for key in ('flight_bytes', 'flight_packets', 'window_bytes', 'connection_max_data',
                 'connection_data_sent', 'buffered_data', 'send_window'):
-        require(type(f[key]) is int and f[key] >= 0, 'invalid engine integer')
+        require(within_bits(f[key], 64), 'invalid engine integer')
     require(f['reason'] in ('driver', 'pto'), 'unknown engine snapshot boundary')
     for key, width in (('spaces', 12), ('queued', 3), ('sent', 4), ('acked', 2),
                        ('streams', 5), ('timers', 2)):
@@ -60,7 +117,8 @@ def point(value):
             'CRYPTO range exceeds generated bytes')
     require(all(r[0] < 9 for r in f['timers']), 'invalid timer kind')
     require(isinstance(f['pto'], list) and len(f['pto']) <= 1 and
-            all(type(n) is int and 0 <= n < 3 for n in f['pto']), 'invalid selected PTO space')
+            all(within_bits(n, 64) and n < 3 for n in f['pto']),
+            'invalid selected PTO space')
     require(not f['pto'] or f['reason'] == 'pto' or any(r[0] == 0 for r in f['timers']),
             'PTO candidate without an armed loss timer')
 
