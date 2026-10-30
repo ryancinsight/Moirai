@@ -502,12 +502,14 @@ jobs:
         run: >-
           cargo miri test --locked -p moirai-executor --lib --
           hybrid:: schedule::job schedule::queue
-          schedule::runtime::tests::scope registry::tests:: registry::state
+          schedule::runtime::tests::scope
+          schedule::runtime::tests::worker_failures::idle_hooks::idle_hook_failure_closes_admission_and_drains_accepted_work
+          registry::tests:: registry::state
           registry::token_tests::
           registry::waiter_tests::raw_waker_
           registry::waiter_tests::discarded_raw_waker_
           registry::fan_out::tests::
-          -Zunstable-options --report-time --test-threads=1
+          -Zunstable-options --report-time --test-threads=1 --nocapture
 
       - name: Interpret the scheduler deque tests
         if: matrix.suite == 'foundation'

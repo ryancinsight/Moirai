@@ -33,19 +33,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// worker drains and releases its scheduler ownership after its current
     /// task returns.
     pub fn shutdown(&self) {
-        // SeqCst: the producer half of the parking handshake (wait.rs pairs
-        // this store with its `pending_tasks` recheck), so a shutdown cannot
-        // hide behind a worker that parks between the two observations.
-        if !self.inner.shutdown.swap(true, Ordering::SeqCst) {
-            wake_all_workers(&self.inner);
-        }
-
-        self.close_blocking_lane();
-
-        #[cfg(test)]
-        if let Some(barrier) = self.inner.shutdown_started_barrier.get() {
-            barrier.wait();
-        }
+        close_admission(&self.inner);
 
         if current_thread_belongs_to(&self.inner) {
             return;
@@ -113,13 +101,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
     }
 
-    fn close_blocking_lane(&self) {
-        let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
-        if let Some(lane) = self.inner.blocking_lane.get() {
-            lane.close();
-        }
-    }
-
     fn join_worker_sets(&self) {
         let blocking_lane = {
             let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
@@ -136,6 +117,33 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     #[cfg(test)]
     pub(crate) fn current_thread_is_worker(&self) -> bool {
         current_thread_belongs_to(&self.inner)
+    }
+}
+
+/// Close every scheduler admission path without joining workers.
+///
+/// This is the shared first half of explicit shutdown and worker-failure
+/// drainage. It wakes parked compute workers and closes blocking queues so all
+/// work accepted before the publication drains before their owners exit.
+pub(in crate::schedule::runtime) fn close_admission<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
+) {
+    // SeqCst: the producer half of the parking handshake (wait.rs pairs this
+    // store with its `pending_tasks` recheck), so admission closure cannot hide
+    // behind a worker that parks between the two observations.
+    let published = !inner.shutdown.swap(true, Ordering::SeqCst);
+    if published {
+        wake_all_workers(inner);
+    }
+    {
+        let _lane_init = lock_mutex(&inner.blocking_lane_init);
+        if let Some(lane) = inner.blocking_lane.get() {
+            lane.close();
+        }
+    }
+    #[cfg(test)]
+    if published && let Some(barrier) = inner.shutdown_started_barrier.get() {
+        barrier.wait();
     }
 }
 

@@ -4,6 +4,7 @@ mod indexed;
 mod wait;
 
 use std::{
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::{Mutex, MutexGuard},
     thread::{self, JoinHandle},
 };
@@ -12,7 +13,7 @@ use super::super::job::{ScheduledJob, run_caught};
 use super::super::queue::WorkerQueueOwner;
 
 use super::idle_hooks::run_idle_hooks;
-use super::scheduler::placement::WorkerPin;
+use super::scheduler::{close_admission, placement::WorkerPin};
 use super::types::{ContendedWakePolicy, SchedulerInner, WorkerState, set_current_worker_id};
 pub(super) use indexed::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
@@ -88,9 +89,29 @@ pub(super) fn worker_loop<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT
         // Consumer-registered idle hooks run at the same quiescent point: the
         // worker found no work and is about to block, so any thread-local
         // reclamation a hook performs costs nothing on the active path.
-        run_idle_hooks();
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(run_idle_hooks)) {
+            close_admission(&inner);
+            drain_after_idle_hook_failure(&inner, worker_id, &mut owner);
+            resume_unwind(payload);
+        }
 
         wait_for_work(&inner, worker_id);
+    }
+}
+
+fn drain_after_idle_hook_failure<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
+    worker_id: usize,
+    owner: &mut WorkerQueueOwner,
+) {
+    loop {
+        if let Some(job) = next_job(inner, worker_id, owner) {
+            execute_job(inner, worker_id, job);
+        } else if is_quiescent(inner) {
+            break;
+        } else {
+            thread::yield_now();
+        }
     }
 }
 

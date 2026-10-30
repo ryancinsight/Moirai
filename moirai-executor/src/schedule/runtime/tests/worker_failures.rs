@@ -14,6 +14,8 @@ use std::{
 use super::*;
 use crate::schedule::register_idle_hook;
 
+mod idle_hooks;
+
 const JOIN_IN_PROGRESS_STATE: u8 = 1;
 const JOIN_COMPLETE_STATE: u8 = 2;
 
