@@ -4,6 +4,8 @@ use std::{collections::BTreeMap, sync::Mutex, task::Waker};
 
 use moirai_core::error::{ExecutorError, ExecutorResult, TaskError};
 
+use crate::hybrid::shutdown::{Admission, Context};
+
 #[derive(Default)]
 struct Entries {
     closed: bool,
@@ -86,6 +88,14 @@ impl AsyncTasks {
 pub(super) struct Registration {
     pub(super) tasks: std::sync::Weak<AsyncTasks>,
     pub(super) id: u64,
+    pub(super) admission: std::sync::Arc<Admission>,
+}
+
+pub(super) fn with_registration_context<R>(
+    registration: &Registration,
+    operation: impl FnOnce() -> R,
+) -> R {
+    Context::with(&registration.admission, operation)
 }
 
 impl Registration {

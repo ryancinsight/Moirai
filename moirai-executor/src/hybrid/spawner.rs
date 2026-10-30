@@ -62,7 +62,7 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
                 Arc::clone(&self.metrics),
             );
             let scheduled = state
-                .track(&self.async_tasks, task_id.0)
+                .track(&self.async_tasks, task_id.0, Arc::clone(&self.admission))
                 .and_then(|()| Arc::clone(&state).schedule());
             if let Err(error) = scheduled {
                 let rejection = state.complete_rejected();

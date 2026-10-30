@@ -14,6 +14,7 @@ use super::{
     future_state::AsyncFutureState,
     inline_poll::InlinePollDepthGuard,
     phase::{ASYNC_CREATED, ASYNC_IDLE, ASYNC_NOTIFIED, ASYNC_POLLING, ASYNC_QUEUED},
+    tasks::with_registration_context,
 };
 use crate::{
     registry::StateLease,
@@ -148,7 +149,7 @@ where
         let state = Arc::clone(&self);
         self.scheduler
             .schedule::<AsyncTask, _>(Priority::Normal, None, move |worker_id| {
-                state.poll(worker_id);
+                with_registration_context(state.registration(), || state.poll(worker_id));
             })
     }
 

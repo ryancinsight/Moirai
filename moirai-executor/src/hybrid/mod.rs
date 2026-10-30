@@ -77,7 +77,7 @@ pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
     scheduler: S,
     task_registry: Arc<TaskRegistry>,
     metrics: Arc<ExecutorMetrics>,
-    admission: Admission,
+    admission: Arc<Admission>,
     async_tasks: Arc<async_state::AsyncTasks>,
 }
 
@@ -108,7 +108,7 @@ impl HybridExecutor<ThreadScheduler> {
             scheduler,
             task_registry,
             metrics,
-            admission: Admission::new(),
+            admission: Arc::new(Admission::new()),
             async_tasks: Arc::new(async_state::AsyncTasks::default()),
         })
     }

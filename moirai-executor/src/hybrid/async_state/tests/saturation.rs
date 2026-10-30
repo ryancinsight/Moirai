@@ -65,6 +65,7 @@ fn woken_task_completes_while_worker_injector_is_full() {
             handle,
             waker,
             polls,
+            tasks: _tasks,
         },
         first_poll_receiver,
     ) = pending_async_state_with_first_poll_signal(scheduler.clone(), 1789);

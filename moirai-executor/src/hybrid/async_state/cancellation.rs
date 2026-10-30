@@ -4,7 +4,7 @@ use super::{
     future_state::AsyncFutureState,
     tasks::{AsyncTasks, Registration},
 };
-use crate::{registry::StateLease, schedule::WorkSubmit};
+use crate::{hybrid::shutdown::Admission, registry::StateLease, schedule::WorkSubmit};
 use moirai_core::error::ExecutorResult;
 use std::{future::Future, sync::Arc, task::Waker};
 
@@ -15,11 +15,20 @@ where
     F::Output: Send + 'static,
     L: StateLease,
 {
-    pub(crate) fn track(self: &Arc<Self>, tasks: &Arc<AsyncTasks>, id: u64) -> ExecutorResult<()> {
+    pub(crate) fn track(
+        self: &Arc<Self>,
+        tasks: &Arc<AsyncTasks>,
+        id: u64,
+        admission: Arc<Admission>,
+    ) -> ExecutorResult<()> {
         let registration = Registration {
             tasks: Arc::downgrade(tasks),
             id,
+            admission,
         };
+        // Publish the context owner before exposing a waker through the task
+        // table. A concurrent cancel can therefore never observe an
+        // uncontextualized registered future.
         assert!(
             self.registration.set(registration).is_ok(),
             "invariant: each future is registered once"

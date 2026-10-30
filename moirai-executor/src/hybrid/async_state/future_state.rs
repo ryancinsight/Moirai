@@ -11,7 +11,7 @@ use std::{
 
 use moirai_core::task::TaskResultSender;
 
-use super::{lifecycle::AsyncLifecycle, phase::ASYNC_CREATED};
+use super::{lifecycle::AsyncLifecycle, phase::ASYNC_CREATED, tasks::Registration};
 use crate::{
     metrics::ExecutorMetrics,
     registry::{OwnedStateLease, StateLease, TaskLifecycleToken},
@@ -85,6 +85,12 @@ where
             registration: OnceLock::new(),
             scheduler,
         })
+    }
+
+    pub(super) fn registration(&self) -> &Registration {
+        self.registration
+            .get()
+            .expect("invariant: scheduled async futures are registered")
     }
 }
 

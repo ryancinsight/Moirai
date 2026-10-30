@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use moirai_core::error::{ExecutorError, ExecutorResult};
 
+use super::Context;
+
 const CLOSED: usize = 1usize << (usize::BITS - 1);
 const ACTIVE_MASK: usize = CLOSED - 1;
 
@@ -95,11 +97,61 @@ impl<T> Call<'_, T> {
             0,
             "invariant: an admitted call retains one active permit"
         );
-        let input = self
-            .input
-            .take()
-            .expect("invariant: admitted input is taken once");
-        operation(input)
+        Context::with(self.permit.admission, || {
+            let input = self
+                .input
+                .take()
+                .expect("invariant: admitted input is taken once");
+            operation(input)
+        })
+    }
+}
+
+#[cfg(all(test, not(loom)))]
+mod tests {
+    use std::{
+        panic::{AssertUnwindSafe, catch_unwind},
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    use super::{Admission, Context};
+
+    struct ContextDrop<'a> {
+        admission: &'a Admission,
+        drops: &'a AtomicUsize,
+    }
+
+    impl Drop for ContextDrop<'_> {
+        fn drop(&mut self) {
+            assert!(Context::contains(self.admission));
+            assert_eq!(self.drops.fetch_add(1, Ordering::AcqRel), 0);
+        }
+    }
+
+    #[test]
+    fn panic_drops_input_in_context_then_restores_and_releases() {
+        let admission = Admission::new();
+        let drops = AtomicUsize::new(0);
+        let call = admission
+            .admit(ContextDrop {
+                admission: &admission,
+                drops: &drops,
+            })
+            .expect("open admission accepts input");
+
+        let unwind = catch_unwind(AssertUnwindSafe(|| {
+            call.run(|_input| panic!("operation panic"));
+        }));
+
+        assert_eq!(
+            unwind
+                .expect_err("operation panic propagates")
+                .downcast_ref::<&str>(),
+            Some(&"operation panic")
+        );
+        assert_eq!(drops.load(Ordering::Acquire), 1);
+        assert_eq!(admission.active_calls(), 0);
+        assert!(!Context::contains(&admission));
     }
 }
 
