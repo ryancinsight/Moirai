@@ -138,6 +138,7 @@ fn registered_waker_matches(state: &TimerState, expected: &std::task::Waker) -> 
         .is_some_and(|stored| stored.will_wake(expected))
 }
 
+#[cfg(not(loom))]
 fn expect_callback_panic(callback: impl FnOnce()) {
     let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) else {
         panic!("injected callback must panic");
@@ -218,6 +219,7 @@ fn pal_timer_extreme_duration_does_not_panic() {
     assert!(timer.deadline() > std::time::Instant::now());
 }
 
+#[cfg(not(loom))]
 #[test]
 fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
     let state = Arc::new(TimerState::new());
@@ -284,7 +286,7 @@ fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
     );
 
     state.complete();
-    assert!(state.completed.load(Ordering::Acquire));
+    assert!(state.is_completed());
     assert_eq!(registered_waker_count(&state), 0);
     assert_eq!(
         replacement_probe.counts(),
@@ -330,7 +332,7 @@ fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
     expect_callback_panic(|| wake_state.complete());
     wake_probe.panic_on_wake.store(false, Ordering::Relaxed);
     assert!(!wake_state.waker.is_poisoned());
-    assert!(wake_state.completed.load(Ordering::Acquire));
+    assert!(wake_state.is_completed());
     assert_eq!(registered_waker_count(&wake_state), 0);
     assert_eq!(
         wake_probe.counts(),
@@ -352,7 +354,7 @@ fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
         }
     );
     wake_state.complete();
-    assert!(wake_state.completed.load(Ordering::Acquire));
+    assert!(wake_state.is_completed());
     assert_eq!(registered_waker_count(&wake_state), 0);
     assert_eq!(wake_probe.counts(), completed_counts);
 }
@@ -372,8 +374,11 @@ fn pal_timer_spawn_failure_preserves_error_and_releases_the_waker() {
         .expect_err("injected worker spawn failure must remain an error");
 
     assert_eq!(error.raw_os_error(), Some(i32::MAX));
-    assert!(state.completed.load(Ordering::Acquire));
+    assert!(state.is_completed());
     assert_eq!(registered_waker_count(&state), 0);
     assert_eq!(Arc::strong_count(&probe), 1);
     assert_eq!(probe.counts().drops, 2);
 }
+
+#[path = "tests/cancellation.rs"]
+mod cancellation;
