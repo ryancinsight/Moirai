@@ -34,10 +34,13 @@
 //! waker owns) until completion, and each registration scans the members. A
 //! dropped waiter leaves its member behind the same way.
 //!
-//! A panic in one member's wake unwinds out of the fan-out's wake and drops the
-//! members after it unwoken, as a panicking waker leaves the wakes after it
-//! undone in any sequence of wakes.
+//! A panic in one member's wake does not suppress the remaining notifications:
+//! every member is invoked before panic-payload disposal starts. Ordinary
+//! cleanup then resumes the first callback panic. A recursively panicking
+//! disposal payload can supersede it, and multiple such destructors can abort
+//! under Rust's double-panic semantics.
 
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::task::{RawWaker, RawWakerVTable, Waker};
 
 /// Identity and behavior of a fan-out waker whose data is a `Box<Vec<Waker>>`.
@@ -48,29 +51,34 @@ static FAN_OUT_VTABLE: RawWakerVTable = RawWakerVTable::new(
     drop_members,
 );
 
-/// Add `waker` to the wakers held in `slot`.
+/// Add owned `waker` to the wakers held in `slot`.
 ///
-/// An empty slot stores a clone. A held waker that `will_wake` the new one
-/// makes the call a no-op, which also skips the clone. Otherwise the slot
-/// becomes, or already is, a fan-out that gains `waker` unless one of its
-/// members `will_wake` it; the scan is linear in the members. `will_wake` is
-/// best-effort, so a repeat can be added again.
-pub(super) fn register(slot: &mut Option<Waker>, waker: &Waker) {
+/// An empty slot stores the waker. A held waker that `will_wake` the new one
+/// returns the unused waker so its destructor can run after the caller releases
+/// the slot lock. Otherwise the slot becomes, or already is, a fan-out that
+/// gains `waker` unless one of its members `will_wake` it; the scan is linear
+/// in the members. `will_wake` is best-effort, so a repeat can be added again.
+#[must_use]
+pub(super) fn register(slot: &mut Option<Waker>, waker: Waker) -> Option<Waker> {
     let Some(held) = slot.as_mut() else {
-        *slot = Some(waker.clone());
-        return;
+        *slot = Some(waker);
+        return None;
     };
-    if held.will_wake(waker) {
-        return;
+    if held.will_wake(&waker) {
+        return Some(waker);
     }
     if let Some(members) = members_mut(held) {
-        if !members.iter().any(|member| member.will_wake(waker)) {
-            members.push(waker.clone());
+        if members.iter().any(|member| member.will_wake(&waker)) {
+            return Some(waker);
         }
-        return;
+        members.push(waker);
+        return None;
     }
-    let first = std::mem::replace(held, Waker::noop().clone());
-    *held = fan_out(vec![first, waker.clone()]);
+    let first = slot
+        .take()
+        .expect("invariant: the slot was observed occupied");
+    *slot = Some(fan_out(vec![first, waker]));
+    None
 }
 
 /// A waker whose wake wakes every waker in `members`.
@@ -109,14 +117,11 @@ unsafe fn clone_members(data: *const ()) -> RawWaker {
 
 /// `RawWakerVTable::wake`: wake every member, consuming the allocation.
 ///
-/// A panic in one member's wake drops the members after it unwoken.
 unsafe fn wake_members(data: *const ()) {
     // SAFETY: `data` is a live `Box<Vec<Waker>>` allocation and `wake` consumes
     // the waker that owned it, so this is the last use.
     let members = unsafe { Box::from_raw(data.cast::<Vec<Waker>>().cast_mut()) };
-    for member in *members {
-        member.wake();
-    }
+    wake_all(*members, Waker::wake);
 }
 
 /// `RawWakerVTable::wake_by_ref`: wake every member, leaving the allocation.
@@ -124,9 +129,36 @@ unsafe fn wake_members_by_ref(data: *const ()) {
     // SAFETY: `data` is a live `Box<Vec<Waker>>` allocation, and this call only
     // reads it.
     let members = unsafe { &*data.cast::<Vec<Waker>>() };
+    wake_all(members, Waker::wake_by_ref);
+}
+
+/// Invoke every member and resume the first callback panic afterwards.
+fn wake_all<I>(members: I, mut wake: impl FnMut(I::Item))
+where
+    I: IntoIterator,
+{
+    let mut panics = Vec::new();
     for member in members {
-        member.wake_by_ref();
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| wake(member))) {
+            panics.push(payload);
+        }
     }
+    let mut panics = panics.into_iter();
+    let Some(first_panic) = panics.next() else {
+        return;
+    };
+    let mut disposal_panics = Vec::new();
+    for payload in panics {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+            disposal_panics.push(payload);
+        }
+    }
+    // One recursive panic from dropping a disposal-panic payload supersedes
+    // the first callback panic. Multiple such destructors can abort when the
+    // second panics during unwinding; avoiding that would require leaking
+    // payloads or unbounded recursive recovery.
+    drop(disposal_panics);
+    resume_unwind(first_panic);
 }
 
 /// `RawWakerVTable::drop`: release the members and the allocation.
@@ -140,19 +172,80 @@ unsafe fn drop_members(data: *const ()) {
 mod tests {
     #![allow(clippy::unwrap_used, reason = "test scope")]
 
+    use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::{Wake, Waker};
 
     use crate::counting_wake::counting_waker;
 
     use super::register;
+
+    struct PanickingWake {
+        index: usize,
+        wakes: Arc<[AtomicUsize; 3]>,
+    }
+
+    struct PanickingPayload;
+
+    impl Drop for PanickingPayload {
+        fn drop(&mut self) {
+            panic!("payload destructor");
+        }
+    }
+
+    impl Wake for PanickingWake {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.wakes[self.index].fetch_add(1, Ordering::Relaxed);
+            match self.index {
+                0 => panic!("first callback"),
+                1 => panic_any(PanickingPayload),
+                _ => {}
+            }
+        }
+    }
+
+    fn assert_panicking_member_does_not_suppress_later_wake(by_ref: bool) {
+        let wakes = Arc::new([const { AtomicUsize::new(0) }; 3]);
+        let mut slot = None;
+        for index in 0..3 {
+            drop(register(
+                &mut slot,
+                Waker::from(Arc::new(PanickingWake {
+                    index,
+                    wakes: Arc::clone(&wakes),
+                })),
+            ));
+        }
+        let fan_out = slot.take().unwrap();
+
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            if by_ref {
+                fan_out.wake_by_ref();
+            } else {
+                fan_out.wake();
+            }
+        }))
+        .unwrap_err();
+
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"first callback"));
+        assert_eq!(
+            wakes.each_ref().map(|wake| wake.load(Ordering::Relaxed)),
+            [1; 3]
+        );
+    }
 
     #[test]
     fn a_single_waiter_stays_unwrapped() {
         let (target, waker) = counting_waker();
         let mut slot = None;
 
-        register(&mut slot, &waker);
-        register(&mut slot, &waker);
+        drop(register(&mut slot, waker.clone()));
+        drop(register(&mut slot, waker.clone()));
 
         let held = slot.take().unwrap();
         assert!(held.will_wake(&waker), "one waiter must not allocate");
@@ -166,7 +259,7 @@ mod tests {
         let mut slot = None;
         for _ in 0..2 {
             for (_, waker) in &members {
-                register(&mut slot, waker);
+                drop(register(&mut slot, waker.clone()));
             }
         }
         let held = slot.take().unwrap();
@@ -186,7 +279,7 @@ mod tests {
         let members: Vec<_> = (0..2).map(|_| counting_waker()).collect();
         let mut slot = None;
         for (_, waker) in &members {
-            register(&mut slot, waker);
+            drop(register(&mut slot, waker.clone()));
         }
         let held = slot.take().unwrap();
         let copy = held.clone();
@@ -204,7 +297,7 @@ mod tests {
         let members: Vec<_> = (0..3).map(|_| counting_waker()).collect();
         let mut slot = None;
         for (_, waker) in &members {
-            register(&mut slot, waker);
+            drop(register(&mut slot, waker.clone()));
         }
         // Each target is held by its waker here and by one slot member.
         for (target, _) in &members {
@@ -217,5 +310,15 @@ mod tests {
             assert_eq!(target.wakes(), 0);
             assert_eq!(Arc::strong_count(target), 2);
         }
+    }
+
+    #[test]
+    fn wake_by_value_notifies_after_a_callback_panic() {
+        assert_panicking_member_does_not_suppress_later_wake(false);
+    }
+
+    #[test]
+    fn wake_by_reference_notifies_after_a_callback_panic() {
+        assert_panicking_member_does_not_suppress_later_wake(true);
     }
 }
