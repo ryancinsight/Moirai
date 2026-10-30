@@ -4,6 +4,7 @@ import io
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -14,7 +15,43 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from quic_observation.prepare import patch_source, registry_source
 
 
+def git_repository(path):
+    path.mkdir()
+    subprocess.run(['git', 'init', '-q'], cwd=path, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'observer@example.invalid'],
+                   cwd=path, check=True)
+    subprocess.run(['git', 'config', 'user.name', 'Observer'], cwd=path, check=True)
+    return path
+
+
 class ObservationProvenance(unittest.TestCase):
+    def test_provenance_finds_pair_created_by_lock_only_commit(self):
+        from quic_observation.prepare import digest, provenance_inputs
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = git_repository(Path(temporary)/'history')
+            patch = repository/'scripts/quic_observation/engine.patch'
+            patch.parent.mkdir(parents=True)
+            patch.write_bytes(b'patch-one\n')
+            lock = repository/'Cargo.lock'
+            lock.write_text('lock-one\n')
+            subprocess.run(['git', 'add', 'scripts/quic_observation/engine.patch',
+                            'Cargo.lock'], cwd=repository, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'initial pair'],
+                           cwd=repository, check=True)
+            lock.write_text('lock-two\n')
+            subprocess.run(['git', 'add', 'Cargo.lock'], cwd=repository, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'lock only'],
+                           cwd=repository, check=True)
+            patch.write_bytes(b'patch-three\n')
+            subprocess.run(['git', 'add', 'scripts/quic_observation/engine.patch'],
+                           cwd=repository, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'later patch'],
+                           cwd=repository, check=True)
+            report = {'patch_sha256': digest(b'patch-one\n'),
+                      'canonical_lock_sha256': digest(b'lock-two\n')}
+            self.assertEqual(provenance_inputs(report, repository, repository),
+                             (b'patch-one\n', 'lock-two\n'))
+
     def test_actual_pinned_source_accepts_only_the_read_only_patch(self):
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as temporary:
@@ -28,6 +65,10 @@ class ObservationProvenance(unittest.TestCase):
                 'src/connection/packet_builder.rs', 'src/connection/streams/state.rs'})
             self.assertEqual(report['pristine_mod_sha256'], hashlib.sha256(original).hexdigest())
             self.assertNotEqual(report['observed_mod_sha256'], report['pristine_mod_sha256'])
+            malformed = {**report, 'changed_files': [*report['changed_files'], 'src/lib.rs']}
+            from quic_observation.prepare import verify_provenance
+            with self.assertRaisesRegex(ValueError, 'unrecognized patch inventory'):
+                verify_provenance(malformed, root)
             self.assertEqual((source/'src/connection/mod.rs').read_bytes(), original)
 
     def test_prepared_lock_bytes_match_provenance(self):

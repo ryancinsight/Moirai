@@ -17,25 +17,41 @@ DIRECTORY = ROOT/'moirai-quic/measurements/recovery/2026-10-14/state'
 
 class HandshakeRecoveryEvidence(unittest.TestCase):
     def test_normalized_diff_preserves_exact_measured_engine_source(self):
+        import shutil
         import subprocess
         import tempfile
-        from quic_observation.prepare import registry_source, patch_source
+        from quic_observation.prepare import (patch_source, provenance_inputs,
+                                               registry_source, verify_provenance)
         measured = json.loads(gzip.decompress((DIRECTORY/'handshake-measured-patch.json.gz').read_bytes()))
         native = json.loads(gzip.decompress((DIRECTORY/'candidate-native-contracts.json.gz').read_bytes()))
         self.assertEqual(hashlib.sha256(measured['patch_text'].encode()).hexdigest(), measured['patch_sha256'])
         self.assertEqual(hashlib.sha256((DIRECTORY/'handshake-candidate.patch').read_bytes()).hexdigest(),
                          measured['normalized_patch_sha256'])
+        shard = json.loads(gzip.decompress(next(DIRECTORY.glob('03dcc4a3-matrix-*.json.gz')).read_bytes()))
+        provenance = shard['engine_observation']
+        verify_provenance(provenance, ROOT)
+        observer_patch, _ = provenance_inputs(provenance, ROOT, ROOT)
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             source, _ = registry_source(ROOT, directory/'registry')
+            baseline = directory/'baseline'
+            patch_source(source, baseline, ROOT, observer_patch,
+                         set(provenance['changed_files']))
+            self.assertEqual(hashlib.sha256(
+                (baseline/'src/connection/mod.rs').read_bytes()).hexdigest(),
+                native['baseline_mod_sha256'])
             original = directory/'measured.patch'
-            original.write_text(measured['patch_text'])
-            for label, patch in (('measured', original), ('normalized', DIRECTORY/'handshake-candidate.patch')):
+            original.write_bytes(measured['patch_text'].encode())
+            patches = (('measured', original),
+                       ('normalized', DIRECTORY/'handshake-candidate.patch'))
+            for label, patch in patches:
                 engine = directory/label
-                patch_source(source, engine, ROOT)
+                shutil.copytree(baseline, engine)
+                # The observer patch is insertion-only; this separately authenticated
+                # historical controller patch intentionally replaces behavior.
+                subprocess.run(['git', '-c', 'core.autocrlf=false', 'apply', str(patch)],
+                               cwd=engine, check=True)
                 path = engine/'src/connection/mod.rs'
-                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), native['baseline_mod_sha256'])
-                subprocess.run(['git', 'apply', str(patch)], cwd=engine, check=True)
                 self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), native['candidate_mod_sha256'])
 
     def test_complete_linux_observer_and_independent_pristine_gate_replay_exactly(self):
@@ -140,12 +156,16 @@ class HandshakeRecoveryEvidence(unittest.TestCase):
         self.assertEqual(rejected['status'], 'incomplete evidence')
 
     def test_native_candidate_contracts_and_source_difference_are_recorded(self):
+        from quic_observation.prepare import verify_provenance
         value = json.loads(gzip.decompress((DIRECTORY/'candidate-native-contracts.json.gz').read_bytes()))
         self.assertEqual(value['changed_engine_files'], ['src/connection/mod.rs'])
         self.assertNotEqual(value['candidate_mod_sha256'], value['baseline_mod_sha256'])
         measured = json.loads(gzip.decompress((DIRECTORY/'handshake-measured-patch.json.gz').read_bytes()))
         self.assertEqual(value['candidate_patch_sha256'], measured['patch_sha256'])
-        self.assertEqual(value['canonical_lock_sha256'], hashlib.sha256((ROOT/'Cargo.lock').read_bytes()).hexdigest())
+        shard = json.loads(gzip.decompress(next(DIRECTORY.glob('03dcc4a3-matrix-*.json.gz')).read_bytes()))
+        verify_provenance(shard['engine_observation'], ROOT)
+        self.assertEqual(value['canonical_lock_sha256'],
+                         shard['engine_observation']['canonical_lock_sha256'])
         self.assertEqual(value['result']['returncode'], 0)
         self.assertIn('23 tests run: 23 passed, 0 skipped', value['log'])
         self.assertNotEqual(value['rejected_invocation']['result']['returncode'], 0)

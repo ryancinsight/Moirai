@@ -16,6 +16,13 @@ ENGINE = 'quinn-proto'
 VERSION = '0.11.19'
 ALLOWED = {'src/connection/mod.rs', 'src/connection/observation.rs',
            'src/connection/packet_builder.rs', 'src/connection/streams/state.rs'}
+GIT = ['git', '--no-replace-objects']
+
+
+def git_environment():
+    environment = os.environ.copy()
+    environment['GIT_NO_REPLACE_OBJECTS'] = '1'
+    return environment
 
 
 def digest(raw):
@@ -111,12 +118,44 @@ def diagnostic_lock(original):
     return observed
 
 
-def verify_provenance(report, root):
+def provenance_inputs(report, root, history_repository):
+    patch_name = 'scripts/quic_observation/engine.patch'
+    expected_patch = report.get('patch_sha256')
+    expected_lock = report.get('canonical_lock_sha256')
+    raw = (root/patch_name).read_bytes()
+    original = (root/'Cargo.lock').read_text()
+    if digest(raw) == expected_patch and digest(original.encode()) == expected_lock:
+        return raw, original
+    revisions = subprocess.check_output(
+        [*GIT, 'log', '--all', '--format=%H', '--', patch_name, 'Cargo.lock'],
+        cwd=history_repository, text=True, env=git_environment()).splitlines()
+    for revision in revisions:
+        try:
+            candidate = subprocess.check_output(
+                [*GIT, 'show', f'{revision}:{patch_name}'], cwd=history_repository,
+                stderr=subprocess.DEVNULL, env=git_environment())
+            candidate_lock = subprocess.check_output(
+                [*GIT, 'show', f'{revision}:Cargo.lock'], cwd=history_repository,
+                stderr=subprocess.DEVNULL, text=True, env=git_environment())
+        except subprocess.CalledProcessError:
+            continue
+        if (digest(candidate) == expected_patch and
+                digest(candidate_lock.encode()) == expected_lock):
+            return candidate, candidate_lock
+    raise ValueError('diagnostic patch provenance is not reachable')
+
+
+def verify_provenance(report, root, history_repository=None):
+    history_repository = root if history_repository is None else history_repository
+    reported_files = set(report.get('changed_files', ()))
+    if reported_files != ALLOWED:
+        raise ValueError('diagnostic report has an unrecognized patch inventory')
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
         source, checksum = registry_source(root, temporary/'registry')
-        expected = patch_source(source, Path(temporary)/'engine', root)
-    original = (root/'Cargo.lock').read_text()
+        raw, original = provenance_inputs(report, root, history_repository)
+        expected = patch_source(source, Path(temporary)/'engine', root, raw,
+                                reported_files)
     expected.update({'registry_checksum': checksum,
                      'canonical_lock_sha256': digest(original.encode()),
                      'diagnostic_lock_sha256': digest(diagnostic_lock(original).encode())})
