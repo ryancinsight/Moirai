@@ -486,8 +486,8 @@ jobs:
       # and names its slowest tests.
       - name: Interpret the executor lease, scope, and queue tests
         if: matrix.suite == 'executor'
-        # 527 s / 660 s in all (100 tests); slowest, stacked-borrows: scope
-        # recursive_fork_join 186, hybrid retention 82 and 58.
+        # Previous executor selection: 91 tests, 554.54 s stacked / 1540.31 s tree
+        # (run 41008882833). These timings exclude the callback filters below.
         # registry::tests:: includes the cancel_before_start regression, and
         # schedule::queue includes the queue shrink tests.
         run: >-
