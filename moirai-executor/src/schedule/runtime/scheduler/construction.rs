@@ -274,6 +274,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             shutdown_started_barrier: OnceLock::new(),
             #[cfg(test)]
             blocking_lane_start_gate: OnceLock::new(),
+            #[cfg(test)]
+            shutdown_wait_registration: OnceLock::new(),
             lifetime_owner: OnceLock::new(),
         });
         let scheduler = Self { inner };

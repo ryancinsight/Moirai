@@ -19,6 +19,7 @@ struct Admission {
 
 struct JoinCompletion {
     state: AtomicU8,
+    cleanup_complete: AtomicBool,
     wait_lock: Mutex<()>,
     wait_signal: Condvar,
 }
@@ -49,12 +50,14 @@ impl JoinCompletion {
     fn new() -> Self {
         Self {
             state: AtomicU8::new(JOIN_IN_PROGRESS),
+            cleanup_complete: AtomicBool::new(false),
             wait_lock: Mutex::new(()),
             wait_signal: Condvar::new(),
         }
     }
 
     fn publish(&self) {
+        self.cleanup_complete.store(true, Ordering::Release);
         {
             let _guard = self
                 .wait_lock
@@ -76,6 +79,7 @@ impl JoinCompletion {
                 .wait(guard)
                 .expect("loom external-waiter mutex must not be poisoned");
         }
+        assert!(self.cleanup_complete.load(Ordering::Acquire));
     }
 }
 

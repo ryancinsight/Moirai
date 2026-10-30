@@ -217,6 +217,9 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     /// Test-only rendezvous pair around lazy blocking-lane publication.
     #[cfg(test)]
     pub(super) blocking_lane_start_gate: OnceLock<Arc<(std::sync::Barrier, std::sync::Barrier)>>,
+    /// Test-only observer for an external caller's live join wait registration.
+    #[cfg(test)]
+    pub(super) shutdown_wait_registration: OnceLock<(std::sync::mpsc::Sender<()>, AtomicUsize)>,
     /// Cold-path ownership anchor installed once by the executor facade.
     ///
     /// Dynamic type erasure is confined to this construction/destruction

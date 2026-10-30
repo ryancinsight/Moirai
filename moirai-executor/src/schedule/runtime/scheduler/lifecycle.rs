@@ -11,6 +11,16 @@ const JOIN_OPEN: u8 = 0;
 const JOIN_IN_PROGRESS: u8 = 1;
 const JOIN_COMPLETE: u8 = 2;
 
+#[cfg(test)]
+struct ShutdownWaitRegistration<'a>(&'a std::sync::atomic::AtomicUsize);
+
+#[cfg(test)]
+impl Drop for ShutdownWaitRegistration<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Release);
+    }
+}
+
 impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
@@ -80,6 +90,20 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }
 
             let mut guard = lock_mutex(&self.inner.wait_lock);
+            #[cfg(test)]
+            let _registration =
+                if self.inner.shutdown_join_state.load(Ordering::Acquire) != JOIN_COMPLETE {
+                    self.inner
+                        .shutdown_wait_registration
+                        .get()
+                        .map(|(signal, count)| {
+                            count.fetch_add(1, Ordering::Release);
+                            signal.send(()).expect("test observer remains connected");
+                            ShutdownWaitRegistration(count)
+                        })
+                } else {
+                    None
+                };
             while self.inner.shutdown_join_state.load(Ordering::Acquire) != JOIN_COMPLETE {
                 guard = self
                     .inner
