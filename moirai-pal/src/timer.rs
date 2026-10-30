@@ -60,21 +60,32 @@ impl TimerState {
     }
 
     fn register_waker(&self, waker: &std::task::Waker) {
-        let mut stored = self.waker.lock().unwrap_or_else(|e| e.into_inner());
-        let replace = match stored.as_ref() {
-            Some(current) => !current.will_wake(waker),
-            None => true,
+        let replacement = waker.clone();
+        let removed = {
+            let mut stored = self.waker.lock().unwrap_or_else(|error| error.into_inner());
+            if stored
+                .as_ref()
+                .is_none_or(|current| !current.will_wake(waker))
+            {
+                stored.replace(replacement)
+            } else {
+                Some(replacement)
+            }
         };
-        if replace {
-            *stored = Some(waker.clone());
-        }
+        drop(removed);
     }
 
     fn complete(&self) {
-        if !self.completed.swap(true, Ordering::AcqRel)
-            && let Some(waker) = self.waker.lock().unwrap_or_else(|e| e.into_inner()).take()
-        {
-            waker.wake();
+        let wake = if !self.completed.swap(true, Ordering::AcqRel) {
+            self.waker
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take()
+        } else {
+            None
+        };
+        if let Some(wake) = wake {
+            wake.wake();
         }
     }
 

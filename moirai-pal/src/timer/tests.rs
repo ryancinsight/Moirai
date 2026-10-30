@@ -10,7 +10,56 @@ use std::{
 
 use futures::task::{ArcWake, waker};
 
-use super::sleep;
+use super::{TimerState, sleep};
+
+static CALLBACK_PANICS: AtomicBool = AtomicBool::new(false);
+
+static CALLBACK_WAKER: std::task::RawWakerVTable =
+    std::task::RawWakerVTable::new(clone_callback, run_callback, run_callback, run_callback);
+
+fn callback(data: *const ()) {
+    if std::thread::panicking() {
+        return;
+    }
+    // SAFETY: `callback_waker` ties this pointer to a state that the test keeps
+    // alive until every derived waker has been dropped.
+    let state = unsafe { &*data.cast::<TimerState>() };
+    let registry = state
+        .waker
+        .try_lock()
+        .expect("waker callback must run outside the registry lock");
+    drop(registry);
+    assert!(
+        !CALLBACK_PANICS.load(Ordering::Relaxed),
+        "injected callback panic"
+    );
+}
+
+fn clone_callback(data: *const ()) -> std::task::RawWaker {
+    callback(data);
+    std::task::RawWaker::new(data, &CALLBACK_WAKER)
+}
+
+fn run_callback(data: *const ()) {
+    callback(data);
+}
+
+fn callback_waker(state: &TimerState) -> std::task::Waker {
+    // SAFETY: the test drops this waker and every clone before dropping `state`;
+    // the vtable only accesses the state through this pointer.
+    unsafe {
+        std::task::Waker::from_raw(std::task::RawWaker::new(
+            std::ptr::from_ref(state).cast(),
+            &CALLBACK_WAKER,
+        ))
+    }
+}
+
+fn expect_callback_panic(callback: impl FnOnce()) {
+    let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) else {
+        panic!("injected callback must panic");
+    };
+}
 
 struct WakeFlag {
     woke: AtomicBool,
@@ -84,4 +133,31 @@ fn pal_timer_extreme_duration_does_not_panic() {
 
     let timer = super::Timer::new(Duration::from_secs(u64::MAX));
     assert!(timer.deadline() > std::time::Instant::now());
+}
+
+#[test]
+fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
+    let state = TimerState::new();
+    let faulty = callback_waker(&state);
+
+    state.register_waker(&faulty);
+    CALLBACK_PANICS.store(true, Ordering::Relaxed);
+    expect_callback_panic(|| state.register_waker(&faulty));
+    CALLBACK_PANICS.store(false, Ordering::Relaxed);
+    assert!(!state.waker.is_poisoned());
+
+    state.register_waker(std::task::Waker::noop());
+    state.register_waker(&faulty);
+    CALLBACK_PANICS.store(true, Ordering::Relaxed);
+    expect_callback_panic(|| state.register_waker(std::task::Waker::noop()));
+    CALLBACK_PANICS.store(false, Ordering::Relaxed);
+    assert!(!state.waker.is_poisoned());
+
+    let wake_state = TimerState::new();
+    let wake_faulty = callback_waker(&wake_state);
+    wake_state.register_waker(&wake_faulty);
+    CALLBACK_PANICS.store(true, Ordering::Relaxed);
+    expect_callback_panic(|| wake_state.complete());
+    CALLBACK_PANICS.store(false, Ordering::Relaxed);
+    assert!(!wake_state.waker.is_poisoned());
 }
