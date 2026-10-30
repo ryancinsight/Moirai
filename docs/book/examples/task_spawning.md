@@ -46,6 +46,5 @@ all task-spawning assertions passed
   alive. The example then cancels and collects that task explicitly. Unknown
   identifiers and timer-service failures use distinct executor variants.
 
-- Explicit shutdown cancels pending asynchronous work and joins the workers.
-  Dropping the runtime also joins its workers, so Drop can wait for synchronous
-  or blocking closures that are still running.
+- Call `shutdown()` from an external caller when worker completion is required.
+  Running synchronous and blocking closures are not preempted.
