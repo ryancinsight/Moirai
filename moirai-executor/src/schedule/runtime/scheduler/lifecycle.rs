@@ -14,23 +14,16 @@ const JOIN_COMPLETE: u8 = 2;
 impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
-    /// Stop workers after queued work drains.
+    /// Request closure and join workers after queued work drains.
     ///
     /// Exactly one concurrent caller owns worker joining. Other external
     /// callers wait for completion. Scheduler workers close the blocking lane
     /// and return before the election so only a non-worker caller can join
-    /// peers. When the final external handle is dropped by a worker, every
-    /// worker drains and releases its scheduler ownership after its current
-    /// task returns.
+    /// peers. Final-handle destruction only publishes closure; every worker
+    /// drains and releases its scheduler ownership after its current task
+    /// returns.
     pub fn shutdown(&self) {
-        // SeqCst: the producer half of the parking handshake (wait.rs pairs
-        // this store with its `pending_tasks` recheck), so a shutdown cannot
-        // hide behind a worker that parks between the two observations.
-        if !self.inner.shutdown.swap(true, Ordering::SeqCst) {
-            wake_all_workers(&self.inner);
-        }
-
-        self.close_blocking_lane();
+        self.request_shutdown();
 
         #[cfg(test)]
         if let Some(barrier) = self.inner.shutdown_started_barrier.get() {
@@ -41,6 +34,23 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return;
         }
 
+        self.join_shutdown();
+    }
+
+    fn request_shutdown(&self) {
+        // SeqCst: the producer half of the parking handshake (wait.rs pairs
+        // this store with its `pending_tasks` recheck), so a shutdown cannot
+        // hide behind a worker that parks between the two observations.
+        if !self.inner.shutdown.swap(true, Ordering::SeqCst) {
+            wake_all_workers(&self.inner);
+        }
+
+        if let Some(lane) = self.inner.blocking_lane.get() {
+            lane.request_close();
+        }
+    }
+
+    fn join_shutdown(&self) {
         if self
             .inner
             .shutdown_join_state
@@ -76,13 +86,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
     }
 
-    fn close_blocking_lane(&self) {
-        let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
-        if let Some(lane) = self.inner.blocking_lane.get() {
-            lane.close();
-        }
-    }
-
     fn join_worker_sets(&self) {
         let blocking_lane = {
             let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
@@ -102,14 +105,14 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
 {
     fn drop(&mut self) {
         // Acquire/release orders prior external-handle activity before the
-        // final owner initiates shutdown. An external owner joins synchronously;
-        // a worker owner returns before the join election so peers cannot form
-        // a dependency cycle. Queue publication and worker wakeup retain their
-        // own stronger synchronization boundaries.
+        // final owner publishes closure. Destruction never joins or takes a
+        // queue mutex; worker-owned state retains accepted work until drainage.
+        // Queue publication and worker wakeup retain their own stronger
+        // synchronization boundaries.
         let previous = self.inner.external_handles.fetch_sub(1, Ordering::AcqRel);
         debug_assert!(previous > 0, "scheduler handle count must not underflow");
         if previous == 1 {
-            self.shutdown();
+            self.request_shutdown();
         }
     }
 }

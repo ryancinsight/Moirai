@@ -168,3 +168,68 @@ fn final_external_handle_elects_one_shutdown_owner() {
         assert_eq!(handles.shutdown_elections.load(Ordering::Acquire), 1);
     });
 }
+
+#[test]
+fn blocking_close_cannot_pass_the_last_empty_check() {
+    loom::model(|| {
+        let closed = Arc::new(AtomicBool::new(false));
+        let worker_closed = Arc::clone(&closed);
+        let worker = thread::spawn(move || {
+            loop {
+                if worker_closed.load(Ordering::Acquire) {
+                    return;
+                }
+                thread::park();
+            }
+        });
+
+        // Production obtains this handle from `JoinHandle` before publishing
+        // the lane, so every possible closer owns a valid unpark target.
+        let worker_thread = worker.thread().clone();
+        let closer = thread::spawn(move || {
+            closed.store(true, Ordering::Release);
+            worker_thread.unpark();
+        });
+
+        closer.join().expect("loom blocking closer must not panic");
+        worker.join().expect("loom blocking worker must not panic");
+    });
+}
+
+#[test]
+fn lazy_lane_publication_and_close_share_shutdown_rmw() {
+    loom::model(|| {
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let published = Arc::new(AtomicBool::new(false));
+        let closed = Arc::new(AtomicBool::new(false));
+
+        let initializer = {
+            let shutdown = Arc::clone(&shutdown);
+            let published = Arc::clone(&published);
+            let closed = Arc::clone(&closed);
+            thread::spawn(move || {
+                // Models `OnceLock::set` followed by the production RMW.
+                published.store(true, Ordering::Release);
+                if shutdown.fetch_or(false, Ordering::SeqCst) {
+                    closed.store(true, Ordering::Relaxed);
+                }
+            })
+        };
+        let closer_shutdown = Arc::clone(&shutdown);
+        let closer_published = Arc::clone(&published);
+        let closer_closed = Arc::clone(&closed);
+        let closer = thread::spawn(move || {
+            let previous = closer_shutdown.swap(true, Ordering::SeqCst);
+            assert!(!previous, "the model has one shutdown publisher");
+            if closer_published.load(Ordering::Acquire) {
+                closer_closed.store(true, Ordering::Relaxed);
+            }
+        });
+        initializer.join().expect("loom initializer must not panic");
+        closer.join().expect("loom closer must not panic");
+        assert!(
+            closed.load(Ordering::Relaxed),
+            "the published lane must close"
+        );
+    });
+}

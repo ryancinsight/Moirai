@@ -49,9 +49,10 @@ pub struct ScheduleMetrics {
 /// available), so latency-critical deployments can raise it for sub-µs wake
 /// latency at the cost of more pre-park busy-spin.
 ///
-/// Clones share one worker pool. Dropping the final external handle drains the
-/// pool and releases its workers; an explicit [`shutdown`](Self::shutdown) may
-/// still stop the shared pool earlier.
+/// Clones share one worker pool. Dropping the final external handle requests
+/// closure without waiting; worker-owned state remains alive while accepted
+/// work drains. An explicit [`shutdown`](Self::shutdown) requests closure and
+/// joins from non-worker callers.
 pub struct ThreadScheduler<
     const BLOCKING_QUEUE_CAPACITY: usize = 256,
     const SPIN_LIMIT: usize = 8192,
@@ -176,8 +177,8 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     /// Counts only public scheduler handles, excluding worker-owned `Arc`s.
     ///
     /// Cloning and dropping handles are cold lifecycle operations. The final
-    /// decrement initiates shutdown while its `ThreadScheduler` still owns an
-    /// `Arc`, so worker joins complete before shared state can be released.
+    /// decrement requests closure while its `ThreadScheduler` still owns an
+    /// `Arc`; worker-owned references retain shared state through drainage.
     pub(super) external_handles: AtomicUsize,
     pub(super) pending_tasks: CacheAligned<AtomicUsize>,
     pub(super) active_workers: CacheAligned<AtomicUsize>,
@@ -205,12 +206,15 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     pub(super) worker_numa_nodes: Box<[Option<usize>]>,
     /// Lazily initialized so compute-only schedulers allocate no blocking lane.
     pub(super) blocking_lane: OnceLock<BlockingLane<BLOCKING_QUEUE_CAPACITY>>,
-    /// Serializes only first-use initialization and shutdown, not submissions.
+    /// Serializes only first-use initialization, not submissions or closure.
     pub(super) blocking_lane_init: Mutex<()>,
     pub(super) blocking_lane_prefix: Box<str>,
-    /// Test-only rendezvous immediately after shutdown publication.
+    /// Test-only rendezvous after explicit shutdown publication.
     #[cfg(test)]
     pub(super) shutdown_started_barrier: OnceLock<Arc<std::sync::Barrier>>,
+    /// Test-only rendezvous pair around lazy blocking-lane publication.
+    #[cfg(test)]
+    pub(super) blocking_lane_start_gate: OnceLock<Arc<(std::sync::Barrier, std::sync::Barrier)>>,
     /// Cold-path ownership anchor installed once by the executor facade.
     ///
     /// Dynamic type erasure is confined to this construction/destruction

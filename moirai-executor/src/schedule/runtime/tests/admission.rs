@@ -340,3 +340,56 @@ fn blocking_lane_rejects_admission_after_shutdown() {
     let result = scheduler.schedule::<BlockingTask, _>(Priority::Normal, None, |_| {});
     assert!(matches!(result, Err(ExecutorError::ShuttingDown)));
 }
+
+#[test]
+fn lazy_blocking_lane_observes_concurrent_shutdown_request() {
+    let scheduler = ThreadScheduler::new(1, "blocking-lane-init-shutdown").unwrap();
+    let lane_gate = Arc::new((Barrier::new(2), Barrier::new(2)));
+    let shutdown_started = Arc::new(Barrier::new(2));
+    assert!(
+        scheduler
+            .inner
+            .blocking_lane_start_gate
+            .set(Arc::clone(&lane_gate))
+            .is_ok(),
+        "test installs one blocking-lane publication gate"
+    );
+    assert!(
+        scheduler
+            .inner
+            .shutdown_started_barrier
+            .set(Arc::clone(&shutdown_started))
+            .is_ok(),
+        "test installs one shutdown publication rendezvous"
+    );
+
+    let admission_scheduler = scheduler.clone();
+    let (admission_sender, admission_receiver) = mpsc::sync_channel(1);
+    let admission_thread = std::thread::spawn(move || {
+        let result =
+            admission_scheduler.schedule::<BlockingTask, _>(Priority::Normal, None, |_| {});
+        admission_sender.send(result).unwrap();
+    });
+    lane_gate.0.wait();
+
+    let shutdown_scheduler = scheduler.clone();
+    let (shutdown_sender, shutdown_receiver) = mpsc::sync_channel(1);
+    let shutdown_thread = std::thread::spawn(move || {
+        shutdown_scheduler.shutdown();
+        shutdown_sender.send(()).unwrap();
+    });
+    shutdown_started.wait();
+    lane_gate.1.wait();
+
+    assert!(matches!(
+        admission_receiver
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("concurrent admission must finish"),
+        Err(ExecutorError::ShuttingDown)
+    ));
+    shutdown_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("explicit shutdown must join the concurrently initialized lane");
+    admission_thread.join().unwrap();
+    shutdown_thread.join().unwrap();
+}

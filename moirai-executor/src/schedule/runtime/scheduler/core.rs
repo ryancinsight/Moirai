@@ -111,6 +111,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                     locality_hint,
                     job,
                     &self.inner.blocking_pending_tasks,
+                    &self.inner.shutdown,
                 );
             }
 
@@ -121,7 +122,14 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             if self.inner.blocking_lane.get().is_none() {
                 let candidate = super::super::blocking::BlockingLane::new(self.worker_count());
                 candidate.start(Arc::clone(&self.inner), &self.inner.blocking_lane_prefix)?;
-                if self.inner.blocking_lane.set(candidate).is_err() {
+                #[cfg(test)]
+                if let Some(gate) = self.inner.blocking_lane_start_gate.get() {
+                    gate.0.wait();
+                    gate.1.wait();
+                }
+                if let Err(candidate) = self.inner.blocking_lane.set(candidate) {
+                    candidate.request_close();
+                    candidate.join();
                     return Err(ExecutorError::ThreadPoolCreationFailed);
                 }
             }
@@ -130,11 +138,18 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 .blocking_lane
                 .get()
                 .expect("invariant: blocking lane initialized before submission");
+            // This RMW shares `shutdown`'s modification order with the closer's
+            // swap: whichever runs second acquires the first operation's state.
+            if self.inner.shutdown.fetch_or(false, Ordering::SeqCst) {
+                lane.request_close();
+                return Err(ExecutorError::ShuttingDown);
+            }
             return lane.submit(
                 priority,
                 locality_hint,
                 job,
                 &self.inner.blocking_pending_tasks,
+                &self.inner.shutdown,
             );
         }
 

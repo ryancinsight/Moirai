@@ -3,23 +3,14 @@
 use super::*;
 
 #[test]
-fn final_external_handle_drop_drains_and_releases_workers() {
+fn final_external_handle_drop_requests_without_join_and_drains_accepted_jobs() {
     const COMPUTE_JOBS: usize = 32;
     const BLOCKING_VALUE: usize = 1_024;
     let scheduler = ThreadScheduler::new(1, "test-final-scheduler-drop").unwrap();
     let inner = Arc::downgrade(&scheduler.inner);
-    let shutdown_started = Arc::new(Barrier::new(2));
-    assert!(
-        scheduler
-            .inner
-            .shutdown_started_barrier
-            .set(Arc::clone(&shutdown_started))
-            .is_ok(),
-        "test installs one shutdown rendezvous"
-    );
-    let owner_drops = Arc::new(AtomicUsize::new(0));
-    scheduler.retain_lifetime_owner(DropProbe {
-        drops: Arc::clone(&owner_drops),
+    let released = Arc::new((Mutex::new(false), Condvar::new()));
+    scheduler.retain_lifetime_owner(DropSignal {
+        state: Arc::clone(&released),
     });
 
     let surviving_handle = scheduler.clone();
@@ -87,15 +78,36 @@ fn final_external_handle_drop_drains_and_releases_workers() {
         })
         .unwrap();
 
+    let queue_inner = Arc::clone(&surviving_handle.inner);
+    let (queue_locked_sender, queue_locked_receiver) = mpsc::sync_channel(0);
+    let (queue_release_sender, queue_release_receiver) = mpsc::sync_channel(0);
+    let queue_lock_thread = std::thread::spawn(move || {
+        queue_inner
+            .blocking_lane
+            .get()
+            .expect("blocking admission initializes the lane")
+            .hold_queue_lock_until(queue_locked_sender, queue_release_receiver);
+    });
+    queue_locked_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("test must hold the blocking queue mutex before final drop");
+
     let (drop_sender, drop_receiver) = mpsc::sync_channel(1);
     let drop_thread = std::thread::spawn(move || {
         drop(surviving_handle);
         drop_sender.send(()).unwrap();
     });
-    shutdown_started.wait();
+    drop_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("final scheduler drop must return without joining workers");
+    drop_thread.join().unwrap();
     let live_inner = inner
         .upgrade()
-        .expect("shutdown rendezvous retains scheduler state");
+        .expect("accepted work retains scheduler state after request-only drop");
+    assert!(
+        live_inner.shutdown.load(Ordering::Acquire),
+        "final scheduler drop must publish closure"
+    );
     assert_eq!(
         live_inner.pending_tasks.load(Ordering::Acquire),
         COMPUTE_JOBS,
@@ -107,12 +119,22 @@ fn final_external_handle_drop_drains_and_releases_workers() {
         "the blocking value must still be queued when final drop publishes shutdown"
     );
     drop(live_inner);
+    queue_release_sender
+        .send(())
+        .expect("test controller releases the blocking queue mutex");
+    queue_lock_thread.join().unwrap();
     compute_release_sender.send(()).unwrap();
     blocking_release_sender.send(()).unwrap();
-    drop_receiver
-        .recv_timeout(TEST_EVENT_DEADLINE)
-        .expect("final scheduler drop must synchronously release its workers");
-    drop_thread.join().unwrap();
+
+    let (lock, signal) = &*released;
+    let dropped = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (dropped, timeout) = signal
+        .wait_timeout_while(dropped, TEST_EVENT_DEADLINE, |dropped| !*dropped)
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    assert!(
+        !timeout.timed_out() && *dropped,
+        "accepted work must drain before scheduler state is released"
+    );
 
     assert_eq!(
         completed.load(Ordering::Relaxed),
@@ -123,14 +145,9 @@ fn final_external_handle_drop_drains_and_releases_workers() {
         COMPUTE_JOBS + 1,
         "every admitted capture must be released exactly once"
     );
-    assert_eq!(
-        owner_drops.load(Ordering::Relaxed),
-        1,
-        "scheduler-owned facade state must be released exactly once"
-    );
     assert!(
         inner.upgrade().is_none(),
-        "the final external drop must join workers and release scheduler state"
+        "drained workers must release scheduler state"
     );
 }
 
