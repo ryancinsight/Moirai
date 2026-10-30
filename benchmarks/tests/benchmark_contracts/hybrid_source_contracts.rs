@@ -15,7 +15,7 @@ fn async_public_handle_path_uses_inline_future_state() {
         "finish_pending_poll",
         "fn take_result_sender(&self) -> Option<TaskResultSender<F::Output>>",
         "fn schedule_wake(self: &Arc<Self>)",
-        "self.schedule_wake();",
+        "with_registration_context(self.registration(), || self.schedule_wake())",
         "impl<S, F, L> Wake for AsyncFutureState<S, F, L>",
         "self.register_scheduled_task(Priority::Normal)?",
     ] {
@@ -66,7 +66,7 @@ fn public_handle_metrics_reuse_lifecycle_duration() {
     let source = read_benchmark("../moirai-executor/src/hybrid/mod.rs");
 
     for required in [
-        ".schedule::<BlockingTask, _>(Priority::Normal, None, move |worker_id|",
+        "self.scheduler.schedule::<BlockingTask, _>(\n                Priority::Normal,\n                None,\n                move |worker_id|",
         "running.complete()",
         "TaskEnd::Completed(result)",
         "fn send_task_result<T>",
