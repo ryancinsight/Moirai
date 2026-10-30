@@ -1,4 +1,4 @@
-use super::{RESULT_READY, RESULT_WAITING, ResultCell, Waiter};
+use super::{RESULT_PENDING, RESULT_READY, RESULT_WAITING, ResultCell, Waiter};
 use std::sync::{
     Arc, Weak,
     atomic::{AtomicUsize, Ordering},
@@ -12,6 +12,26 @@ struct CountingWake(AtomicUsize);
 impl Wake for CountingWake {
     fn wake(self: Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone)]
+struct DropCountingWaiter {
+    drops: Arc<AtomicUsize>,
+    wakes: Arc<AtomicUsize>,
+}
+
+impl Drop for DropCountingWaiter {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl Waiter for DropCountingWaiter {
+    const REPLACE_ON_REPEAT: bool = true;
+
+    fn wake(self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -120,6 +140,31 @@ fn drop_releases_the_untaken_result_and_the_parked_waiter() {
 }
 
 #[test]
+fn drop_releases_exactly_one_retained_waiter() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let cell = ResultCell::<usize, DropCountingWaiter>::new();
+    {
+        let waiter = DropCountingWaiter {
+            drops: Arc::clone(&drops),
+            wakes: Arc::clone(&wakes),
+        };
+        // SAFETY: this test thread is the cell's only consumer.
+        unsafe { cell.register(&waiter) };
+    }
+    assert_eq!(drops.swap(0, Ordering::SeqCst), 1, "caller waiter retained");
+
+    drop(cell);
+
+    assert_eq!(
+        drops.load(Ordering::SeqCst),
+        1,
+        "retained waiter leaked or duplicated"
+    );
+    assert_eq!(wakes.load(Ordering::SeqCst), 0, "pending waiter was woken");
+}
+
+#[test]
 fn an_aligned_state_word_keeps_the_publish_off_the_result_line() {
     use crate::cache::{CacheAligned, DESTRUCTIVE_INTERFERENCE_SIZE};
     use core::mem::{align_of, size_of};
@@ -155,12 +200,12 @@ fn the_packed_default_does_not_pad_each_cell() {
     );
 }
 
-struct CloneFailureWaiter {
+struct CloneFailureWaiter<const REPLACE_ON_REPEAT: bool> {
     clones: Arc<AtomicUsize>,
     wakes: Arc<AtomicUsize>,
 }
 
-impl Clone for CloneFailureWaiter {
+impl<const REPLACE_ON_REPEAT: bool> Clone for CloneFailureWaiter<REPLACE_ON_REPEAT> {
     fn clone(&self) -> Self {
         match self.clones.fetch_add(1, Ordering::SeqCst) {
             1 => panic!("replacement clone"),
@@ -172,8 +217,8 @@ impl Clone for CloneFailureWaiter {
     }
 }
 
-impl Waiter for CloneFailureWaiter {
-    const REPLACE_ON_REPEAT: bool = true;
+impl<const REPLACE_ON_REPEAT: bool> Waiter for CloneFailureWaiter<REPLACE_ON_REPEAT> {
+    const REPLACE_ON_REPEAT: bool = REPLACE_ON_REPEAT;
 
     fn wake(self) {
         self.wakes.fetch_add(1, Ordering::SeqCst);
@@ -181,12 +226,40 @@ impl Waiter for CloneFailureWaiter {
 }
 
 #[test]
+fn first_clone_panic_leaves_the_pending_cell_unmodified() {
+    let waiter = CloneFailureWaiter::<true> {
+        clones: Arc::new(AtomicUsize::new(1)),
+        wakes: Arc::new(AtomicUsize::new(0)),
+    };
+    let cell = ResultCell::<usize, CloneFailureWaiter<true>>::new();
+
+    let panic = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: this thread is the cell's only consumer.
+        unsafe { cell.register(&waiter) };
+    })) {
+        Err(panic) => panic,
+        Ok(()) => panic!("first clone unexpectedly succeeded"),
+    };
+
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"replacement clone"));
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_PENDING);
+    assert!(!cell.has_registered_waiter());
+    // SAFETY: no registration succeeded and this thread is the sole consumer.
+    assert!(unsafe { (*cell.waiter.get()).is_none() });
+    cell.complete(81);
+    assert_eq!(cell.try_take_ready(), Some(81));
+    assert_eq!(cell.try_take_ready(), None, "result taken twice");
+    assert_eq!(waiter.clones.load(Ordering::SeqCst), 2);
+    assert_eq!(waiter.wakes.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn replacement_clone_panic_preserves_the_published_waiter() {
-    let waiter = CloneFailureWaiter {
+    let waiter = CloneFailureWaiter::<true> {
         clones: Arc::new(AtomicUsize::new(0)),
         wakes: Arc::new(AtomicUsize::new(0)),
     };
-    let cell = ResultCell::<usize, CloneFailureWaiter>::new();
+    let cell = ResultCell::<usize, CloneFailureWaiter<true>>::new();
 
     // SAFETY: this thread is the cell's only consumer.
     unsafe { cell.register(&waiter) };
@@ -203,6 +276,30 @@ fn replacement_clone_panic_preserves_the_published_waiter() {
     cell.complete(71);
     assert_eq!(cell.try_take_ready(), Some(71));
     assert_eq!(waiter.clones.load(Ordering::SeqCst), 2);
+    assert_eq!(waiter.wakes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn repeated_nonreplacing_registration_keeps_the_first_waiter() {
+    let waiter = CloneFailureWaiter::<false> {
+        clones: Arc::new(AtomicUsize::new(0)),
+        wakes: Arc::new(AtomicUsize::new(0)),
+    };
+    let cell = ResultCell::<usize, CloneFailureWaiter<false>>::new();
+
+    // SAFETY: this thread is the cell's only consumer.
+    unsafe { cell.register(&waiter) };
+    // SAFETY: the first registration returned; this is the only consumer.
+    unsafe { cell.register(&waiter) };
+
+    assert_eq!(waiter.clones.load(Ordering::SeqCst), 1);
+    assert!(cell.has_registered_waiter());
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_WAITING);
+    // SAFETY: this thread is the sole consumer and completion has not started.
+    assert!(unsafe { (*cell.waiter.get()).is_some() });
+    cell.complete(83);
+    assert_eq!(cell.try_take_ready(), Some(83));
+    assert_eq!(cell.try_take_ready(), None, "result taken twice");
     assert_eq!(waiter.wakes.load(Ordering::SeqCst), 1);
 }
 
