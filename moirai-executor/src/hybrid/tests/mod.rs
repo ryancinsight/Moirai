@@ -11,6 +11,7 @@ mod priority;
 mod settlement_ownership;
 mod shutdown;
 mod shutdown_callbacks;
+mod shutdown_count;
 mod shutdown_deadlines;
 mod shutdown_ownership;
 mod shutdown_reentry;

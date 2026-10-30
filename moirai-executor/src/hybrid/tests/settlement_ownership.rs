@@ -278,3 +278,68 @@ fn panicking_inline_callback_retains_owner_through_payload_cleanup() {
     assert_eq!(worker_release_result, Ok(()));
     assert_eq!(worker_result, Some(Ok(())));
 }
+
+#[test]
+fn shared_completion_waits_for_external_settlement_after_scheduler_drain() {
+    let fixture = native_inline_fixture();
+    let id = fixture.handle.id();
+    let executor = Arc::new(fixture.executor);
+    let (observed_sender, observed) = mpsc::sync_channel(1);
+    let (entered_sender, entered) = mpsc::sync_channel(1);
+    let (release_sender, release_receiver) = mpsc::sync_channel(0);
+    let callback = Waker::from(Arc::new(SettlementCallback {
+        handle: Mutex::new(Some(fixture.handle)),
+        observed: observed_sender,
+        entered: entered_sender,
+        exit: CallbackExit::Release(Mutex::new(release_receiver)),
+    }));
+    let mut context = Context::from_waker(&callback);
+    let mut wait = std::pin::pin!(executor.wait_for_task(id, None));
+    assert!(wait.as_mut().poll(&mut context).is_pending());
+
+    fixture.ready.store(true, Ordering::Release);
+    let stale_waker = fixture.task_waker.clone();
+    let waking = std::thread::spawn(move || fixture.task_waker.wake());
+    assert_eq!(observed.recv_timeout(EVENT_DEADLINE), Ok(Some(Ok(1789))));
+    entered
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("external settlement callback enters");
+    fixture
+        .worker_release
+        .send(())
+        .expect("worker gate remains connected");
+    assert_eq!(fixture.worker_gate.join(), Some(Ok(())));
+    executor.join().expect("scheduler drains accepted work");
+    assert!(!executor.has_work());
+
+    let shutdown_executor = Arc::clone(&executor);
+    let (returned_sender, returned) = mpsc::sync_channel(1);
+    let shutdown = std::thread::spawn(move || {
+        ExecutorControl::shutdown(&*shutdown_executor);
+        returned_sender
+            .send(())
+            .expect("shutdown observer remains connected");
+    });
+    assert!(executor.shutdown.wait_for_drain(0, false, EVENT_DEADLINE));
+    assert!(
+        executor
+            .async_tasks
+            .close_and_snapshot()
+            .contains_key(&id.0)
+    );
+    assert_eq!(returned.try_recv(), Err(mpsc::TryRecvError::Empty));
+
+    release_sender
+        .send(())
+        .expect("external settlement callback remains connected");
+    waking
+        .join()
+        .expect("external wake does not propagate panic");
+    returned
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("shutdown returns after settlement registration retires");
+    shutdown.join().expect("shutdown caller does not panic");
+    stale_waker.wake_by_ref();
+    assert!(executor.async_tasks.close_and_snapshot().is_empty());
+    assert_eq!(fixture.drops.load(Ordering::Acquire), 1);
+}

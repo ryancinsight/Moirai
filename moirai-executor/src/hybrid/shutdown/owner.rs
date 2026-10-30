@@ -19,39 +19,41 @@ pub(in crate::hybrid) struct Shutdown {
 }
 #[derive(Default)]
 struct Completion {
-    complete: Mutex<bool>,
+    state: Mutex<CompletionState>,
     changed: Condvar,
     #[cfg(test)]
     waiting: AtomicUsize,
 }
 
+#[derive(Default)]
+struct CompletionState {
+    complete: bool,
+    #[cfg(test)]
+    drain: Option<(usize, bool)>,
+}
+
 impl Completion {
     fn wait(&self, deadline: Option<(Instant, Duration)>) {
-        let complete = self
-            .complete
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         #[cfg(test)]
-        let counted = !*complete;
+        let counted = !state.complete;
         #[cfg(test)]
         if counted {
             self.waiting.fetch_add(1, Ordering::Relaxed);
             self.changed.notify_all();
         }
-        let complete = match deadline {
+        let state = match deadline {
             Some((started, timeout)) => {
                 self.changed
-                    .wait_timeout_while(
-                        complete,
-                        timeout.saturating_sub(started.elapsed()),
-                        |complete| !*complete,
-                    )
+                    .wait_timeout_while(state, timeout.saturating_sub(started.elapsed()), |state| {
+                        !state.complete
+                    })
                     .unwrap_or_else(|error| error.into_inner())
                     .0
             }
             None => self
                 .changed
-                .wait_while(complete, |complete| !*complete)
+                .wait_while(state, |state| !state.complete)
                 .unwrap_or_else(|error| error.into_inner()),
         };
         #[cfg(test)]
@@ -59,44 +61,60 @@ impl Completion {
             self.waiting.fetch_sub(1, Ordering::Relaxed);
             self.changed.notify_all();
         }
-        drop(complete);
+        drop(state);
     }
     fn publish(&self) {
-        *self
-            .complete
+        self.state
             .lock()
-            .unwrap_or_else(|error| error.into_inner()) = true;
+            .unwrap_or_else(|error| error.into_inner())
+            .complete = true;
+        self.changed.notify_all();
+    }
+
+    #[cfg(test)]
+    fn observe_drain(&self, active_calls: usize, table_empty: bool) {
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .drain = Some((active_calls, table_empty));
         self.changed.notify_all();
     }
 
     #[cfg(test)]
     fn wait_for_waiters(&self, minimum: usize, timeout: Duration) -> bool {
-        let complete = self
-            .complete
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let (complete, _) = self
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let (state, _) = self
             .changed
-            .wait_timeout_while(complete, timeout, |_| {
+            .wait_timeout_while(state, timeout, |_| {
                 self.waiting.load(Ordering::Relaxed) < minimum
             })
             .unwrap_or_else(|error| error.into_inner());
         let observed = self.waiting.load(Ordering::Relaxed) >= minimum;
-        drop(complete);
+        drop(state);
         observed
     }
 
     #[cfg(test)]
-    fn skip_wait_mutant(&self) {
-        let complete = self
-            .complete
-            .lock()
+    fn wait_for_drain(&self, active_calls: usize, table_empty: bool, timeout: Duration) -> bool {
+        let expected = (active_calls, table_empty);
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let (state, _) = self
+            .changed
+            .wait_timeout_while(state, timeout, |state| {
+                !state.complete && state.drain != Some(expected)
+            })
             .unwrap_or_else(|error| error.into_inner());
+        state.drain == Some(expected)
+    }
+
+    #[cfg(test)]
+    fn skip_wait_mutant(&self) {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         self.waiting.fetch_add(1, Ordering::Relaxed);
         self.changed.notify_all();
         self.waiting.fetch_sub(1, Ordering::Relaxed);
         self.changed.notify_all();
-        drop(complete);
+        drop(state);
     }
 }
 impl Shutdown {
@@ -143,6 +161,9 @@ impl Shutdown {
                 worker_tasks.shutdown(&worker_registry);
                 worker_scheduler.shutdown();
                 while worker_admission.active_calls() != 0 || !worker_tasks.is_empty() {
+                    #[cfg(test)]
+                    worker_completion
+                        .observe_drain(worker_admission.active_calls(), worker_tasks.is_empty());
                     thread::park();
                 }
             });
@@ -186,6 +207,17 @@ impl Shutdown {
     #[cfg(test)]
     pub(in crate::hybrid) fn wait_for_waiters(&self, minimum: usize, timeout: Duration) -> bool {
         self.completion.wait_for_waiters(minimum, timeout)
+    }
+
+    #[cfg(test)]
+    pub(in crate::hybrid) fn wait_for_drain(
+        &self,
+        active_calls: usize,
+        table_empty: bool,
+        timeout: Duration,
+    ) -> bool {
+        self.completion
+            .wait_for_drain(active_calls, table_empty, timeout)
     }
 }
 #[cfg(test)]
