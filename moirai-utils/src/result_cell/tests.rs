@@ -1,6 +1,6 @@
-use super::{ResultCell, Waiter};
+use super::{RESULT_READY, RESULT_WAITING, ResultCell, Waiter};
 use std::sync::{
-    Arc,
+    Arc, Weak,
     atomic::{AtomicUsize, Ordering},
 };
 use std::task::{Wake, Waker};
@@ -153,4 +153,183 @@ fn the_packed_default_does_not_pad_each_cell() {
         PACKED < crate::cache::DESTRUCTIVE_INTERFERENCE_SIZE,
         "the packed cell grew past a cache line"
     );
+}
+
+struct CloneFailureWaiter {
+    clones: Arc<AtomicUsize>,
+    wakes: Arc<AtomicUsize>,
+}
+
+impl Clone for CloneFailureWaiter {
+    fn clone(&self) -> Self {
+        match self.clones.fetch_add(1, Ordering::SeqCst) {
+            1 => panic!("replacement clone"),
+            _ => Self {
+                clones: Arc::clone(&self.clones),
+                wakes: Arc::clone(&self.wakes),
+            },
+        }
+    }
+}
+
+impl Waiter for CloneFailureWaiter {
+    const REPLACE_ON_REPEAT: bool = true;
+
+    fn wake(self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn replacement_clone_panic_preserves_the_published_waiter() {
+    let waiter = CloneFailureWaiter {
+        clones: Arc::new(AtomicUsize::new(0)),
+        wakes: Arc::new(AtomicUsize::new(0)),
+    };
+    let cell = ResultCell::<usize, CloneFailureWaiter>::new();
+
+    // SAFETY: this thread is the cell's only consumer.
+    unsafe { cell.register(&waiter) };
+    let panic = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: the first registration returned; this is the only consumer.
+        unsafe { cell.register(&waiter) };
+    })) {
+        Err(panic) => panic,
+        Ok(()) => panic!("replacement clone unexpectedly succeeded"),
+    };
+
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"replacement clone"));
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_WAITING);
+    cell.complete(71);
+    assert_eq!(cell.try_take_ready(), Some(71));
+    assert_eq!(waiter.clones.load(Ordering::SeqCst), 2);
+    assert_eq!(waiter.wakes.load(Ordering::SeqCst), 1);
+}
+
+#[derive(Clone)]
+struct ReentrantDropWaiter {
+    completion: Option<ReentrantCompletion>,
+    wakes: Arc<AtomicUsize>,
+}
+
+#[derive(Clone)]
+struct ReentrantCompletion {
+    cell: Weak<ResultCell<usize, ReentrantDropWaiter>>,
+    calls: Arc<AtomicUsize>,
+    value: usize,
+}
+
+impl Waiter for ReentrantDropWaiter {
+    const REPLACE_ON_REPEAT: bool = true;
+
+    fn wake(self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl Drop for ReentrantDropWaiter {
+    fn drop(&mut self) {
+        let Some(completion) = self.completion.take() else {
+            return;
+        };
+        completion.calls.fetch_add(1, Ordering::SeqCst);
+        let cell = completion
+            .cell
+            .upgrade()
+            .expect("invariant: the reentrant completion test retains the result cell");
+        cell.complete(completion.value);
+    }
+}
+
+#[test]
+fn replaced_waiter_drop_may_complete_the_same_cell() {
+    let cell = Arc::new(ResultCell::<usize, ReentrantDropWaiter>::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let old_wakes = Arc::new(AtomicUsize::new(0));
+    let new_wakes = Arc::new(AtomicUsize::new(0));
+    let mut old = ReentrantDropWaiter {
+        completion: Some(ReentrantCompletion {
+            cell: Arc::downgrade(&cell),
+            calls: Arc::clone(&calls),
+            value: 73,
+        }),
+        wakes: Arc::clone(&old_wakes),
+    };
+
+    // SAFETY: this thread is the cell's only consumer.
+    unsafe { cell.register(&old) };
+    old.completion = None;
+    let replacement = ReentrantDropWaiter {
+        completion: None,
+        wakes: Arc::clone(&new_wakes),
+    };
+    // SAFETY: the first registration returned; this is the only consumer.
+    unsafe { cell.register(&replacement) };
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_READY);
+    assert_eq!(cell.try_take_ready(), Some(73));
+    assert_eq!(old_wakes.load(Ordering::SeqCst), 0);
+    assert_eq!(new_wakes.load(Ordering::SeqCst), 1);
+}
+
+#[derive(Clone)]
+struct PanicDropWaiter {
+    panic_on_drop: bool,
+    panic_drops: Arc<AtomicUsize>,
+    wakes: Arc<AtomicUsize>,
+}
+
+impl Waiter for PanicDropWaiter {
+    const REPLACE_ON_REPEAT: bool = true;
+
+    fn wake(self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl Drop for PanicDropWaiter {
+    fn drop(&mut self) {
+        if self.panic_on_drop {
+            self.panic_drops.fetch_add(1, Ordering::SeqCst);
+            panic!("replaced waiter drop");
+        }
+    }
+}
+
+#[test]
+fn replacement_survives_replaced_waiter_drop_panic() {
+    let panic_drops = Arc::new(AtomicUsize::new(0));
+    let old_wakes = Arc::new(AtomicUsize::new(0));
+    let new_wakes = Arc::new(AtomicUsize::new(0));
+    let cell = ResultCell::<usize, PanicDropWaiter>::new();
+    let mut old = PanicDropWaiter {
+        panic_on_drop: true,
+        panic_drops: Arc::clone(&panic_drops),
+        wakes: Arc::clone(&old_wakes),
+    };
+
+    // SAFETY: this thread is the cell's only consumer.
+    unsafe { cell.register(&old) };
+    old.panic_on_drop = false;
+    let replacement = PanicDropWaiter {
+        panic_on_drop: false,
+        panic_drops: Arc::clone(&panic_drops),
+        wakes: Arc::clone(&new_wakes),
+    };
+    let panic = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: the first registration returned; this is the only consumer.
+        unsafe { cell.register(&replacement) };
+    })) {
+        Err(panic) => panic,
+        Ok(()) => panic!("replaced waiter drop unexpectedly succeeded"),
+    };
+
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"replaced waiter drop"));
+    assert_eq!(panic_drops.load(Ordering::SeqCst), 1);
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_WAITING);
+    cell.complete(79);
+    assert_eq!(cell.try_take_ready(), Some(79));
+    assert_eq!(old_wakes.load(Ordering::SeqCst), 0);
+    assert_eq!(new_wakes.load(Ordering::SeqCst), 1);
 }

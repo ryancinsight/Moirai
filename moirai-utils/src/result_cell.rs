@@ -257,6 +257,10 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
     ///
     /// Registration retries until the state is settled, so the waiter is stored
     /// from a clone and a failed publish transition costs only that clone. The
+    /// clone is constructed before claiming the waiter cell, and a replaced
+    /// waiter is dropped only after the replacement is published. Unwinding
+    /// from either operation therefore leaves the state settled with an
+    /// initialized waiter. The
     /// caller must re-check [`try_take_ready`](ResultCell::try_take_ready) after this
     /// returns: a `complete` that raced in before the registration does not wake,
     /// because it saw no waiter. See the
@@ -304,6 +308,10 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
                         return;
                     }
 
+                    // Cloning may unwind. Keep the published waiter intact
+                    // until its replacement exists and this consumer owns the
+                    // waiter cell.
+                    let replacement = waiter.clone();
                     if self
                         .state
                         .compare_exchange(
@@ -316,11 +324,16 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
                     {
                         // Safety: UPDATING_WAITER excludes the producer from
                         // reading the waiter cell while the consumer replaces it.
+                        let replaced = unsafe { (*self.waiter.get()).assume_init_read() };
+                        // Safety: this consumer owns UPDATING_WAITER and moved
+                        // the old waiter out, leaving the cell uninitialized.
                         unsafe {
-                            (*self.waiter.get()).assume_init_drop();
-                            (*self.waiter.get()).write(waiter.clone());
+                            (*self.waiter.get()).write(replacement);
                         }
                         self.state.store(RESULT_WAITING, Ordering::Release);
+                        // A waiter destructor may re-enter completion or unwind.
+                        // Both require the replacement to be published first.
+                        drop(replaced);
                         return;
                     }
                 }
