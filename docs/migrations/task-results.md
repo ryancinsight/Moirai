@@ -75,3 +75,8 @@ continues to resume its callback panic while the native scheduler's active
 owner contains the escaped cleanup.
 
 [ADR 0085](../adr/0085-result-state-storage.md) records the storage decision.
+
+`ExecutorError` is non-exhaustive in this boundary. Downstream exhaustive matches
+add a wildcard arm. `ShutdownWorkerCreationFailed { source }` represents failure
+to start the owned teardown worker and preserves the original I/O error through
+`Error::source`, including operating-system codes and custom error payloads.

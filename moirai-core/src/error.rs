@@ -96,6 +96,7 @@ impl fmt::Display for TaskErrorKind {
 #[allow(clippy::module_name_repetitions)]
 #[must_use]
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ExecutorError {
     /// Executor is shutting down
     ShuttingDown,
@@ -110,6 +111,26 @@ pub enum ExecutorError {
     },
     /// Thread pool creation failed
     ThreadPoolCreationFailed,
+    /// The owned shutdown worker could not be started.
+    ///
+    /// The original I/O error remains available through `Error::source`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use moirai_core::error::ExecutorError;
+    /// use std::{error::Error, io};
+    /// let error = ExecutorError::ShutdownWorkerCreationFailed {
+    ///     source: io::Error::from_raw_os_error(12),
+    /// };
+    /// let source = error.source().unwrap().downcast_ref::<io::Error>().unwrap();
+    /// assert_eq!(source.raw_os_error(), Some(12));
+    /// ```
+    #[cfg(feature = "std")]
+    ShutdownWorkerCreationFailed {
+        /// Original failure from the operating system's thread builder.
+        source: std::io::Error,
+    },
     /// Task spawn failed
     SpawnFailed(TaskError),
     /// The requested task is not registered with this executor.
@@ -185,6 +206,10 @@ impl fmt::Display for ExecutorError {
                 "local queue initial capacity {requested} cannot form a supported allocation"
             ),
             Self::ThreadPoolCreationFailed => write!(f, "Failed to create thread pool"),
+            #[cfg(feature = "std")]
+            Self::ShutdownWorkerCreationFailed { .. } => {
+                write!(f, "could not start the executor shutdown worker")
+            }
             Self::SpawnFailed(err) => write!(f, "Failed to spawn task: {err}"),
             Self::UnknownTask { id } => write!(f, "Task {id} is not registered"),
             Self::WaitTimedOut { id } => write!(f, "Waiting for task {id} timed out"),
@@ -268,7 +293,9 @@ impl std::error::Error for ExecutorError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::WorkerPlacementFailed { cause, .. } => Some(cause),
-            Self::TimerFailed { source, .. } => Some(source),
+            Self::TimerFailed { source, .. } | Self::ShutdownWorkerCreationFailed { source } => {
+                Some(source)
+            }
             _ => None,
         }
     }
@@ -332,56 +359,61 @@ mod tests {
     }
 
     #[cfg(feature = "std")]
-    #[test]
-    fn timer_failure_preserves_operating_system_error_source() {
-        let id = TaskId::new(73);
-        let error = ExecutorError::TimerFailed {
-            id,
-            source: std::io::Error::from_raw_os_error(1_234),
-        };
-        assert_eq!(format!("{error}"), "Timer for task Task#73 failed");
-        let source = std::error::Error::source(&error)
-            .expect("invariant: timer failure owns its I/O source");
-        let io_error = source
-            .downcast_ref::<std::io::Error>()
-            .expect("invariant: the direct source is the owned I/O error");
-        assert_eq!(io_error.raw_os_error(), Some(1_234));
-    }
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn timer_failure_preserves_custom_io_error_payload() {
+    fn io_source_survives(wrap: impl Fn(std::io::Error) -> ExecutorError, display: &str) {
         #[derive(Debug)]
-        struct TimerPayload {
+        struct WorkerFailure {
             operation: &'static str,
             sequence: u32,
         }
-
-        impl fmt::Display for TimerPayload {
+        impl fmt::Display for WorkerFailure {
             fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str(self.operation)
             }
         }
+        impl std::error::Error for WorkerFailure {}
 
-        impl std::error::Error for TimerPayload {}
-
-        let error = ExecutorError::TimerFailed {
-            id: TaskId::new(91),
-            source: std::io::Error::other(TimerPayload {
-                operation: "start deadline worker",
-                sequence: 47,
-            }),
-        };
+        let error = wrap(std::io::Error::from_raw_os_error(1_234));
+        assert_eq!(format!("{error}"), display);
         let source = std::error::Error::source(&error)
-            .expect("invariant: timer failure owns its I/O source");
-        let io_error = source
+            .expect("invariant: platform failure retains its I/O source");
+        let source = source
             .downcast_ref::<std::io::Error>()
-            .expect("invariant: the direct source is the owned I/O error");
-        let payload = io_error
+            .expect("invariant: the direct source is the original I/O error");
+        assert_eq!(source.raw_os_error(), Some(1_234));
+
+        let error = wrap(std::io::Error::other(WorkerFailure {
+            operation: "start platform worker",
+            sequence: 47,
+        }));
+        let source = std::error::Error::source(&error)
+            .expect("invariant: platform failure retains its I/O source");
+        let source = source
+            .downcast_ref::<std::io::Error>()
+            .expect("invariant: the direct source is the original I/O error");
+        assert_eq!(source.kind(), std::io::ErrorKind::Other);
+        assert_eq!(source.raw_os_error(), None);
+        let payload = source
             .get_ref()
-            .and_then(|source| source.downcast_ref::<TimerPayload>())
-            .expect("invariant: the custom payload remains inside the I/O error");
-        assert_eq!(payload.operation, "start deadline worker");
+            .expect("invariant: Error::other retains its custom payload")
+            .downcast_ref::<WorkerFailure>()
+            .expect("invariant: the original custom payload type is preserved");
+        assert_eq!(payload.operation, "start platform worker");
         assert_eq!(payload.sequence, 47);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn platform_failures_preserve_original_io_sources() {
+        io_source_survives(
+            |source| ExecutorError::TimerFailed {
+                id: TaskId::new(73),
+                source,
+            },
+            "Timer for task Task#73 failed",
+        );
+        io_source_survives(
+            |source| ExecutorError::ShutdownWorkerCreationFailed { source },
+            "could not start the executor shutdown worker",
+        );
     }
 }

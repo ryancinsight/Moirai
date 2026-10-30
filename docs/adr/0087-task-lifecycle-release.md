@@ -42,7 +42,8 @@ authority. This decision does not grant a separate package or Python release.
 
 Integrate compatible private repairs first. Keep public additions and their
 native callers at the one 0.12 boundary, with migration documentation and exact
-consumer preparation. Changes to StateWord, metrics, or no-std capability are
+consumer preparation. The executor error enum becomes non-exhaustive;
+shutdown-worker creation failures retain their original I/O source. Changes to StateWord, metrics, or no-std capability are
 included only when independently required by the delivered contracts; their
 presence in the preservation branch is insufficient.
 
