@@ -66,7 +66,7 @@ unsafe impl Sync for TaskStateBlock {}
 /// 32 bytes on macOS, where std reaches its `pthread_mutex_t` through a lazily
 /// boxed pointer, against 24 on the futex targets (Linux, Windows), and with it
 /// the per-task state was 80 bytes on macOS. The lock here is one flag byte
-/// plus padding, and the critical sections clone a waker, run
+/// plus padding, and the critical sections move an already-cloned waker, run
 /// [`Waker::will_wake`](std::task::Waker::will_wake) over a short member list,
 /// or take the waker out — all
 /// bounded, never blocking, so spinning with a yield is safe under any
@@ -74,6 +74,16 @@ unsafe impl Sync for TaskStateBlock {}
 pub(super) struct WakerSlot {
     locked: AtomicBool,
     slot: UnsafeCell<Option<std::task::Waker>>,
+}
+
+struct WakerSlotGuard<'slot> {
+    locked: &'slot AtomicBool,
+}
+
+impl Drop for WakerSlotGuard<'_> {
+    fn drop(&mut self) {
+        self.locked.store(false, Ordering::Release);
+    }
 }
 
 impl WakerSlot {
@@ -101,12 +111,20 @@ impl WakerSlot {
             }
             spins += 1;
         }
+        let guard = WakerSlotGuard {
+            locked: &self.locked,
+        };
         // SAFETY: the `locked` flag is held by this call, so this borrow is the
         // only slot access; it ends before the flag is released.
         let slot = unsafe { &mut *self.slot.get() };
         let result = body(slot);
-        self.locked.store(false, Ordering::Release);
+        drop(guard);
         result
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_locked(&self) -> bool {
+        self.locked.load(Ordering::Acquire)
     }
 }
 
@@ -294,7 +312,9 @@ impl TaskState {
     /// Wakers that do not `will_wake` the held one accumulate in the slot
     /// ([`fan_out`]), so every waiter is woken by completion.
     pub(super) fn register_waker(&self, waker: &std::task::Waker) {
-        self.waker.with_slot(|slot| fan_out::register(slot, waker));
+        let waker = waker.clone();
+        let discarded = self.waker.with_slot(|slot| fan_out::register(slot, waker));
+        drop(discarded);
         // Store first, then re-check completion, mirroring the ordering
         // `mark_completed_since` publishes: it stores the completion offset
         // before taking the waker. A task that completed before this store
@@ -466,27 +486,4 @@ pub(crate) fn instant_from_offset(origin: Instant, offset_ns: u64) -> Option<Ins
 pub(crate) fn task_location(id: u64) -> (usize, usize) {
     let index = usize::try_from(id).expect("task ID must fit in usize");
     (index / TASK_STATE_BLOCK_SIZE, index % TASK_STATE_BLOCK_SIZE)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{TaskState, elapsed_nanos_since};
-    use std::sync::atomic::Ordering;
-    use std::time::Duration;
-
-    #[test]
-    fn completion_clamps_to_recorded_start_offset() {
-        let state = TaskState::new();
-        let future_start = elapsed_nanos_since(state.created_at).saturating_add(1_000_000);
-        state
-            .started_after_ns
-            .store(future_start, Ordering::Release);
-
-        let elapsed = state.mark_completed_since(future_start);
-        let snapshot = state.snapshot(7);
-
-        assert_eq!(elapsed, Duration::ZERO);
-        assert_eq!(snapshot.started_at, snapshot.completed_at);
-        assert_eq!(snapshot.execution_duration(), Some(Duration::ZERO));
-    }
 }

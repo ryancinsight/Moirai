@@ -5,15 +5,102 @@
 //! retained past completion or past the task state.
 
 use std::{
-    sync::{Arc, Barrier},
+    mem::ManuallyDrop,
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::{
+        Arc, Barrier,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    task::{RawWaker, RawWakerVTable, Waker},
     thread,
+    time::Duration,
 };
 
 use crate::counting_wake::counting_waker;
 
 use super::registry::TaskRegistry;
-use super::state::TaskState;
+use super::state::{TaskState, elapsed_nanos_since};
 use super::token::TaskLifecycleToken;
+
+#[derive(Clone, Copy)]
+enum CallbackAction {
+    CloneRegisters,
+    ClonePanics,
+    DropCompletes,
+}
+
+struct CallbackProbe {
+    state: Arc<TaskState>,
+    action: CallbackAction,
+    clone_calls: AtomicUsize,
+    drop_calls: AtomicUsize,
+    wake_calls: AtomicUsize,
+    drop_reentry_armed: AtomicBool,
+}
+
+static CALLBACK_VTABLE: RawWakerVTable = RawWakerVTable::new(
+    clone_callback,
+    wake_callback,
+    wake_by_ref_callback,
+    drop_callback,
+);
+
+fn callback_waker(state: Arc<TaskState>, action: CallbackAction) -> (Arc<CallbackProbe>, Waker) {
+    let probe = Arc::new(CallbackProbe {
+        state,
+        action,
+        clone_calls: AtomicUsize::new(0),
+        drop_calls: AtomicUsize::new(0),
+        wake_calls: AtomicUsize::new(0),
+        drop_reentry_armed: AtomicBool::new(true),
+    });
+    let data = Arc::into_raw(Arc::clone(&probe)).cast::<()>();
+    // SAFETY: `data` owns one `Arc<CallbackProbe>` strong reference and every
+    // callback below preserves the `RawWakerVTable` ownership rules.
+    let waker = unsafe { Waker::from_raw(RawWaker::new(data, &CALLBACK_VTABLE)) };
+    (probe, waker)
+}
+
+unsafe fn clone_callback(data: *const ()) -> RawWaker {
+    // SAFETY: `data` is one live `Arc<CallbackProbe>` reference. This
+    // temporary view does not consume it.
+    let probe = ManuallyDrop::new(unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) });
+    probe.clone_calls.fetch_add(1, Ordering::Relaxed);
+    if probe.state.waker.is_locked() {
+        panic!("clone ran while slot lock held");
+    }
+    match probe.action {
+        CallbackAction::CloneRegisters => probe.state.register_waker(Waker::noop()),
+        CallbackAction::ClonePanics => panic!("clone callback panic"),
+        CallbackAction::DropCompletes => {}
+    }
+    let cloned = Arc::clone(&probe);
+    RawWaker::new(Arc::into_raw(cloned).cast::<()>(), &CALLBACK_VTABLE)
+}
+
+unsafe fn wake_callback(data: *const ()) {
+    // SAFETY: value wake consumes the callback's live Arc reference.
+    let probe = unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) };
+    probe.wake_calls.fetch_add(1, Ordering::Relaxed);
+}
+
+unsafe fn wake_by_ref_callback(data: *const ()) {
+    // SAFETY: reference wake borrows the callback's live Arc reference.
+    let probe = ManuallyDrop::new(unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) });
+    probe.wake_calls.fetch_add(1, Ordering::Relaxed);
+}
+
+unsafe fn drop_callback(data: *const ()) {
+    // SAFETY: drop consumes the callback's live Arc reference.
+    let probe = unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) };
+    probe.drop_calls.fetch_add(1, Ordering::Relaxed);
+    if matches!(probe.action, CallbackAction::DropCompletes)
+        && probe.drop_reentry_armed.swap(false, Ordering::AcqRel)
+    {
+        assert!(!probe.state.waker.is_locked());
+        probe.state.mark_completed();
+    }
+}
 
 /// Register a task and keep its lifecycle token, so the task stays pending
 /// until the token completes it (a dropped unstarted token completes the task).
@@ -139,6 +226,69 @@ fn dropping_an_unfinished_state_releases_every_registered_waker() {
         assert_eq!(target.wakes(), 0, "an unfinished task wakes nobody");
         assert_eq!(Arc::strong_count(target), 1, "a waker outlived its state");
     }
+}
+
+#[test]
+fn completion_clamps_to_recorded_start_offset() {
+    let state = TaskState::new();
+    let future_start = elapsed_nanos_since(state.created_at).saturating_add(1_000_000);
+    state
+        .started_after_ns
+        .store(future_start, Ordering::Release);
+
+    let elapsed = state.mark_completed_since(future_start);
+    let snapshot = state.snapshot(7);
+
+    assert_eq!(elapsed, Duration::ZERO);
+    assert_eq!(snapshot.started_at, snapshot.completed_at);
+    assert_eq!(snapshot.execution_duration(), Some(Duration::ZERO));
+}
+
+#[test]
+fn raw_waker_clone_reenters_registration_before_lock() {
+    let state = Arc::new(TaskState::new());
+    let (probe, waker) = callback_waker(Arc::clone(&state), CallbackAction::CloneRegisters);
+
+    state.register_waker(&waker);
+    let started = state.mark_started(3);
+    let elapsed = state.mark_completed_since(started);
+    let snapshot = state.snapshot(41);
+
+    assert_eq!(probe.clone_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(probe.wake_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(snapshot.worker_id, Some(3));
+    assert_eq!(snapshot.execution_duration(), Some(elapsed));
+}
+
+#[test]
+fn raw_waker_clone_panic_does_not_strand_slot_lock() {
+    let state = Arc::new(TaskState::new());
+    let (probe, waker) = callback_waker(Arc::clone(&state), CallbackAction::ClonePanics);
+
+    let panic = catch_unwind(AssertUnwindSafe(|| state.register_waker(&waker)))
+        .expect_err("invariant: configured raw waker clone panics");
+
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"clone callback panic"));
+    assert_eq!(probe.clone_calls.load(Ordering::Relaxed), 1);
+    assert!(!state.waker.is_locked());
+    state.register_waker(Waker::noop());
+    state.mark_completed();
+    assert!(state.is_completed());
+}
+
+#[test]
+fn discarded_raw_waker_drops_after_unlock_and_completes() {
+    let state = Arc::new(TaskState::new());
+    let (probe, waker) = callback_waker(Arc::clone(&state), CallbackAction::DropCompletes);
+
+    state.register_waker(&waker);
+    state.register_waker(&waker);
+
+    assert!(state.is_completed());
+    assert_eq!(probe.clone_calls.load(Ordering::Relaxed), 2);
+    assert_eq!(probe.drop_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(probe.wake_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(state.snapshot(42).completed_at, state.completed_at());
 }
 
 /// Registrations from different threads all land before completion, so every
