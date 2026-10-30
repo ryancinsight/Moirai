@@ -9,10 +9,7 @@
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
 };
 
 use moirai_core::{
@@ -34,11 +31,13 @@ pub(crate) mod manager;
 mod result;
 #[cfg(test)]
 mod retention_tests;
+mod shutdown;
 pub(crate) mod spawner;
 #[cfg(test)]
 mod tests;
 
 use result::{TaskEnd, cancel_task_result, send_task_result};
+use shutdown::Admission;
 
 #[derive(Clone, Copy)]
 struct MetricsRef {
@@ -78,7 +77,7 @@ pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
     scheduler: S,
     task_registry: Arc<TaskRegistry>,
     metrics: Arc<ExecutorMetrics>,
-    shutdown_signal: Arc<AtomicBool>,
+    admission: Admission,
     async_tasks: Arc<async_state::AsyncTasks>,
 }
 
@@ -109,7 +108,7 @@ impl HybridExecutor<ThreadScheduler> {
             scheduler,
             task_registry,
             metrics,
-            shutdown_signal: Arc::new(AtomicBool::new(false)),
+            admission: Admission::new(),
             async_tasks: Arc::new(async_state::AsyncTasks::default()),
         })
     }
@@ -129,6 +128,8 @@ impl HybridExecutor<ThreadScheduler> {
         C: WorkClass,
         F: FnOnce(&SchedulerScope<'scope, C>) -> ExecutorResult<()>,
     {
+        let mut call = self.admission.admit(body)?;
+        let body = call.take();
         self.scheduler.scope::<C, _>(Priority::Normal, None, body)
     }
 }
@@ -141,7 +142,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 
     /// Shutdown the executor gracefully.
     pub fn shutdown(&mut self) -> ExecutorResult<()> {
-        self.shutdown_signal.store(true, Ordering::Release);
+        self.admission.close();
         self.async_tasks.shutdown(&self.task_registry);
         self.scheduler.shutdown();
         Ok(())
@@ -179,6 +180,8 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         C: WorkClass,
         R: Send + 'static,
     {
+        let mut call = self.admission.admit(func)?;
+        let func = call.take();
         let (task_id, lifecycle) = self.register_scheduled_task(priority)?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
@@ -216,6 +219,8 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         C: WorkClass,
         F: Fn(usize) + Send + Sync + 'scope,
     {
+        let mut call = self.admission.admit(task)?;
+        let task = call.take();
         self.scheduler
             .for_each_indexed::<C, _>(Priority::Normal, None, count, task)
     }
@@ -234,6 +239,8 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         Map: Fn(usize) -> T + Send + Sync + 'scope,
         Reduce: Fn(T, T) -> T + Send + Sync + 'scope,
     {
+        let mut call = self.admission.admit((identity, map, reduce))?;
+        let (identity, map, reduce) = call.take();
         self.scheduler.map_reduce_indexed::<C, _, _, _>(
             Priority::Normal,
             None,

@@ -50,6 +50,8 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
         F: core::future::Future + Send + 'static,
         F::Output: Send + 'static,
     {
+        let mut call = self.admission.admit(future)?;
+        let future = call.take();
         let (task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
@@ -60,10 +62,10 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
             result_sender,
             Arc::clone(&self.metrics),
         );
-        let admission = state
+        let scheduled = state
             .track(&self.async_tasks, task_id.0)
             .and_then(|()| Arc::clone(&state).schedule());
-        if let Err(error) = admission {
+        if let Err(error) = scheduled {
             let rejection = state.complete_rejected();
             drop(state);
             return match rejection {
@@ -94,6 +96,8 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
         // no `Arc<TaskResultSlot>` heap allocation or atomic refcount — the win
         // over routing through `spawn_result`. Lifecycle tracking and metrics
         // are preserved so shutdown drain and counters stay accurate.
+        let mut call = self.admission.admit(func)?;
+        let func = call.take();
         let (_task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
         let metrics = MetricsRef::new(&self.metrics);
 

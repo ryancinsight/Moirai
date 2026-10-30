@@ -13,6 +13,8 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
     where
         F: core::future::Future,
     {
+        // This local future driver cannot reject shutdown through its generic
+        // `F::Output`, so it remains outside facade admission.
         crate::schedule::wake::block_on_current_thread(future)
     }
 
@@ -22,7 +24,7 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
     }
 
     fn shutdown(&self) {
-        self.shutdown_signal.store(true, Ordering::Release);
+        self.admission.close();
         self.async_tasks.shutdown(&self.task_registry);
         self.scheduler.shutdown();
     }
@@ -35,7 +37,7 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
     /// scheduler shutdown is re-joined on executor drop.
     fn shutdown_timeout(&self, timeout: core::time::Duration) {
         let wait_started = std::time::Instant::now();
-        self.shutdown_signal.store(true, Ordering::Release);
+        self.admission.close();
 
         let async_tasks = Arc::clone(&self.async_tasks);
         let task_registry = Arc::clone(&self.task_registry);
@@ -56,7 +58,7 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
     }
 
     fn is_shutting_down(&self) -> bool {
-        self.shutdown_signal.load(Ordering::Acquire)
+        self.admission.is_closed()
     }
 
     fn worker_count(&self) -> usize {

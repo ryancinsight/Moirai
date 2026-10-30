@@ -1,0 +1,142 @@
+// The model-checking build substitutes Loom's atomic cell while retaining the
+// production state machine and memory orderings below.
+#[cfg(loom)]
+use loom::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(not(loom))]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use moirai_core::error::{ExecutorError, ExecutorResult};
+
+const CLOSED: usize = 1usize << (usize::BITS - 1);
+const ACTIVE_MASK: usize = CLOSED - 1;
+
+/// Linearizes external executor calls against shutdown.
+pub(in crate::hybrid) struct Admission {
+    state: AtomicUsize,
+}
+
+impl Admission {
+    pub(in crate::hybrid) fn new() -> Self {
+        Self {
+            state: AtomicUsize::new(0),
+        }
+    }
+
+    /// Runs one facade call while its input and cleanup state remain counted.
+    ///
+    /// The closure owns the call arguments. Its captures therefore drop before
+    /// the permit on return or unwind, including scheduler rejection cleanup.
+    #[cfg(test)]
+    pub(in crate::hybrid) fn run<T>(
+        &self,
+        operation: impl FnOnce() -> ExecutorResult<T>,
+    ) -> ExecutorResult<T> {
+        let mut call = self.admit(operation)?;
+        let operation = call.take();
+        operation()
+    }
+
+    pub(in crate::hybrid) fn admit<T>(&self, input: T) -> ExecutorResult<Call<'_, T>> {
+        let mut state = self.state.load(Ordering::Acquire);
+        loop {
+            if state & CLOSED != 0 {
+                return Err(ExecutorError::ShuttingDown);
+            }
+            let active = state & ACTIVE_MASK;
+            let Some(next) = active.checked_add(1).filter(|next| *next <= ACTIVE_MASK) else {
+                return Err(ExecutorError::ResourceExhausted(
+                    "executor facade call count reached its representation limit".into(),
+                ));
+            };
+            match self
+                .state
+                .compare_exchange_weak(state, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => {
+                    return Ok(Call {
+                        input: Some(input),
+                        permit: Permit { admission: self },
+                    });
+                }
+                Err(observed) => state = observed,
+            }
+        }
+    }
+
+    pub(in crate::hybrid) fn close(&self) {
+        self.state.fetch_or(CLOSED, Ordering::AcqRel);
+    }
+
+    pub(in crate::hybrid) fn is_closed(&self) -> bool {
+        self.state.load(Ordering::Acquire) & CLOSED != 0
+    }
+
+    #[cfg(test)]
+    pub(in crate::hybrid) fn active_calls(&self) -> usize {
+        self.state.load(Ordering::Acquire) & ACTIVE_MASK
+    }
+
+    #[cfg(test)]
+    pub(in crate::hybrid) fn at_capacity() -> Self {
+        Self {
+            state: AtomicUsize::new(ACTIVE_MASK),
+        }
+    }
+}
+
+pub(in crate::hybrid) struct Call<'admission, T> {
+    // Rust drops fields in declaration order and continues with later fields
+    // while unwinding a preceding field destructor. Input cleanup therefore
+    // completes, or unwinds through, before the permit releases the count.
+    input: Option<T>,
+    permit: Permit<'admission>,
+}
+
+impl<T> Call<'_, T> {
+    pub(in crate::hybrid) fn take(&mut self) -> T {
+        debug_assert_ne!(
+            self.permit.admission.state.load(Ordering::Relaxed) & ACTIVE_MASK,
+            0,
+            "invariant: an admitted call retains one active permit"
+        );
+        self.input
+            .take()
+            .expect("invariant: admitted input is taken once")
+    }
+}
+
+struct Permit<'admission> {
+    admission: &'admission Admission,
+}
+
+impl Drop for Permit<'_> {
+    fn drop(&mut self) {
+        self.admission.state.fetch_sub(1, Ordering::Release);
+    }
+}
+
+#[cfg(all(test, loom))]
+mod loom_tests {
+    use super::Admission;
+    use loom::{sync::Arc, thread};
+    use moirai_core::error::ExecutorError;
+
+    #[test]
+    fn production_admission_linearizes_close_and_release() {
+        loom::model(|| {
+            let admission = Arc::new(Admission::new());
+            let contender = Arc::clone(&admission);
+            let worker = thread::spawn(move || match contender.admit(()) {
+                Ok(call) => {
+                    assert_eq!(contender.active_calls(), 1);
+                    drop(call);
+                }
+                Err(error) => assert!(matches!(error, ExecutorError::ShuttingDown)),
+            });
+            admission.close();
+            worker.join().unwrap();
+            assert!(admission.is_closed());
+            assert_eq!(admission.active_calls(), 0);
+        });
+    }
+}
