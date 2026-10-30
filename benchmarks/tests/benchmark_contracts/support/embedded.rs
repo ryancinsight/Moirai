@@ -147,7 +147,6 @@ embedded_sources![
     "../moirai-executor/src/hybrid/tests/spawn.rs",
     "../moirai-executor/src/hybrid/tests/wait.rs",
     "../moirai-executor/src/lib.rs",
-    "../moirai-executor/src/registry/completion.rs",
     "../moirai-executor/src/registry/diagnostics.rs",
     "../moirai-executor/src/registry/mod.rs",
     "../moirai-executor/src/registry/registry.rs",

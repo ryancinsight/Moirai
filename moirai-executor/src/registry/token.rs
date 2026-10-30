@@ -1,11 +1,25 @@
-use std::{fmt::Debug, ptr::NonNull, sync::Arc};
+use std::{fmt::Debug, ptr::NonNull, sync::Arc, task::Waker, time::Duration};
 
 use moirai_core::Priority;
 
-use super::{
-    TaskCompletion,
-    state::{TaskState, TaskStateBlock},
-};
+use super::state::{TaskState, TaskStateBlock};
+
+/// Terminal metadata is visible and its state lease is inactive before this
+/// receipt invokes arbitrary waiter code.
+#[must_use]
+pub(crate) struct TaskCompletion {
+    pub(super) elapsed: Duration,
+    pub(super) waker: Option<Waker>,
+}
+
+impl TaskCompletion {
+    pub(crate) fn notify(self) -> Duration {
+        if let Some(waker) = self.waker {
+            waker.wake();
+        }
+        self.elapsed
+    }
+}
 
 /// Storage policy that keeps a lifecycle token's task state valid.
 ///

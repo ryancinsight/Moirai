@@ -285,10 +285,10 @@ impl TaskState {
             .store(completed_after_ns, Ordering::Release);
 
         let waker = self.waker.with_slot(|slot| slot.take());
-        TaskCompletion::new(
-            Duration::from_nanos(completed_after_ns - started_after_ns),
+        TaskCompletion {
+            elapsed: Duration::from_nanos(completed_after_ns - started_after_ns),
             waker,
-        )
+        }
     }
 
     pub(super) fn mark_completed(&self) -> TaskCompletion {
