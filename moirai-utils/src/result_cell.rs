@@ -230,10 +230,15 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         }
     }
 
-    /// Whether the producer has published a result.
+    /// Whether the producer has published a result, including one already taken.
+    ///
+    /// Consumption transfers the result but does not undo its completion.
     #[must_use]
     pub fn is_completed(&self) -> bool {
-        self.state.load(Ordering::Acquire) == RESULT_READY
+        matches!(
+            self.state.load(Ordering::Acquire),
+            RESULT_READY | RESULT_TAKEN
+        )
     }
 
     /// Whether a waiter is parked and no result has been published yet.
