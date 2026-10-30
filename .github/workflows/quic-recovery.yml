@@ -11,6 +11,14 @@ on:
         description: Optional admitted matrix case; runs Cubic at all three existing repetitions
         required: false
         type: string
+      runtime:
+        description: Runtime used by the existing authenticated recovery probe
+        required: false
+        default: moirai
+        type: choice
+        options:
+          - moirai
+          - tokio
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
     paths:
@@ -87,15 +95,21 @@ jobs:
           SUITE: ${{ matrix.suite }}
           REPETITION: ${{ matrix.repetition }}
           CASE: ${{ inputs.case }}
+          RUNTIME: ${{ inputs.runtime || 'moirai' }}
           MOIRAI_QUIC_RECOVERY_TRACE: '1'
           MOIRAI_QUIC_ENGINE_OBSERVATION: ${{ runner.temp }}/quic-observation/provenance.json
-        run: >-
-          python3 scripts/quic_recovery.py
-          --binary target/release/examples/quic_load
-          --tc "$RUNNER_TEMP/quic-iproute2/tc/tc"
-          --suite "$SUITE" --repetition "$REPETITION"
-          --case "$CASE"
-          --output "output/quic-recovery/$SUITE-$REPETITION.json"
+        run: |
+          case "$RUNTIME" in
+            moirai) BINARY=target/release/examples/quic_load ;;
+            tokio) BINARY=target/release/examples/quic_load_tokio ;;
+            *) echo "unsupported runtime: $RUNTIME" >&2; exit 2 ;;
+          esac
+          python3 scripts/quic_recovery.py \
+            --binary "$BINARY" \
+            --tc "$RUNNER_TEMP/quic-iproute2/tc/tc" \
+            --suite "$SUITE" --repetition "$REPETITION" \
+            --case "$CASE" \
+            --output "output/quic-recovery/$SUITE-$REPETITION.json"
       - name: Preserve complete results, failures and queue samples
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

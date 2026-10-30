@@ -25,6 +25,7 @@ POLICIES = ("cubic", "newreno", "bbr-experimental")
 COMPETITORS = (("cubic", "cubic"), ("newreno", "cubic"),
                ("newreno", "newreno"), ("bbr-experimental", "cubic"),
                ("bbr-experimental", "bbr-experimental"))
+PROBE_RUNTIMES = {"quic_load": "moirai", "quic_load_tokio": "tokio"}
 
 
 class QueueSamples:
@@ -65,6 +66,18 @@ def failure_record(error):
         value = getattr(error, field, None)
         result[field] = value.decode(errors="replace") if isinstance(value, bytes) else value
     return result
+
+
+def probe_identity(binary):
+    """Identify the runtime from the selected supported executable."""
+    executable = binary.name
+    lookup_name = binary.stem if binary.suffix.casefold() == ".exe" else executable
+    try:
+        runtime = PROBE_RUNTIMES[lookup_name]
+    except KeyError as error:
+        supported = ", ".join(PROBE_RUNTIMES)
+        raise ValueError(f"unsupported probe executable {executable!r}; expected {supported}") from error
+    return {"runtime": runtime, "executable": executable}
 
 
 def record_pair(binary, network, streams, size, policy, **options):
@@ -142,6 +155,7 @@ def main():
         selected_case = admitted_case(arguments.case, admitted_cases(True)) if arguments.case else None
     except ValueError as error:
         parser.error(str(error))
+    probe = probe_identity(arguments.binary)
     network = Network(True, arguments.tc)
     report = {"schema": 1, "status": "running", "suite": arguments.suite,
               "runner": platform.platform(), "revision": execute(["git", "rev-parse", "HEAD"]).strip(),
@@ -149,6 +163,7 @@ def main():
               "dirty": bool(execute(["git", "status", "--porcelain"])),
               "rustc": execute(["rustc", "-Vv"]), "seed": SEED,
               "iproute2": execute([network.tc, "-V"]), "repetition": arguments.repetition,
+              "probe": probe,
               "binary_sha256": hashlib.sha256(arguments.binary.read_bytes()).hexdigest(),
               "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
               "policies": POLICIES, "messages_per_stream": MESSAGES,
