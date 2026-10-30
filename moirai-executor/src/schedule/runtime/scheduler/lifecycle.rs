@@ -11,6 +11,16 @@ const JOIN_OPEN: u8 = 0;
 const JOIN_IN_PROGRESS: u8 = 1;
 const JOIN_COMPLETE: u8 = 2;
 
+#[cfg(test)]
+struct ShutdownWaitRegistration<'a>(&'a std::sync::atomic::AtomicUsize);
+
+#[cfg(test)]
+impl Drop for ShutdownWaitRegistration<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Release);
+    }
+}
+
 impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
@@ -52,6 +62,10 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             )
             .is_ok()
         {
+            self.inner
+                .shutdown_joiner
+                .set(thread::current().id())
+                .expect("invariant: shutdown join owner is elected once");
             self.join_worker_sets();
             {
                 // The completion predicate and waiter transition share this
@@ -65,7 +79,30 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }
             self.inner.wait_signal.notify_all();
         } else {
+            if self
+                .inner
+                .shutdown_joiner
+                .get()
+                .is_some_and(|joiner| *joiner == thread::current().id())
+            {
+                return;
+            }
+
             let mut guard = lock_mutex(&self.inner.wait_lock);
+            #[cfg(test)]
+            let _registration =
+                if self.inner.shutdown_join_state.load(Ordering::Acquire) != JOIN_COMPLETE {
+                    self.inner
+                        .shutdown_wait_registration
+                        .get()
+                        .map(|(signal, count)| {
+                            count.fetch_add(1, Ordering::Release);
+                            signal.send(()).expect("test observer remains connected");
+                            ShutdownWaitRegistration(count)
+                        })
+                } else {
+                    None
+                };
             while self.inner.shutdown_join_state.load(Ordering::Acquire) != JOIN_COMPLETE {
                 guard = self
                     .inner
@@ -94,6 +131,11 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         let mut handles = std::mem::take(&mut *lock_mutex(&self.inner.handles));
         join_other_threads(&mut handles);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn current_thread_is_worker(&self) -> bool {
+        current_thread_belongs_to(&self.inner)
     }
 }
 

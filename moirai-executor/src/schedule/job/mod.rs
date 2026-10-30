@@ -202,15 +202,13 @@ where
 /// panics would otherwise unwind out of the job past the completion accounting
 /// (a scope waiter would then return while scoped jobs still borrow its frame),
 /// so that case aborts, as `std::thread::scope` does.
-fn run_caught(task: impl FnOnce()) -> bool {
+pub(crate) fn run_caught(task: impl FnOnce()) -> bool {
     match catch_unwind(AssertUnwindSafe(task)) {
         Ok(()) => true,
-        Err(payload) => {
-            if catch_unwind(AssertUnwindSafe(move || drop(payload))).is_err() {
-                std::process::abort();
-            }
-            false
-        }
+        Err(payload) => match catch_unwind(AssertUnwindSafe(move || drop(payload))) {
+            Ok(()) => false,
+            Err(_payload) => std::process::abort(),
+        },
     }
 }
 

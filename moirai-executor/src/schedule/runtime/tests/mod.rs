@@ -99,3 +99,4 @@ mod pinning;
 mod placement;
 mod scope;
 mod shutdown;
+mod worker_failures;
