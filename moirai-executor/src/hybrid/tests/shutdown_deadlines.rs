@@ -19,6 +19,7 @@ use moirai_core::{
 
 use super::super::HybridExecutor;
 use crate::SyncTask;
+use crate::registry::TaskWaiter;
 
 const EVENT_DEADLINE: Duration = Duration::from_secs(5);
 const RETURN_DEADLINE: Duration = Duration::from_secs(2);
@@ -93,6 +94,190 @@ fn gate_worker(executor: &HybridExecutor) -> (mpsc::SyncSender<()>, TaskHandle<(
         .recv_timeout(EVENT_DEADLINE)
         .expect("worker gate starts before the event deadline");
     (release_sender, handle)
+}
+
+struct BlockedDrain {
+    executor: Arc<HybridExecutor>,
+    callback_entered: mpsc::Receiver<()>,
+    callback_release: mpsc::SyncSender<()>,
+    callback_finished: mpsc::Receiver<()>,
+    worker_release: mpsc::SyncSender<()>,
+    gate: TaskHandle<()>,
+    async_task: TaskHandle<()>,
+    fillers: [TaskHandle<()>; 2],
+    _waiter: TaskWaiter,
+}
+
+fn blocked_drain(thread_name: &str) -> BlockedDrain {
+    let executor = Arc::new(
+        HybridExecutor::new(ExecutorConfig {
+            worker_threads: 1,
+            max_global_queue_size: 2,
+            thread_name_prefix: thread_name.into(),
+            ..ExecutorConfig::default()
+        })
+        .expect("blocked-drain executor constructs"),
+    );
+    let (parked_sender, parked) = mpsc::sync_channel(1);
+    let async_task = executor
+        .spawn_async(IdleFuture {
+            parked: Some(parked_sender),
+            polls: Arc::new(AtomicUsize::new(0)),
+            drops: Arc::new(AtomicUsize::new(0)),
+        })
+        .expect("idle future admits");
+    parked
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("idle future parks before shutdown");
+    let (callback_entered_sender, callback_entered) = mpsc::sync_channel(1);
+    let (callback_release, callback_release_receiver) = mpsc::sync_channel(1);
+    let (callback_finished_sender, callback_finished) = mpsc::sync_channel(1);
+    let callback = Waker::from(Arc::new(BlockingCompletion {
+        entered: callback_entered_sender,
+        release: Mutex::new(callback_release_receiver),
+        finished: callback_finished_sender,
+    }));
+    let waiter = executor
+        .task_registry
+        .register_waker(async_task.id().0, &callback)
+        .expect("running async task registers its completion waiter");
+    let (worker_release, gate) = gate_worker(&executor);
+    let fillers = [
+        executor
+            .spawn_result::<SyncTask, _>(Priority::Normal, None, || ())
+            .expect("first filler admits"),
+        executor
+            .spawn_result::<SyncTask, _>(Priority::Normal, None, || ())
+            .expect("second filler admits"),
+    ];
+    assert_eq!(executor.pending_tasks(), 2);
+    BlockedDrain {
+        executor,
+        callback_entered,
+        callback_release,
+        callback_finished,
+        worker_release,
+        gate,
+        async_task,
+        fillers,
+        _waiter: waiter,
+    }
+}
+
+impl BlockedDrain {
+    fn release(self) {
+        self.callback_release
+            .send(())
+            .expect("completion callback remains connected");
+        self.callback_finished
+            .recv_timeout(EVENT_DEADLINE)
+            .expect("completion callback finishes after release");
+        self.worker_release
+            .send(())
+            .expect("worker gate remains connected");
+        assert_eq!(self.async_task.join(), Some(Err(TaskError::Cancelled)));
+        assert_eq!(self.gate.join(), Some(Ok(())));
+        for filler in self.fillers {
+            assert_eq!(filler.join(), Some(Ok(())));
+        }
+    }
+}
+
+#[test]
+fn unrelated_executor_worker_waits_for_target_shared_completion() {
+    let blocked = blocked_drain("unrelated-target");
+    let unrelated = Arc::new(
+        HybridExecutor::new(ExecutorConfig {
+            worker_threads: 1,
+            thread_name_prefix: "unrelated-caller".into(),
+            ..ExecutorConfig::default()
+        })
+        .expect("unrelated executor constructs"),
+    );
+    let target = Arc::clone(&blocked.executor);
+    let (returned_sender, returned) = mpsc::sync_channel(1);
+    let caller = unrelated
+        .spawn_result::<SyncTask, _>(Priority::Normal, None, move || {
+            ExecutorControl::shutdown(&*target);
+            returned_sender
+                .send(())
+                .expect("unrelated-return observer remains connected");
+            43usize
+        })
+        .expect("unrelated shutdown caller admits");
+
+    blocked
+        .callback_entered
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("target drain enters its gated completion callback");
+    assert!(
+        blocked
+            .executor
+            .shutdown
+            .wait_for_waiters(1, EVENT_DEADLINE)
+    );
+    assert_eq!(returned.try_recv(), Err(mpsc::TryRecvError::Empty));
+    let target = Arc::clone(&blocked.executor);
+    blocked.release();
+    returned
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("unrelated worker returns after target completion");
+    assert_eq!(caller.join(), Some(Ok(43)));
+    ExecutorControl::shutdown(&*unrelated);
+    ExecutorControl::shutdown(&*target);
+}
+
+#[test]
+fn overlapping_callers_share_completion_with_entry_relative_deadlines() {
+    let blocked = blocked_drain("overlapping-shutdown");
+    let full_target = Arc::clone(&blocked.executor);
+    let (full_returned_sender, full_returned) = mpsc::sync_channel(1);
+    let full = std::thread::spawn(move || {
+        ExecutorControl::shutdown(&*full_target);
+        full_returned_sender
+            .send(())
+            .expect("full-shutdown observer remains connected");
+    });
+    blocked
+        .callback_entered
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("shared drain enters its gated completion callback");
+    assert!(
+        blocked
+            .executor
+            .shutdown
+            .wait_for_waiters(1, EVENT_DEADLINE)
+    );
+
+    let long_target = Arc::clone(&blocked.executor);
+    let (long_returned_sender, long_returned) = mpsc::sync_channel(1);
+    let long = std::thread::spawn(move || {
+        long_target.shutdown_timeout(EVENT_DEADLINE);
+        long_returned_sender
+            .send(())
+            .expect("long-timeout observer remains connected");
+    });
+    assert!(
+        blocked
+            .executor
+            .shutdown
+            .wait_for_waiters(2, EVENT_DEADLINE)
+    );
+    blocked.executor.shutdown_timeout(Duration::ZERO);
+    assert_eq!(full_returned.try_recv(), Err(mpsc::TryRecvError::Empty));
+    assert_eq!(long_returned.try_recv(), Err(mpsc::TryRecvError::Empty));
+
+    let target = Arc::clone(&blocked.executor);
+    blocked.release();
+    full_returned
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("full shutdown observes shared completion");
+    long_returned
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("long timeout observes shared completion");
+    full.join().expect("full-shutdown caller does not panic");
+    long.join().expect("timed-shutdown caller does not panic");
+    ExecutorControl::shutdown(&*target);
 }
 
 #[test]

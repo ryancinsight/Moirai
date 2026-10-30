@@ -6,6 +6,8 @@ use crate::{
 use moirai_core::error::{ExecutorError, ExecutorResult};
 #[cfg(test)]
 use std::io;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     sync::{Arc, Condvar, Mutex},
     thread,
@@ -19,6 +21,8 @@ pub(in crate::hybrid) struct Shutdown {
 struct Completion {
     complete: Mutex<bool>,
     changed: Condvar,
+    #[cfg(test)]
+    waiting: AtomicUsize,
 }
 
 impl Completion {
@@ -27,22 +31,35 @@ impl Completion {
             .complete
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        match deadline {
-            Some((started, timeout)) => drop(
+        #[cfg(test)]
+        let counted = !*complete;
+        #[cfg(test)]
+        if counted {
+            self.waiting.fetch_add(1, Ordering::Relaxed);
+            self.changed.notify_all();
+        }
+        let complete = match deadline {
+            Some((started, timeout)) => {
                 self.changed
                     .wait_timeout_while(
                         complete,
                         timeout.saturating_sub(started.elapsed()),
                         |complete| !*complete,
                     )
-                    .unwrap_or_else(|error| error.into_inner()),
-            ),
-            None => drop(
-                self.changed
-                    .wait_while(complete, |complete| !*complete)
-                    .unwrap_or_else(|error| error.into_inner()),
-            ),
+                    .unwrap_or_else(|error| error.into_inner())
+                    .0
+            }
+            None => self
+                .changed
+                .wait_while(complete, |complete| !*complete)
+                .unwrap_or_else(|error| error.into_inner()),
+        };
+        #[cfg(test)]
+        if counted {
+            self.waiting.fetch_sub(1, Ordering::Relaxed);
+            self.changed.notify_all();
         }
+        drop(complete);
     }
     fn publish(&self) {
         *self
@@ -50,6 +67,36 @@ impl Completion {
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = true;
         self.changed.notify_all();
+    }
+
+    #[cfg(test)]
+    fn wait_for_waiters(&self, minimum: usize, timeout: Duration) -> bool {
+        let complete = self
+            .complete
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let (complete, _) = self
+            .changed
+            .wait_timeout_while(complete, timeout, |_| {
+                self.waiting.load(Ordering::Relaxed) < minimum
+            })
+            .unwrap_or_else(|error| error.into_inner());
+        let observed = self.waiting.load(Ordering::Relaxed) >= minimum;
+        drop(complete);
+        observed
+    }
+
+    #[cfg(test)]
+    fn skip_wait_mutant(&self) {
+        let complete = self
+            .complete
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        self.waiting.fetch_add(1, Ordering::Relaxed);
+        self.changed.notify_all();
+        self.waiting.fetch_sub(1, Ordering::Relaxed);
+        self.changed.notify_all();
+        drop(complete);
     }
 }
 impl Shutdown {
@@ -134,6 +181,11 @@ impl Shutdown {
         if !scheduler_worker && !admission.is_shutdown_worker() && !Context::contains(admission) {
             self.completion.wait(deadline);
         }
+    }
+
+    #[cfg(test)]
+    pub(in crate::hybrid) fn wait_for_waiters(&self, minimum: usize, timeout: Duration) -> bool {
+        self.completion.wait_for_waiters(minimum, timeout)
     }
 }
 #[cfg(test)]
@@ -227,5 +279,12 @@ mod tests {
                 .recv()
                 .expect("shutdown worker cleanup reports its identity")
         );
+    }
+
+    #[test]
+    fn waiter_witness_rejects_a_compiled_skip_wait_mutant() {
+        let completion = Completion::default();
+        completion.skip_wait_mutant();
+        assert!(!completion.wait_for_waiters(1, Duration::ZERO));
     }
 }
