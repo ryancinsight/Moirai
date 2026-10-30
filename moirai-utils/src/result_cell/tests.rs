@@ -1,7 +1,7 @@
-use super::{ResultCell, Waiter};
+use super::{RESULT_PENDING, RESULT_READY, ResultCell, StateWord, Waiter};
 use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+    Arc, Condvar, Mutex,
+    atomic::{AtomicU8, AtomicUsize, Ordering},
 };
 use std::task::{Wake, Waker};
 use std::thread;
@@ -15,6 +15,113 @@ impl Wake for CountingWake {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReadyGatePhase {
+    Armed,
+    Reached,
+    Released,
+}
+
+struct ReadyGate {
+    phase: Mutex<ReadyGatePhase>,
+    changed: Condvar,
+}
+
+impl ReadyGate {
+    fn new() -> Self {
+        Self {
+            phase: Mutex::new(ReadyGatePhase::Armed),
+            changed: Condvar::new(),
+        }
+    }
+
+    fn hold_ready_store(&self) {
+        let mut phase = self
+            .phase
+            .lock()
+            .expect("invariant: ready gate mutex remains available");
+        *phase = ReadyGatePhase::Reached;
+        self.changed.notify_one();
+        let (phase, timeout) = self
+            .changed
+            .wait_timeout_while(phase, Duration::from_secs(5), |phase| {
+                *phase != ReadyGatePhase::Released
+            })
+            .expect("invariant: ready gate mutex remains available");
+        assert!(!timeout.timed_out(), "ready store was not released");
+        drop(phase);
+    }
+
+    fn wait_until_reached(&self) {
+        let phase = self
+            .phase
+            .lock()
+            .expect("invariant: ready gate mutex remains available");
+        let (phase, timeout) = self
+            .changed
+            .wait_timeout_while(phase, Duration::from_secs(5), |phase| {
+                *phase == ReadyGatePhase::Armed
+            })
+            .expect("invariant: ready gate mutex remains available");
+        assert!(
+            !timeout.timed_out(),
+            "producer did not reach the ready store"
+        );
+        drop(phase);
+    }
+
+    fn release(&self) {
+        let mut phase = self
+            .phase
+            .lock()
+            .expect("invariant: ready gate mutex remains available");
+        assert!(*phase == ReadyGatePhase::Reached);
+        *phase = ReadyGatePhase::Released;
+        self.changed.notify_one();
+    }
+}
+
+struct GatedStateWord {
+    state: AtomicU8,
+    ready_gate: Arc<ReadyGate>,
+}
+
+// SAFETY: every state operation forwards to one AtomicU8 with the requested
+// ordering. The gate delays but does not weaken or fabricate an operation.
+unsafe impl StateWord for GatedStateWord {
+    fn pending() -> Self {
+        Self {
+            state: AtomicU8::new(RESULT_PENDING),
+            ready_gate: Arc::new(ReadyGate::new()),
+        }
+    }
+
+    fn load(&self, order: Ordering) -> u8 {
+        self.state.load(order)
+    }
+
+    fn store(&self, value: u8, order: Ordering) {
+        if value == RESULT_READY {
+            self.ready_gate.hold_ready_store();
+        }
+        self.state.store(value, order);
+    }
+
+    fn compare_exchange(
+        &self,
+        current: u8,
+        new: u8,
+        success: Ordering,
+        failure: Ordering,
+    ) -> Result<u8, u8> {
+        self.state.compare_exchange(current, new, success, failure)
+    }
+
+    fn exclusive_state(&mut self) -> u8 {
+        *self.state.get_mut()
+    }
+}
+
 #[test]
 fn take_observes_the_published_result_exactly_once() {
     let cell = ResultCell::<u32, Waker>::new();
@@ -24,6 +131,7 @@ fn take_observes_the_published_result_exactly_once() {
     cell.complete(7);
     assert!(cell.is_completed());
     assert_eq!(cell.try_take_ready(), Some(7));
+    assert!(cell.is_completed());
     assert_eq!(cell.try_take_ready(), None, "result taken twice");
 }
 
@@ -51,12 +159,35 @@ fn complete_wakes_a_registered_waker_once() {
     let wake = Arc::new(CountingWake(AtomicUsize::new(0)));
     let cell = ResultCell::<u32, Waker>::new();
 
+    assert!(!cell.has_registered_waiter());
     // SAFETY: this test thread is the cell's only consumer.
     unsafe { cell.register(&Waker::from(Arc::clone(&wake))) };
+    assert!(cell.has_registered_waiter());
     cell.complete(2);
 
     assert_eq!(wake.0.load(Ordering::SeqCst), 1);
+    assert!(!cell.has_registered_waiter());
     assert_eq!(cell.try_take_ready(), Some(2));
+}
+
+#[test]
+fn registration_returns_while_the_producer_is_writing() {
+    let wake = Arc::new(CountingWake(AtomicUsize::new(0)));
+    let cell = Arc::new(ResultCell::<u32, Waker, GatedStateWord>::new());
+    let ready_gate = Arc::clone(&cell.state.ready_gate);
+    let producer_cell = Arc::clone(&cell);
+    let producer = thread::spawn(move || producer_cell.complete(11));
+
+    ready_gate.wait_until_reached();
+    // SAFETY: this test thread is the cell's only consumer.
+    unsafe { cell.register(&Waker::from(Arc::clone(&wake))) };
+    assert!(cell.has_registered_waiter());
+
+    ready_gate.release();
+    producer.join().expect("producer thread completes");
+
+    assert_eq!(wake.0.load(Ordering::SeqCst), 1);
+    assert_eq!(cell.try_take_ready(), Some(11));
 }
 
 #[test]

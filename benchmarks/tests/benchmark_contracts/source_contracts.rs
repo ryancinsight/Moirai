@@ -127,45 +127,18 @@ fn registry_lifecycle_keeps_qpc_out_of_production_path() {
 }
 
 #[test]
-fn task_result_wait_uses_zero_sized_policy_and_load_gated_take() {
-    let source = format!(
-        "{}\n{}",
-        read_benchmark("../moirai-core/src/task.rs"),
-        // The machine itself, shared with the async side: the load gate this
-        // test pins is one of its transitions.
-        read_benchmark("../moirai-utils/src/result_cell.rs")
-    );
+fn blocking_task_result_policy_is_zero_sized_and_transfers_value() {
+    use moirai_core::task::BlockingResultWait;
 
-    for required in [
-        "trait ResultWaitPolicy",
-        "struct BlockingResultWait",
-        "impl ResultWaitPolicy for BlockingResultWait",
-        "slot.wait::<BlockingResultWait>()",
-        // The blocking side keeps the state word in its own interference sector.
-        "cell: ResultCell<Result<T, TaskError>, thread::Thread, CacheAligned<AtomicU8>>",
-        "for _ in 0..P::SPIN_ATTEMPTS",
-        "try_take_observed_ready",
-        "self.state.load(Ordering::Relaxed) == RESULT_READY",
-        "compare_exchange(",
-        "pub fn diagnostic_result_slot_ready_take() -> usize",
-        "pub fn diagnostic_result_slot_spin_miss() -> usize",
-        "pub fn diagnostic_result_slot_register_waiter() -> usize",
-        "pub fn diagnostic_result_slot_complete_waiting() -> usize",
-        "result_wait_policy_is_zero_sized_and_const_bounded",
-        "size_of::<BlockingResultWait>()",
-    ] {
-        assert!(
-            source.contains(required),
-            "task result wait path must retain {required}"
-        );
-    }
+    const _: () = assert!(core::mem::size_of::<BlockingResultWait>() == 0);
 
-    for prohibited in ["dyn ResultWaitPolicy", "Box<dyn ResultWaitPolicy"] {
-        assert!(
-            !source.contains(prohibited),
-            "task result wait path must not introduce runtime policy dispatch through {prohibited}"
-        );
-    }
+    let (handle, sender) = moirai_core::TaskHandle::new_pending(moirai_core::TaskId::new(73));
+    assert!(!handle.is_finished());
+
+    sender.send(Ok(1_024usize));
+
+    assert!(handle.is_finished());
+    assert_eq!(handle.join(), Some(Ok(1_024)));
 }
 
 #[test]
