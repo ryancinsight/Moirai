@@ -38,38 +38,26 @@ MESSAGES = 128
 REPETITIONS = 3
 SEED = 20261013
 
-# Recorded stock-engine deadline limits (ADR 0079/0080, MOI-QUIC-RECOVERY-001):
-# at 1% seeded loss, stock CUBIC and NewReno sustain ~1.5 MB/s on this case
-# (window 20-75 KB at ~21 ms RTT) against the ~2.24 MB/s the 60 s pair
-# deadline requires for 16 streams x 128 messages x 65,560 bytes, while BBR
-# passes. Two full matched Linux studies and independent pristine CI record
-# exactly these three repetitions failing by deadline with steady verified
-# progress (105/108). Only a TimeoutExpired failure of exactly this
-# configuration is tolerated, and only in the full matrix: any other case,
-# any other error kind, or an explicitly selected diagnostic case still
-# fails the gate. Removing an entry requires the recovery evidence that
-# closes MOI-QUIC-RECOVERY-001.
-KNOWN_DEADLINE_LIMITS = {("delay-10ms-loss-1pct", 16, 65560)}
+
+def admitted_cases(shaped):
+    """Return the declared profile, stream and frame-size domain in stable order."""
+    return [(profile, streams, size) for profile in PROFILES
+            if shaped or profile == PROFILES[0]
+            for streams in STREAMS for size in FRAME_BYTES]
 
 
-def classify_failures(runs, *, diagnostic):
-    """Split failed records into (blocking, known-limit) lists.
+def admitted_case(selector, cases):
+    """Select exactly one declared PROFILE:STREAMS:FRAME_BYTES tuple."""
+    selected = [(profile, streams, size) for profile, streams, size in cases
+                if selector == f"{profile.name}:{streams}:{size}"]
+    if len(selected) != 1:
+        raise ValueError("case must identify one member of the declared profile/stream/frame domain")
+    return selected[0]
 
-    A known-limit failure is a full-matrix TimeoutExpired record of exactly
-    a KNOWN_DEADLINE_LIMITS configuration. Diagnostic single-case runs
-    never tolerate a failure: selecting the case asks to see it fail.
-    """
-    blocking, known = [], []
-    for record in runs:
-        error = record.get("error")
-        if error is None:
-            continue
-        key = (record["profile"]["name"], record["streams"], record["bytes"])
-        if not diagnostic and key in KNOWN_DEADLINE_LIMITS and error.startswith("TimeoutExpired:"):
-            known.append(record)
-        else:
-            blocking.append(record)
-    return blocking, known
+
+def classify_failures(runs):
+    """Return every failed process-pair record without special cases."""
+    return [record for record in runs if "error" in record]
 
 
 def execute(arguments, **options):
@@ -267,13 +255,12 @@ def main():
     parser.add_argument("--policy", choices=["cubic", "newreno", "bbr-experimental"], default="cubic")
     parser.add_argument("--case", default="", help="Diagnostic PROFILE:STREAMS:FRAME_BYTES; default verifies the full matrix")
     arguments = parser.parse_args()
-    cases = [(profile, streams, size) for profile in PROFILES if arguments.network == "netem" or profile == PROFILES[0]
-             for streams in STREAMS for size in FRAME_BYTES]
+    cases = admitted_cases(arguments.network == "netem")
     if arguments.case:
-        cases = [(profile, streams, size) for profile, streams, size in cases
-                 if arguments.case == f"{profile.name}:{streams}:{size}"]
-        if len(cases) != 1:
-            parser.error("case must identify one member of the declared profile/stream/frame domain")
+        try:
+            cases = [admitted_case(arguments.case, cases)]
+        except ValueError as error:
+            parser.error(str(error))
     network = Network(arguments.network == "netem", arguments.tc)
     report = {"schema": 1, "status": "running", "network": arguments.network, "runner": platform.platform(),
               "revision": execute(["git", "rev-parse", "HEAD"]).strip(),
@@ -308,15 +295,9 @@ def main():
                         report["runs"].append(record)
                         arguments.output.write_text(json.dumps(report, indent=2) + "\n")
                     print(profile.name, streams, size, repetition, "failed" if "error" in record else "verified", flush=True)
-            blocking, known = classify_failures(report["runs"], diagnostic=bool(arguments.case))
-            if known:
-                report["known_limits"] = [
-                    f"{record['profile']['name']}:{record['streams']}:{record['bytes']}"
-                    f" repetition {record['repetition']}" for record in known]
-                for description in report["known_limits"]:
-                    print(f"known deadline limit (MOI-QUIC-RECOVERY-001): {description}", flush=True)
-            if blocking:
-                raise RuntimeError(f"{len(blocking)} of {report['expected_pairs']} process pairs fail; complete failure evidence is preserved")
+            failures = classify_failures(report["runs"])
+            if failures:
+                raise RuntimeError(f"{len(failures)} of {report['expected_pairs']} process pairs fail; complete failure evidence is preserved")
     except Exception as error:
         report["status"] = "failed"
         report["error"] = f"{type(error).__name__}: {error}"
@@ -325,7 +306,7 @@ def main():
             report["error_stderr"] = error.stderr
         raise
     else:
-        report["status"] = "passed_with_known_limits" if report.get("known_limits") else "passed"
+        report["status"] = "passed"
     finally:
         arguments.output.write_text(json.dumps(report, indent=2) + "\n")
 

@@ -1,13 +1,23 @@
 //! Low-frequency recovery and value-verified progress observations.
 
-use moirai_quic::QuicConnection;
 use std::convert::Infallible;
+use std::future::Future;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub(super) struct Progress {
     started: Instant,
     completed: Mutex<Vec<u64>>,
+}
+
+pub(super) struct Metrics {
+    pub(super) sent_bytes: u64,
+    pub(super) received_bytes: u64,
+    pub(super) lost_packets: u64,
+    pub(super) congestion_events: u64,
+    pub(super) congestion_window_bytes: u64,
+    pub(super) round_trip_ns: u128,
+    pub(super) path_mtu: u16,
 }
 
 impl Progress {
@@ -25,10 +35,15 @@ impl Progress {
             .push(elapsed);
     }
 
-    pub(super) async fn observe(&self, connection: &QuicConnection) -> Infallible {
+    pub(super) async fn observe<S, SF, M>(&self, sleep: S, metrics: M) -> Infallible
+    where
+        S: Fn(Duration) -> SF,
+        SF: Future<Output = ()>,
+        M: Fn() -> Metrics,
+    {
         loop {
-            moirai_async::timer::sleep(Duration::from_secs(1)).await;
-            let metrics = connection.metrics();
+            sleep(Duration::from_secs(1)).await;
+            let metrics = metrics();
             let mut samples = self
                 .completed
                 .lock()
@@ -48,7 +63,7 @@ impl Progress {
                 lost_packets = metrics.lost_packets,
                 congestion_events = metrics.congestion_events,
                 congestion_window_bytes = metrics.congestion_window_bytes,
-                round_trip_ns = metrics.round_trip_time.as_nanos(),
+                round_trip_ns = metrics.round_trip_ns,
                 path_mtu = metrics.path_mtu,
                 "verified progress and recovery snapshot"
             );

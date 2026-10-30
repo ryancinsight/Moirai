@@ -4,6 +4,7 @@ Date: 2026-10-14
 Status: Accepted
 Change class: [patch], diagnostic investigation within unreleased workspace 0.10.0.
 
+Revision 2026-10-30: distinguish complete drains from interrupted sampled state histories.
 ## Specification
 
 Continue MOI-QUIC-RECOVERY-001 without adopting an unproved correction.
@@ -53,6 +54,31 @@ shard first executes an extra real original-domain 1-stream/24-byte/128-message
 mutual-TLS preflight and audits both child traces. Preflight is separate from
 the complete acceptance inventory; each subsequent case resets the original
 qdisc and seed. Missing child traces reject the study before the full run.
+
+## Interrupted snapshot completeness
+
+`Capture::snapshot` retains only the latest second bucket for a `sample`; a
+controller may kill a failed peer before a `drained` full snapshot. The decoder
+therefore accepts a typed success or failure outcome. Success requires a final
+full snapshot. Failure may end with a sample and returns only chronologically
+sorted latest buckets actually captured. `last_protocol_observation` remains
+verbatim: `sample` means incomplete coverage even if retained counts equal the
+cumulative count. No missing state is inferred.
+
+Every full snapshot, including one from a failed process, must have exact
+counts, stable insertion order and history, and every previously sampled
+bucket. At each partial snapshot, the sum of the latest known buckets may not exceed its cumulative count.
+Existing point, event, pacing, callback and blocker checks apply to both
+outcomes. `state_pair(..., success)` maps its result to the typed outcome
+without changing archived experiment code.
+
+The archive has 384 flows: 357 passed and 27 failed. Twenty-one failed pairs
+end with samples on both peers (42 partial histories); six end with full drains.
+All 726 drained peer histories have exact counts. Sorting the latest bucket per
+second reproduces all 768 peer histories against `03dcc4a3-audit.json.gz`;
+encounter order does not. Requiring drains rejects valid interrupted evidence.
+Treating a sample as complete or inventing buckets overstates the evidence;
+regenerating the golden would discard an exact oracle.
 
 Enabling qlog would require additional feature/configuration surface and
 synchronous per-packet output. Converting a pending server connection to

@@ -15,7 +15,7 @@ fn async_public_handle_path_uses_inline_future_state() {
         "finish_pending_poll",
         "fn take_result_sender(&self) -> Option<TaskResultSender<F::Output>>",
         "fn schedule_wake(self: &Arc<Self>)",
-        "self.schedule_wake();",
+        "with_registration_context(self.registration(), || self.schedule_wake())",
         "impl<S, F, L> Wake for AsyncFutureState<S, F, L>",
         "self.register_scheduled_task(Priority::Normal)?",
     ] {
@@ -66,12 +66,12 @@ fn public_handle_metrics_reuse_lifecycle_duration() {
     let source = read_benchmark("../moirai-executor/src/hybrid/mod.rs");
 
     for required in [
-        ".schedule::<BlockingTask, _>(Priority::Normal, None, move |worker_id|",
-        "record_task_completed(running.complete()",
-        "let execution_time = running.complete()",
-        "send_task_result(result, result_sender, metrics.get(), execution_time)",
+        "self.scheduler.schedule::<BlockingTask, _>(\n                Priority::Normal,\n                None,\n                move |worker_id|",
+        "running.complete()",
+        "TaskEnd::Completed(result)",
         "fn send_task_result<T>",
-        "record_task_completed(execution_time)",
+        "record_task_completed(completion.duration())",
+        "TaskEnd::Cancelled",
     ] {
         assert!(
             source.contains(required),
@@ -94,8 +94,11 @@ fn public_handle_paths_retain_panic_containment() {
     for required in [
         "let result = catch_unwind(AssertUnwindSafe(func));",
         "self.spawn_result::<SyncTask, _>(priority, locality_hint, move || task.execute())",
-        "send_task_result(result, result_sender, metrics.get(), execution_time)",
-        "sender.send(Err(TaskError::Panicked));",
+        "TaskEnd::Completed(result)",
+        "TaskEnd::Completed(Err(payload))",
+        "Err(TaskError::Panicked), Some(payload)",
+        "drop_after_settlement(payload)",
+        "resume_callback(callback)",
         "fn spawn_blocking_reports_panicked_result()",
         "assert_eq!(handle.join(), Some(Err(moirai_core::TaskError::Panicked)))",
     ] {

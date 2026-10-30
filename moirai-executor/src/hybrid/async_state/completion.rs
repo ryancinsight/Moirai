@@ -1,7 +1,12 @@
 //! Completion paths: consuming the lifecycle token, dropping the future once,
 //! and publishing the task result.
 
-use std::{future::Future, ptr, sync::atomic::Ordering};
+use std::{
+    future::Future,
+    panic::{AssertUnwindSafe, catch_unwind},
+    ptr,
+    sync::atomic::Ordering,
+};
 
 use moirai_core::{error::TaskError, task::TaskResultSender};
 
@@ -10,7 +15,12 @@ use super::{
     lifecycle::AsyncLifecycle,
     phase::{ASYNC_COMPLETED, ASYNC_QUEUED},
 };
-use crate::{registry::StateLease, schedule::WorkSubmit};
+use crate::{
+    registry::{StateLease, TaskCompletion},
+    schedule::WorkSubmit,
+};
+
+use crate::hybrid::result::{PanicPayload, drop_after_settlement, publish_result};
 
 impl<S, F, L> AsyncFutureState<S, F, L>
 where
@@ -20,36 +30,31 @@ where
     L: StateLease,
 {
     /// Consume the lifecycle token, registered or running, as cancelled.
-    fn cancel_lifecycle(&self) {
+    fn cancel_lifecycle(&self) -> Option<TaskCompletion> {
         // Safety: only the poll owner or the rejected-queue completion owner
         // calls this method. Their POLLING/QUEUED states exclude every other
         // accessor, so lifecycle mutation is single-threaded.
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
         match std::mem::replace(lifecycle, AsyncLifecycle::Completed) {
-            AsyncLifecycle::Registered(token) => {
-                token.cancel().notify();
-            }
-            AsyncLifecycle::Running(token) => {
-                token.cancel().notify();
-            }
-            AsyncLifecycle::Completed => {}
+            AsyncLifecycle::Registered(token) => Some(token.cancel()),
+            AsyncLifecycle::Running(token) => Some(token.cancel()),
+            AsyncLifecycle::Completed => None,
         }
     }
 
-    fn complete_lifecycle(&self) -> core::time::Duration {
+    fn complete_lifecycle(&self) -> Option<TaskCompletion> {
         // Safety: only the poll owner or the rejected-queue completion owner
         // calls this method. Their POLLING/QUEUED states exclude every other
         // accessor, so lifecycle mutation is single-threaded.
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
-        let running = std::mem::replace(lifecycle, AsyncLifecycle::Completed);
-        if let AsyncLifecycle::Running(token) = running {
-            token.complete().notify()
-        } else {
-            core::time::Duration::ZERO
+        match std::mem::replace(lifecycle, AsyncLifecycle::Completed) {
+            AsyncLifecycle::Registered(token) => Some(token.complete()),
+            AsyncLifecycle::Running(token) => Some(token.complete()),
+            AsyncLifecycle::Completed => None,
         }
     }
 
-    fn drop_future(&self) {
+    fn drop_future(&self) -> Option<PanicPayload> {
         // Safety: only the poll owner or the rejected-queue completion owner
         // calls this method while shared references exist. Their
         // POLLING/QUEUED states exclude every other accessor. `Drop` reaches the
@@ -62,9 +67,12 @@ where
             // Safety: the caller owns poll or rejected-queue completion
             // permission, or `Drop` owns the last state reference. The
             // initialized future is dropped once.
-            unsafe {
+            catch_unwind(AssertUnwindSafe(|| unsafe {
                 ptr::drop_in_place((*self.future.get()).as_mut_ptr());
-            }
+            }))
+            .err()
+        } else {
+            None
         }
     }
 
@@ -76,49 +84,119 @@ where
     }
 
     #[inline]
-    fn store_completed(&self) {
-        self.drop_future();
+    fn store_completed(&self) -> Option<PanicPayload> {
+        let future_drop_panic = self.drop_future();
         self.state.store(ASYNC_COMPLETED, Ordering::Release);
+        future_drop_panic
     }
 
-    #[inline]
-    fn publish_result(&self, result: Result<F::Output, TaskError>) {
-        if let Some(sender) = self.take_result_sender() {
-            sender.send(result);
+    /// Retire executor ownership after every settlement callback and cleanup.
+    fn finish_settlement(&self, callback_panic: Option<PanicPayload>) {
+        if let Some(callback_panic) = callback_panic {
+            drop_after_settlement(callback_panic);
+        }
+        if let Some(registration) = self.registration.get() {
+            registration.remove();
         }
     }
 
-    #[inline]
-    pub(super) fn complete_with_result(
+    fn finish_result(
         &self,
         result: Result<F::Output, TaskError>,
-    ) -> core::time::Duration {
-        self.store_completed();
-        let execution_time = self.complete_lifecycle();
-        self.publish_result(result);
-        execution_time
+        completion: Option<TaskCompletion>,
+    ) -> Option<PanicPayload> {
+        publish_result(self.take_result_sender(), result, completion, &self.metrics)
+    }
+
+    #[inline]
+    pub(super) fn complete_with_result(&self, result: Result<F::Output, TaskError>) {
+        let future_drop_panic = self.store_completed();
+        let completion = self.complete_lifecycle();
+        let execution_time = completion
+            .as_ref()
+            .map_or(core::time::Duration::ZERO, TaskCompletion::duration);
+        if let Some(panic_payload) = future_drop_panic {
+            self.metrics.record_task_failed();
+            let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
+            drop_after_settlement(result);
+            drop_after_settlement(panic_payload);
+            self.finish_settlement(callback_panic);
+        } else {
+            match result {
+                Ok(output) => {
+                    self.metrics.record_task_completed(execution_time);
+                    let callback_panic = self.finish_result(Ok(output), completion);
+                    self.finish_settlement(callback_panic);
+                }
+                Err(error) => {
+                    self.metrics.record_task_failed();
+                    let callback_panic = self.finish_result(Err(error), completion);
+                    self.finish_settlement(callback_panic);
+                }
+            }
+        }
     }
 
     #[inline]
     pub(super) fn complete_failed(&self, error: TaskError) {
         self.complete_with_result(Err(error));
+    }
+
+    /// Complete a poll panic without destroying either panic payload first.
+    pub(super) fn complete_panicked(&self, poll_panic: PanicPayload) {
+        let future_drop_panic = self.store_completed();
+        let completion = self.complete_lifecycle();
         self.metrics.record_task_failed();
+        let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
+        drop_after_settlement(poll_panic);
+        if let Some(future_drop_panic) = future_drop_panic {
+            drop_after_settlement(future_drop_panic);
+        }
+        self.finish_settlement(callback_panic);
     }
 
     /// Complete the task as cancelled: its future is dropped unfinished, the
     /// lifecycle records `cancelled`, and the handle resolves to
-    /// `TaskError::Cancelled`.
+    /// `TaskError::Cancelled`, unless its destructor panics.
     ///
     /// The caller is the poll owner, which observed a cancel request before the
     /// first poll, or the rejected-queue completion owner of a `QUEUED` epoch
     /// that scheduler shutdown refused.
     pub(super) fn complete_cancelled(&self) {
-        self.store_completed();
-        self.cancel_lifecycle();
-        // Record before publishing the result so a joiner observes the
-        // cancelled counter as soon as the handle resolves.
-        self.metrics.record_task_cancelled();
-        self.publish_result(Err(TaskError::Cancelled));
+        if let Some(panic_payload) = self.store_completed() {
+            let completion = self.complete_lifecycle();
+            self.metrics.record_task_failed();
+            let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
+            drop_after_settlement(panic_payload);
+            self.finish_settlement(callback_panic);
+        } else {
+            let completion = self.cancel_lifecycle();
+            // Record before publishing the result so a joiner observes the
+            // cancelled counter as soon as the handle resolves.
+            self.metrics.record_task_cancelled();
+            let callback_panic = self.finish_result(Err(TaskError::Cancelled), completion);
+            self.finish_settlement(callback_panic);
+        }
+    }
+
+    /// Settle a future whose first scheduler admission was rejected.
+    ///
+    /// The task preserves the rejection's cancellation settlement when
+    /// destruction succeeds. A destructor panic instead becomes the returned
+    /// task error after the lifecycle and private result handle are settled.
+    pub(crate) fn complete_rejected(&self) -> Result<(), TaskError> {
+        if let Some(panic_payload) = self.store_completed() {
+            let completion = self.complete_lifecycle();
+            let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
+            drop_after_settlement(panic_payload);
+            self.finish_settlement(callback_panic);
+            Err(TaskError::Panicked)
+        } else {
+            let completion = self.cancel_lifecycle();
+            let callback_panic = self.finish_result(Err(TaskError::Cancelled), completion);
+            self.finish_settlement(callback_panic);
+            Ok(())
+        }
     }
 
     /// Complete a rejected `QUEUED` epoch without polling its future.

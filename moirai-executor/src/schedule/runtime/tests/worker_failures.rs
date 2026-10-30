@@ -68,7 +68,7 @@ impl Drop for WorkerPanicPayload {
                 scheduler,
                 observed_worker,
             } => {
-                observed_worker.store(scheduler.current_thread_is_worker(), Ordering::Release);
+                observed_worker.store(scheduler.is_current_worker(), Ordering::Release);
                 scheduler.shutdown();
                 self.entered
                     .send(())

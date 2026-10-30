@@ -1,3 +1,5 @@
+use alloc::boxed::Box;
+
 use super::id_and_context::TaskContext;
 
 /// The core trait for executable tasks in the Moirai runtime.
@@ -22,7 +24,6 @@ pub trait Task: Send + 'static {
     }
 }
 
-#[cfg(feature = "std")]
 impl<T> Task for Box<T>
 where
     T: Task,

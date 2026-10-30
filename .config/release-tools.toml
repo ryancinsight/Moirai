@@ -1,0 +1,6 @@
+[tools]
+# Registry-checked 2026-10-29; installation commands read this file instead of
+# duplicating unpinned tool versions in workflows.
+cargo-release = "1.1.7"
+git-cliff = "2.14.2"
+cargo-cyclonedx = "0.5.9"

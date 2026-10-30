@@ -349,7 +349,10 @@ fn stopped_real_executor_rejects_endpoint_without_panicking_or_masking_error() {
     let QuicError::Executor(error) = error else {
         panic!("executor rejection context was lost")
     };
-    assert_eq!(*error, moirai_core::error::ExecutorError::ShuttingDown);
+    assert!(matches!(
+        error.as_ref(),
+        moirai_core::error::ExecutorError::ShuttingDown
+    ));
 }
 
 #[test]

@@ -1,0 +1,28 @@
+[changelog]
+header = "# Changelog\n\nAll notable changes to the Moirai concurrency library will be documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),\nand this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n\n"
+body = """
+{% if version %}## [{{ version | trim_start_matches(pat="crate-moirai-runtime-v") }}]{% else %}## Unreleased{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}- {% if commit.breaking %}**Breaking:** {% endif %}{{ commit.message | upper_first }}
+{% if commit.breaking_description %}  {{ commit.breaking_description | replace(from="\n", to="\n  ") }}
+{% endif %}{% endfor %}{% endfor %}
+"""
+trim = true
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = true
+# The field was renamed before this release; publish its final contract name.
+commit_preprocessors = [{ pattern = "waiter_panics", replace = "publication_panics" }]
+filter_commits = false
+tag_pattern = "^crate-moirai-runtime-v[0-9]"
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^(docs|test|chore|ci|build|refactor)", skip = true },
+  { message = ".*", group = "Changed" },
+]

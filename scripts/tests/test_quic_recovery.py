@@ -2,15 +2,18 @@
 
 import copy
 import gzip
+import hashlib
 import itertools
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from quic_profiles import FRAME_BYTES, MESSAGES, PROFILES, REPETITIONS, STREAMS, verify
-from quic_recovery import POLICIES, matrix_cases
+from quic_recovery import POLICIES, main, matrix_cases, probe_identity, probe_runtime
 from quic_recovery_audit import audit, fraction, progress, queue_evidence, sampled_fairness
 from fractions import Fraction
 
@@ -86,6 +89,88 @@ class RecoveryContract(unittest.TestCase):
                 self.assertEqual(len(cases), 108)
                 self.assertEqual(set(cases), expected)
                 self.assertEqual(sum(s * MESSAGES * b for _, s, b, _ in cases), 2_247_598_080)
+
+    def test_exact_cubic_case_selects_one_original_case_per_repetition(self):
+        from quic_profiles import admitted_case, admitted_cases
+        selected = admitted_case('delay-10ms-loss-1pct:16:65560', admitted_cases(True))
+        cases = [case for repetition in range(REPETITIONS)
+                 for case in matrix_cases(repetition, selected)]
+        self.assertEqual(len(cases), 3)
+        self.assertEqual(
+            [(profile.name, streams, size, policy) for profile, streams, size, policy in cases],
+            [('delay-10ms-loss-1pct', 16, 65_560, 'cubic')] * REPETITIONS)
+        workflow = (Path(__file__).resolve().parents[2]
+                    / '.github/workflows/quic-recovery.yml').read_text(encoding='utf-8')
+        self.assertIn('default: moirai\n        type: choice\n        options:\n'
+                      '          - moirai\n          - tokio', workflow)
+        self.assertIn("RUNTIME: ${{ inputs.runtime || 'moirai' }}", workflow)
+        self.assertIn('moirai) BINARY=target/release/examples/quic_load ;;', workflow)
+        self.assertIn('tokio) BINARY=target/release/examples/quic_load_tokio ;;', workflow)
+        self.assertEqual(workflow.count('--binary "$BINARY"'), 1)
+        self.assertIn('--case "$CASE"', workflow)
+        self.assertIn('repetition: [0, 1, 2]', workflow)
+        self.assertIn("'[\"matrix\",\"fairness\"]'", workflow)
+        self.assertNotIn('--deadline', workflow)
+
+    def test_invalid_case_routes_fail_before_network_construction(self):
+        for suite, case in [('matrix', 'delay-10ms-loss-1pct:16:65559'),
+                            ('fairness', 'delay-10ms-loss-1pct:16:65560')]:
+            arguments = ['quic_recovery.py', '--binary', 'missing', '--tc', 'tc',
+                         '--output', 'unused.json', '--suite', suite, '--repetition', '0',
+                         '--case', case]
+            with self.subTest(suite=suite), mock.patch.object(sys, 'argv', arguments), \
+                    mock.patch('quic_recovery.Network') as network, \
+                    self.assertRaises(SystemExit) as error:
+                main()
+            self.assertEqual(error.exception.code, 2)
+            network.assert_not_called()
+
+    def test_probe_identity_is_derived_from_supported_executables(self):
+        moirai = {'runtime': 'moirai', 'executable': 'quic_load'}
+        tokio = {'runtime': 'tokio', 'executable': 'quic_load_tokio.exe'}
+        self.assertEqual(probe_identity(Path('quic_load')), moirai)
+        self.assertEqual(probe_identity(Path('quic_load_tokio.exe')), tokio)
+        self.assertEqual(probe_runtime(moirai), 'moirai')
+        self.assertEqual(probe_runtime(tokio), 'tokio')
+        with self.assertRaisesRegex(ValueError, "unsupported probe executable 'quic_load_copy'"):
+            probe_identity(Path('quic_load_copy'))
+        for invalid in ({'runtime': 'tokio', 'executable': 'quic_load'},
+                        {'runtime': 'unknown', 'executable': 'quic_load_unknown'},
+                        {'runtime': 'moirai'}, None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                probe_runtime(invalid)
+
+    def test_failed_run_report_retains_selected_probe_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'quic_load_tokio'
+            binary.write_bytes(b'tokio probe')
+            output = Path(directory) / 'report.json'
+            arguments = ['quic_recovery.py', '--binary', str(binary), '--tc', 'tc',
+                         '--output', str(output), '--suite', 'matrix', '--repetition', '0']
+
+            def command_output(command):
+                outputs = {('git', 'rev-parse', 'HEAD'): 'revision\n',
+                           ('git', 'rev-parse', 'HEAD^{tree}'): 'tree\n',
+                           ('git', 'status', '--porcelain'): '',
+                           ('rustc', '-Vv'): 'rustc evidence',
+                           ('tc', '-V'): 'tc evidence'}
+                return outputs[tuple(command)]
+
+            with mock.patch.object(sys, 'argv', arguments), \
+                    mock.patch('quic_recovery.execute', side_effect=command_output), \
+                    mock.patch('quic_recovery.Network') as network, \
+                    self.assertRaisesRegex(RuntimeError, 'injected setup failure'):
+                network.return_value.tc = 'tc'
+                network.return_value.setup.side_effect = RuntimeError('injected setup failure')
+                main()
+
+            report = json.loads(output.read_text(encoding='utf-8'))
+            self.assertEqual(report['status'], 'failed')
+            self.assertEqual(report['probe'],
+                             {'runtime': 'tokio', 'executable': 'quic_load_tokio'})
+            self.assertEqual(report['binary_sha256'],
+                             hashlib.sha256(b'tokio probe').hexdigest())
+            self.assertEqual(report['error'], 'RuntimeError: injected setup failure')
 
     def test_real_archive_rates_percentiles_and_corruption_rejection(self):
         root = Path(__file__).resolve().parents[2]

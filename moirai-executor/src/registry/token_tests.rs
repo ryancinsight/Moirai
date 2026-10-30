@@ -43,10 +43,10 @@ impl Retire {
             }
             Self::DropUnstarted => drop(lifecycle),
             Self::Cancel => {
-                lifecycle
-                    .start_unless_cancelled(0)
-                    .expect_err("the requested cancellation must skip execution")
-                    .notify();
+                let Err(completion) = lifecycle.start_unless_cancelled(0) else {
+                    panic!("cancelled lifecycle must not yield a running token");
+                };
+                completion.notify();
             }
         }
     }
@@ -101,7 +101,9 @@ where
     let wake = Arc::new(PanickingWake {
         calls: AtomicUsize::new(0),
     });
-    registry.register_waker(task_id, &Waker::from(Arc::clone(&wake)));
+    let _waiter = registry
+        .register_waker(task_id, &Waker::from(Arc::clone(&wake)))
+        .expect("invariant: terminal test task is pending");
 
     let completion = match terminal {
         Terminal::Complete => lifecycle.start(0).complete(),
@@ -227,7 +229,9 @@ fn job_cleanup_contains_drop_notification_panics() {
         let wake = Arc::new(PanickingWake {
             calls: AtomicUsize::new(0),
         });
-        registry.register_waker(task_id, &Waker::from(Arc::clone(&wake)));
+        let _waiter = registry
+            .register_waker(task_id, &Waker::from(Arc::clone(&wake)))
+            .expect("invariant: drop test task is pending");
 
         if started {
             drop_through_job(lifecycle.start(0));

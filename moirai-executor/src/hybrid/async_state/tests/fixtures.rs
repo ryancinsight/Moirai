@@ -15,7 +15,8 @@ use moirai_core::{
     task::{TaskHandle, TaskId},
 };
 
-use super::super::AsyncFutureState;
+use super::super::{AsyncFutureState, AsyncTasks};
+use crate::hybrid::shutdown::Admission;
 use crate::metrics::ExecutorMetrics;
 use crate::registry::TaskRegistry;
 use crate::schedule::{WorkClass, WorkSubmit};
@@ -97,6 +98,20 @@ pub(super) struct PendingTask<S> {
     pub(super) handle: TaskHandle<i32>,
     pub(super) waker: Arc<Mutex<Option<Waker>>>,
     pub(super) polls: Arc<AtomicUsize>,
+    pub(super) tasks: Arc<AsyncTasks>,
+}
+
+pub(super) fn register_state<S, F>(state: &Arc<AsyncFutureState<S, F>>, id: u64) -> Arc<AsyncTasks>
+where
+    S: WorkSubmit,
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let tasks = Arc::new(AsyncTasks::default());
+    state
+        .track(&tasks, id, Arc::new(Admission::new()))
+        .expect("test task table admits state");
+    tasks
 }
 
 pub(super) fn pending_async_state<S: WorkSubmit>(scheduler: S, output: i32) -> PendingTask<S> {
@@ -136,11 +151,13 @@ fn register_pending_async_state<S: WorkSubmit>(
         result_sender,
         Arc::new(ExecutorMetrics::new()),
     );
+    let tasks = register_state(&state, task_id);
     PendingTask {
         state,
         handle,
         waker,
         polls,
+        tasks,
     }
 }
 

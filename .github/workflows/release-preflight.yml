@@ -1,0 +1,218 @@
+name: Release preflight
+
+on:
+  workflow_call:
+    outputs:
+      artifacts:
+        description: Verified source archive identities and hashes
+        value: ${{ jobs.compare.outputs.artifacts }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan publishable closure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      packages: ${{ steps.plan.outputs.packages }}
+      bootstrap: ${{ steps.plan.outputs.bootstrap }}
+      cohort: ${{ steps.plan.outputs.cohort }}
+      epoch: ${{ steps.epoch.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+      - name: Prove checkout provenance
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Fetch the pinned registry reader
+        run: |
+          git init "$RUNNER_TEMP/atlas-release-identity"
+          git -C "$RUNNER_TEMP/atlas-release-identity" remote add origin https://github.com/ryancinsight/atlas.git
+          timeout --kill-after=30s 60s git -C "$RUNNER_TEMP/atlas-release-identity" fetch --depth=1 origin bff89297f5dee0daed7bcf6d3712474b167f9710
+          git -C "$RUNNER_TEMP/atlas-release-identity" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/atlas-release-identity" rev-parse HEAD)" = bff89297f5dee0daed7bcf6d3712474b167f9710
+      - id: plan
+        run: python3 scripts/release_preflight.py plan --registry-reader-root "$RUNNER_TEMP/atlas-release-identity" --github-output "$GITHUB_OUTPUT"
+      - name: Run release preflight regressions
+        run: python3 -m unittest scripts.tests.test_release_preflight scripts.tests.test_release_sbom
+        env:
+          ATLAS_REGISTRY_READER_ROOT: ${{ runner.temp }}/atlas-release-identity
+      - id: epoch
+        run: echo "epoch=$(git show -s --format=%ct "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+
+  minimal-msrv:
+    name: Direct-minimum dependency MSRV
+    needs: plan
+    if: needs.plan.outputs.packages != ''
+    runs-on: ubuntu-latest
+    # Two 600-second commands and five minutes for checkout/toolchains.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: nightly-2026-08-01
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.95.0
+      - name: Fetch the pinned process-tree runner
+        run: |
+          git init "$RUNNER_TEMP/atlas"
+          git -C "$RUNNER_TEMP/atlas" remote add origin https://github.com/ryancinsight/atlas.git
+          timeout --kill-after=30s 60s git -C "$RUNNER_TEMP/atlas" fetch --depth=1 origin d0eb478f0737df1c45ab5f346f735b8b61fa2cc7
+          git -C "$RUNNER_TEMP/atlas" checkout --detach FETCH_HEAD
+      - name: Resolve supported direct floors and check MSRV without Git drift
+        run: |
+          release="$RUNNER_TEMP/release-minimum"
+          mkdir -p "$release"
+          git archive "$GITHUB_SHA" | tar -x -C "$release"
+          printf '[build]\ntarget-dir = "%s"\n' "$RUNNER_TEMP/target" > "$RUNNER_TEMP/config.toml"
+          MOIRAI_RUN_CARGO_CONTROL=1 ATLAS_PROCESS_TREE_ROOT="$RUNNER_TEMP/atlas/scripts" MOIRAI_CARGO_CONFIG="$RUNNER_TEMP/config.toml" python -m unittest scripts.tests.test_release_minimum_versions
+          cd "$RUNNER_TEMP"
+          python "$release/scripts/release_minimum_versions.py" --candidate "$release" --cargo-config "$RUNNER_TEMP/config.toml" --runner-root "$RUNNER_TEMP/atlas/scripts" --output-root "$release/output/release-minimum"
+      - name: Preserve minimum graph provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-minimum-evidence
+          path: ${{ runner.temp }}/release-minimum/output/release-minimum
+          if-no-files-found: error
+
+  evidence:
+    name: Independent artifact build (${{ matrix.build }})
+    needs: plan
+    if: needs.plan.outputs.packages != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [first, second]
+    runs-on: ubuntu-latest
+    # One 600-second packaging command and five minutes for setup.
+    timeout-minutes: 15
+    env:
+      CARGO_INCREMENTAL: 0
+      SOURCE_DATE_EPOCH: ${{ needs.plan.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+      - name: Prove exact clean candidate before packaging
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Package exact crates.io source artifacts
+        run: |
+          export RUSTFLAGS="--remap-path-prefix=$GITHUB_WORKSPACE=/workspace"
+          IFS=, read -ra packages <<<"${{ needs.plan.outputs.packages }}"
+          arguments=()
+          for package in "${packages[@]}"; do arguments+=(--package "$package"); done
+          timeout --kill-after=30s 600s cargo package --locked "${arguments[@]}"
+          context="{\"candidate\":\"$GITHUB_SHA\",\"toolchain\":\"1.97.0\",\"target\":\"x86_64-unknown-linux-gnu\",\"profile\":\"cargo-package-verify\"}"
+          find target/package -maxdepth 1 -name '*.crate' -print0 | xargs -0 python3 scripts/release_preflight.py record --cohort '${{ needs.plan.outputs.cohort }}' --context "$context" --output "evidence-${{ matrix.build }}.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-evidence-${{ matrix.build }}
+          path: evidence-${{ matrix.build }}.json
+          if-no-files-found: error
+
+  compare:
+    name: Reproducible source artifacts
+    needs: [plan, evidence]
+    if: needs.evidence.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      artifacts: ${{ steps.compare.outputs.artifacts }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-evidence-first
+          path: first
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-evidence-second
+          path: second
+      - id: compare
+        run: |
+          python3 scripts/release_preflight.py compare --expected-cohort '${{ needs.plan.outputs.cohort }}' first/evidence-first.json second/evidence-second.json
+          printf 'artifacts=%s\n' "$(cat first/evidence-first.json)" >> "$GITHUB_OUTPUT"
+
+  sbom:
+    name: CycloneDX SBOM
+    needs: plan
+    if: needs.plan.outputs.packages != ''
+    runs-on: ubuntu-latest
+    # Installation and generation each have a 600-second command budget.
+    timeout-minutes: 25
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.plan.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.0
+      - run: |
+          version="$(python3 scripts/release_preflight.py tool-version cargo-cyclonedx)"
+          timeout --kill-after=30s 600s cargo install --locked cargo-cyclonedx --version "$version"
+      - name: Record the locked dependency graph before SBOM generation
+        run: |
+          mkdir -p output/release
+          cargo metadata --locked --all-features --format-version 1 > output/release/locked-metadata.json
+      - name: Generate CycloneDX SBOM without changing the release lockfile
+        run: |
+          before="$(sha256sum Cargo.lock)"
+          timeout --kill-after=30s 600s cargo cyclonedx --format json --all --all-features --target all
+          test "$before" = "$(sha256sum Cargo.lock)"
+          mapfile -t generated < <(find . -type f -name '*.cdx.json' -print)
+          test "${#generated[@]}" -gt 0
+          python3 scripts/release_sbom.py stage --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json --output output/release --manifest output/release/documents.json "${generated[@]}"
+          mapfile -t sboms < <(python3 -c 'import json; print(*json.load(open("output/release/documents.json")), sep="\n")')
+          test "${#sboms[@]}" -gt 0
+          python3 scripts/release_sbom.py extend --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json "${sboms[@]}"
+          python3 scripts/release_sbom.py validate --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json "${sboms[@]}"
+          POSTPROCESSOR_SHA256="$(python3 scripts/release_sbom.py source-hash)"
+          export POSTPROCESSOR_SHA256
+          python3 - <<'PY'
+          import hashlib, json, os
+          with open("output/release/locked-metadata.json", "rb") as metadata:
+              metadata_sha256 = hashlib.sha256(metadata.read()).hexdigest()
+          with open("Cargo.lock", "rb") as lock:
+              lock_sha256 = hashlib.sha256(lock.read()).hexdigest()
+          with open("output/release/documents.json", encoding="utf-8") as manifest:
+              paths = json.load(manifest)
+          documents = {path: hashlib.sha256(open(path, "rb").read()).hexdigest() for path in paths}
+          with open("output/release/release-provenance.json", "w", encoding="utf-8") as output:
+              json.dump({"candidate": os.environ["GITHUB_SHA"], "lock_sha256": lock_sha256,
+                         "metadata_sha256": metadata_sha256, "cohort": json.loads(os.environ["COHORT"]),
+                         "sbom_sha256": documents, "graph_scope": "clean checkout, all features, all targets",
+                         "development_extension": {"tool": "scripts/release_sbom.py",
+                                                   "sha256": os.environ["POSTPROCESSOR_SHA256"]}}, output, sort_keys=True)
+          PY
+        env:
+          COHORT: ${{ needs.plan.outputs.cohort }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: moirai-cyclonedx-sbom
+          path: output/release
+          if-no-files-found: error

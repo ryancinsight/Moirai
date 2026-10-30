@@ -3,13 +3,13 @@
 
 mod load;
 
-use load::{Plan, ProbeResult, endpoint, report, run};
+use load::{Phase, Plan, ProbeResult, emit_phase, endpoint, report, run};
 use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 fn main() -> ProbeResult<()> {
-    let recovery = load::recovery::Recovery::install()?;
+    let recovery = load::recovery::Recovery::install(true)?;
     let arguments: Vec<_> = std::env::args().skip(1).collect();
     if !(5..=6).contains(&arguments.len()) || !matches!(arguments[0].as_str(), "server" | "client")
     {
@@ -61,7 +61,7 @@ fn probe<const RESPONDER: bool>(
         Duration::from_secs(60),
         async {
             let exchange = run::<RESPONDER>(&endpoint, address, plan, started);
-            let observe = recovery.observe();
+            let observe = recovery.observe(moirai_async::timer::sleep);
             futures::pin_mut!(exchange, observe);
             match futures::future::select(exchange, observe).await {
                 futures::future::Either::Left((result, _)) => result,
@@ -85,7 +85,7 @@ fn probe<const RESPONDER: bool>(
     } else {
         "failure"
     })?;
-    tracing::info!(target: "quic_load::load", phase = "drain", "load probe phase");
+    emit_phase(Phase::Drain);
     endpoint.close();
     let drained = moirai_executor::block_on(endpoint.wait_idle());
     if let Err(error) = &drained {

@@ -2,7 +2,7 @@
 
 use std::{future::Future, sync::Arc, task::Wake};
 
-use super::future_state::AsyncFutureState;
+use super::{future_state::AsyncFutureState, tasks::with_registration_context};
 use crate::{registry::StateLease, schedule::WorkSubmit};
 
 impl<S, F, L> Wake for AsyncFutureState<S, F, L>
@@ -13,10 +13,10 @@ where
     L: StateLease,
 {
     fn wake(self: Arc<Self>) {
-        self.schedule_wake();
+        with_registration_context(self.registration(), || self.schedule_wake());
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        self.schedule_wake();
+        with_registration_context(self.registration(), || self.schedule_wake());
     }
 }

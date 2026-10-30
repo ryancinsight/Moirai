@@ -246,10 +246,10 @@ mod tests {
 
     #[test]
     fn plan_of_an_empty_topology_is_an_invalid_configuration() {
-        assert_eq!(
-            plan(std::iter::empty(), 2).err(),
-            Some(ExecutorError::InvalidConfiguration)
-        );
+        assert!(matches!(
+            plan(std::iter::empty(), 2),
+            Err(ExecutorError::InvalidConfiguration)
+        ));
     }
 
     #[test]

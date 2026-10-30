@@ -115,7 +115,8 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
     // seam. `moirai-core` retains only `SchedulerId`.
     for required in [
         "pub use scheduler::SchedulerId;",
-        "Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId",
+        "Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskId",
+        "#[cfg(feature = \"std\")]\npub use task::TaskHandle;",
     ] {
         assert!(
             core_lib.contains(required),

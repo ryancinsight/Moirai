@@ -19,12 +19,13 @@ import threading
 import time
 
 from quic_profiles import (FRAME_BYTES, MESSAGES, PROFILES, REPETITIONS, SEED,
-                           STREAMS, Network, execute, pair)
+                           STREAMS, Network, admitted_case, admitted_cases, execute, pair)
 
 POLICIES = ("cubic", "newreno", "bbr-experimental")
 COMPETITORS = (("cubic", "cubic"), ("newreno", "cubic"),
                ("newreno", "newreno"), ("bbr-experimental", "cubic"),
                ("bbr-experimental", "bbr-experimental"))
+PROBE_RUNTIMES = {"quic_load": "moirai", "quic_load_tokio": "tokio"}
 
 
 class QueueSamples:
@@ -67,6 +68,29 @@ def failure_record(error):
     return result
 
 
+def probe_identity(binary):
+    """Identify the runtime from the selected supported executable."""
+    executable = binary.name
+    lookup_name = binary.stem if binary.suffix.casefold() == ".exe" else executable
+    try:
+        runtime = PROBE_RUNTIMES[lookup_name]
+    except KeyError as error:
+        supported = ", ".join(PROBE_RUNTIMES)
+        raise ValueError(f"unsupported probe executable {executable!r}; expected {supported}") from error
+    return {"runtime": runtime, "executable": executable}
+
+
+def probe_runtime(probe):
+    """Return the runtime only for a complete supported probe identity."""
+    if (type(probe) is not dict or set(probe) != {"runtime", "executable"} or
+            type(probe.get("runtime")) is not str or type(probe.get("executable")) is not str):
+        raise ValueError("invalid probe identity schema")
+    expected = probe_identity(Path(probe["executable"]))
+    if probe != expected:
+        raise ValueError("probe runtime and executable disagree")
+    return probe["runtime"]
+
+
 def record_pair(binary, network, streams, size, policy, **options):
     try:
         return {"policy": policy, "reports": pair(binary, network, streams, size,
@@ -75,17 +99,16 @@ def record_pair(binary, network, streams, size, policy, **options):
         return {"policy": policy, **failure_record(error)}
 
 
-def matrix_cases(repetition):
-    policies = POLICIES[repetition:] + POLICIES[:repetition]
-    for profile in PROFILES:
-        for streams in STREAMS:
-            for size in FRAME_BYTES:
-                for policy in policies:
-                    yield profile, streams, size, policy
+def matrix_cases(repetition, selected_case=None):
+    policies = (POLICIES[0],) if selected_case else POLICIES[repetition:] + POLICIES[:repetition]
+    cases = [selected_case] if selected_case else admitted_cases(True)
+    for profile, streams, size in cases:
+        for policy in policies:
+            yield profile, streams, size, policy
 
 
-def matrix(binary, network, repetition):
-    for profile, streams, size, policy in matrix_cases(repetition):
+def matrix(binary, network, repetition, selected_case=None):
+    for profile, streams, size, policy in matrix_cases(repetition, selected_case):
         network.shape(profile)
         record = {"profile": dataclasses.asdict(profile), "streams": streams,
                   "bytes": size, "repetition": repetition,
@@ -102,7 +125,9 @@ def matrix(binary, network, repetition):
         yield record
 
 
-def fairness(binary, network, repetition):
+def fairness(binary, network, repetition, selected_case=None):
+    if selected_case is not None:
+        raise ValueError("an exact case is a matrix diagnostic, not a fairness suite")
     competitors = COMPETITORS[repetition:] + COMPETITORS[:repetition]
     for profile in (PROFILES[1], PROFILES[3]):
         for policies in competitors:
@@ -132,7 +157,16 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--suite", choices=["matrix", "fairness"], required=True)
     parser.add_argument("--repetition", type=int, choices=range(REPETITIONS), required=True)
+    parser.add_argument("--case", default="",
+                        help="Diagnostic PROFILE:STREAMS:FRAME_BYTES; cubic only")
     arguments = parser.parse_args()
+    if arguments.case and arguments.suite != "matrix":
+        parser.error("an exact case requires the matrix suite")
+    try:
+        selected_case = admitted_case(arguments.case, admitted_cases(True)) if arguments.case else None
+    except ValueError as error:
+        parser.error(str(error))
+    probe = probe_identity(arguments.binary)
     network = Network(True, arguments.tc)
     report = {"schema": 1, "status": "running", "suite": arguments.suite,
               "runner": platform.platform(), "revision": execute(["git", "rev-parse", "HEAD"]).strip(),
@@ -140,9 +174,11 @@ def main():
               "dirty": bool(execute(["git", "status", "--porcelain"])),
               "rustc": execute(["rustc", "-Vv"]), "seed": SEED,
               "iproute2": execute([network.tc, "-V"]), "repetition": arguments.repetition,
+              "probe": probe,
               "binary_sha256": hashlib.sha256(arguments.binary.read_bytes()).hexdigest(),
               "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
               "policies": POLICIES, "messages_per_stream": MESSAGES,
+              "selected_case": arguments.case,
               "pair_deadline_seconds": 60, "operation_deadline_seconds": 5,
               "recovery_trace": os.environ.get("MOIRAI_QUIC_RECOVERY_TRACE") == "1",
               "runs": []}
@@ -175,18 +211,20 @@ def main():
                 if "error" in preflight:
                     raise RuntimeError("authenticated trace preflight fails")
                 for role in ("client", "server"):
-                    protocol_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"], True)
+                    protocol_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"], True,
+                                   report["probe"])
                     if "engine_observation" in report:
                         from quic_observation.audit import state_trace
                         state_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"])
             experiment = matrix if arguments.suite == "matrix" else fairness
-            for record in experiment(arguments.binary.resolve(strict=True), network, arguments.repetition):
+            for record in experiment(arguments.binary.resolve(strict=True), network,
+                                     arguments.repetition, selected_case):
                 report["runs"].append(record)
                 save()
                 failed = "error" in record or any("error" in flow for flow in record.get("flows", []))
                 print(arguments.suite, record["profile"]["name"], record.get("policy", "competing"),
                       record["streams"], record["bytes"], "failed" if failed else "verified", flush=True)
-            expected = 108 if arguments.suite == "matrix" else 10
+            expected = 1 if selected_case else (108 if arguments.suite == "matrix" else 10)
             if len(report["runs"]) != expected:
                 raise RuntimeError("experiment inventory is incomplete")
             failures = sum("error" in flow for record in report["runs"]

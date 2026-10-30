@@ -88,4 +88,11 @@
 | [0080](0080-recovery-trace-evidence.md) | Recovery trace evidence | Accepted |
 | [0081](0081-applied-udp-socket-configuration.md) | Applied UDP socket configuration | Accepted |
 | [0082](0082-recovery-state-observation.md) | Recovery state observation | Accepted |
+| [0083](0083-awaitable-task-results.md) | Awaitable task results | Accepted |
+| [0084](0084-async-task-ownership.md) | Async task ownership and cancellation | Accepted |
+| [0085](0085-result-state-storage.md) | Result state storage | Accepted |
+| [0086](0086-task-wait-deadlines.md) | Task-wait deadlines | Accepted |
 | [0087](0087-task-lifecycle-release.md) | Task lifecycle release boundary | Accepted |
+| [0088](0088-core-runtime-capabilities.md) | Core runtime capabilities without the standard library | Accepted |
+| [0089](0089-owned-completion-waiters.md) | Owned task-completion waiters | Accepted |
+| [0090](0090-shared-shutdown-ownership.md) | Shared shutdown ownership | Accepted |

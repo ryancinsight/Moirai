@@ -17,8 +17,8 @@ pub(super) fn gate_single_worker<C: WorkClass>(
         .spawn_result::<C, _>(Priority::Normal, None, move || {
             started_sender.send(()).unwrap();
             release_receiver
-                .recv_timeout(std::time::Duration::from_secs(10))
-                .expect("gate must be released before the test deadline");
+                .recv()
+                .expect("release sender must signal while the test continues");
         })
         .unwrap();
     started_receiver

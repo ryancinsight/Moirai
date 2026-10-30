@@ -37,33 +37,19 @@ pub trait ExecutorControl: Send + Sync + 'static {
     /// - Suitable for event loops requiring non-blocking progress
     fn try_run(&self) -> bool;
 
-    /// Shutdown the executor gracefully.
+    /// Stop admission and settle async work at poll boundaries.
     ///
-    /// # Behavior Guarantees
-    /// - Allows running tasks to complete naturally
-    /// - Prevents new tasks from being spawned
-    /// - Idempotent operation - safe to call multiple times
-    /// - Blocks until all worker threads have stopped
-    /// - Releases all resources and thread handles
-    ///
-    /// # Performance Characteristics
-    /// - Shutdown time: Depends on longest running task
-    /// - Resource cleanup: All memory and handles released
-    /// - Thread coordination: Uses efficient signaling
+    /// Running synchronous and blocking closures continue until they return.
+    /// External callers wait for shared shutdown completion. Executor workers
+    /// and inline callbacks request shutdown without waiting on owned work.
     fn shutdown(&self);
 
-    /// Shutdown the executor with a timeout.
+    /// Bound the caller's wait for shutdown.
     ///
-    /// # Behavior Guarantees
-    /// - Attempts graceful shutdown first
-    /// - Forces termination after timeout expires
-    /// - May result in task cancellation or abortion
-    /// - Guarantees executor stops within timeout + small overhead
-    ///
-    /// # Performance Characteristics
-    /// - Graceful phase: Same as `shutdown()`
-    /// - Forced phase: Immediate thread termination
-    /// - Timeout accuracy: ±10ms typical variance
+    /// Async cancellation occurs at poll boundaries. When the caller's timeout
+    /// expires, running closures and their threads continue draining in the
+    /// background. They are not forcibly terminated; executor destruction only
+    /// requests that drain. A non-yielding async poll cannot be interrupted.
     fn shutdown_timeout(&self, timeout: core::time::Duration);
 
     /// Check if the executor is shutting down.

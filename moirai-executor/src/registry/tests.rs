@@ -258,10 +258,10 @@ mod tests {
         );
 
         // The job-start gate observes the request and never yields a running token.
-        lifecycle
-            .start_unless_cancelled(4)
-            .expect_err("the requested cancellation must skip the task body")
-            .notify();
+        let Err(completion) = lifecycle.start_unless_cancelled(4) else {
+            panic!("cancelled lifecycle must not yield a running token");
+        };
+        completion.notify();
 
         let metadata = registry.get_metadata(task_id).unwrap();
         assert!(metadata.cancelled);
@@ -385,10 +385,7 @@ mod tests {
         registry.mark_started(id, 0);
         registry.mark_completed(id);
 
-        assert!(
-            registry.register_waker(id, &waker),
-            "the slot is still registered, so registration reports success"
-        );
+        assert!(registry.register_waker(id, &waker).is_none());
         drop(waker);
 
         assert_eq!(

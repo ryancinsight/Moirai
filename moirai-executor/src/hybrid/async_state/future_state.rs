@@ -4,13 +4,14 @@ use std::{
     cell::UnsafeCell,
     future::Future,
     mem::MaybeUninit,
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr,
-    sync::{Arc, atomic::AtomicU8},
+    sync::{Arc, OnceLock, atomic::AtomicU8},
 };
 
 use moirai_core::task::TaskResultSender;
 
-use super::{lifecycle::AsyncLifecycle, phase::ASYNC_IDLE};
+use super::{lifecycle::AsyncLifecycle, phase::ASYNC_CREATED, tasks::Registration};
 use crate::{
     metrics::ExecutorMetrics,
     registry::{OwnedStateLease, StateLease, TaskLifecycleToken},
@@ -28,6 +29,7 @@ where
     pub(super) metrics: Arc<ExecutorMetrics>,
     pub(super) state: AtomicU8,
     pub(super) future_present: UnsafeCell<bool>,
+    pub(super) registration: OnceLock<super::tasks::Registration>,
     // Must remain last: production lifecycle leases borrow storage retained by
     // the scheduler, so every lease must retire before scheduler destruction.
     pub(super) scheduler: S,
@@ -78,10 +80,17 @@ where
             future: UnsafeCell::new(MaybeUninit::new(future)),
             result_sender: UnsafeCell::new(Some(result_sender)),
             metrics,
-            state: AtomicU8::new(ASYNC_IDLE),
+            state: AtomicU8::new(ASYNC_CREATED),
             future_present: UnsafeCell::new(true),
+            registration: OnceLock::new(),
             scheduler,
         })
+    }
+
+    pub(super) fn registration(&self) -> &Registration {
+        self.registration
+            .get()
+            .expect("invariant: scheduled async futures are registered")
     }
 }
 
@@ -91,11 +100,24 @@ where
     L: StateLease,
 {
     fn drop(&mut self) {
-        if *self.future_present.get_mut() {
+        if let Some(registration) = self.registration.get() {
+            registration.remove();
+        }
+        let future_present = self.future_present.get_mut();
+        if *future_present {
+            *future_present = false;
             // Safety: `Drop` has exclusive access to the state because the last
             // `Arc` reference is being destroyed.
-            unsafe {
+            let future_drop = catch_unwind(AssertUnwindSafe(|| unsafe {
                 ptr::drop_in_place((*self.future.get()).as_mut_ptr());
+            }));
+            if let Err(_payload) = future_drop {
+                // Production admissions settle through complete_rejected, and
+                // accepted futures remain tracked until explicit completion.
+                // This final-owner fallback has no completion owner to report
+                // a destruction failure, so it follows the fatal Drop policy.
+                // Aborting also avoids invoking an untrusted panic destructor.
+                std::process::abort();
             }
         }
     }

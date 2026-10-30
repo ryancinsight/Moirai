@@ -11,3 +11,5 @@ pub use crate::{ExecutionContext, ExecutionStrategy, MoiraiIterator};
 
 #[cfg(feature = "async")]
 pub use crate::Timeout;
+
+pub use moirai_core::executor::TaskManager;

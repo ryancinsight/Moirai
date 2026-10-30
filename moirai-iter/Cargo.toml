@@ -20,19 +20,19 @@ moirai-async = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
 moirai-scheduler = { workspace = true }
 themis = { workspace = true }
-thiserror = "1.0"
-futures = "0.3"
-num_cpus = "1.0"
+thiserror = "1.0.69"
+futures = "0.3.34"
+num_cpus = "1.17.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+libc = "0.2.190"
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
 # The workspace Loom command applies `cfg(loom)` globally. Tokio's `time` and
 # local-task modules then require its sync-gated internal `AtomicWaker`.
-tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["rt", "macros", "sync", "time"] }
 
 [target.'cfg(loom)'.dev-dependencies]
 loom = { workspace = true }

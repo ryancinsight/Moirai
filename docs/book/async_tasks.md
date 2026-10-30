@@ -5,33 +5,53 @@ CPU-bound parallel work, sharing the same worker pool.
 
 ## Spawning Async Tasks
 
-```rust,ignore
-let handle = runtime.spawn(async {
-    let data = fetch_data().await;
-    process(data).await
-});
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+use moirai::{Moirai, TaskError};
 
-let result = handle.await?;
+let runtime = Moirai::new()?;
+let result = runtime.block_on(async {
+    let handle = runtime.spawn_async(async { 42usize });
+    handle.await
+});
+assert_eq!(result, Some(Ok::<usize, TaskError>(42)));
+# Ok(())
+# }
 ```
 
-`spawn` accepts any `Future<Output = T>` where `T: Send + 'static`. It returns
-a `TaskHandle<T>` that can be `.await`ed.
+`spawn_async` accepts any `Future<Output = T>` where `T: Send + 'static`. It
+returns a `TaskHandle<T>` that can be awaited.
 
 ## `TaskHandle<T>`
 
-`TaskHandle<T>` is the future returned by `spawn`. It resolves to
-`Result<T, TaskError>`. A `TaskError` is returned when:
+`TaskHandle<T>` is the future returned by `spawn_async`. It resolves to
+`Option<Result<T, TaskError>>`, the same value returned by blocking `join`.
+`None` means the handle was detached or its result was already consumed by
+polling. Dropping the handle alone does not cancel its task. A `TaskError` can
+report that:
 
 - The spawned task panicked
-- The runtime was shut down before the task completed
+- Explicit cancellation or shutdown cancelled the task at a poll boundary
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+# use moirai::{Moirai, TaskError};
+# let runtime = Moirai::new()?;
+# let handle = runtime.spawn_async(async { 42usize });
+# runtime.block_on(async {
 match handle.await {
-    Ok(value) => println!("result: {value}"),
-    Err(TaskError::Panicked) => eprintln!("task panicked"),
-    Err(TaskError::RuntimeShutdown) => eprintln!("runtime shut down"),
-    _ => {}
+    Some(Ok(value)) => println!("result: {value}"),
+    Some(Err(TaskError::Panicked)) => eprintln!("task panicked"),
+    Some(Err(TaskError::Cancelled)) => eprintln!("task cancelled"),
+    Some(Err(error)) => eprintln!("task failed: {error}"),
+    None => eprintln!("task result was detached or already consumed"),
 }
+# });
+# Ok(())
+# }
 ```
 
 ## `TaskId` and `TaskContext`
@@ -39,14 +59,6 @@ match handle.await {
 Each spawned task receives a `TaskId(u64)` that uniquely identifies it within
 the runtime lifetime. `TaskContext` carries the id and the task's `Priority`.
 
-## Task Chaining
-
-`TaskExt` provides combinators for chaining task computations:
-
-```rust,ignore
-use moirai_core::TaskExt;
-
-let base = TaskBuilder::new().build(|| 21);
-let doubled = base.then(|x| x * 2);  // chains onto the result
-let mapped  = base.map(|x| x * 2);   // maps the output type
-```
+`TaskExt` transforms task definitions before spawning. Its current methods are
+`map` for output transformation and `with_context` for assigning a
+`TaskContext`; it does not operate on a spawned `TaskHandle`.

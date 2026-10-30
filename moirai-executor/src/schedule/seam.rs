@@ -50,6 +50,25 @@ pub trait SchedulerControl {
     fn worker_count(&self) -> usize;
     /// Whether any work is queued or running.
     fn has_work(&self) -> bool;
+    /// Whether the calling thread is a worker owned by this scheduler.
+    ///
+    /// Compute and blocking workers both belong to their scheduler. Cloned
+    /// handles share that identity, while another scheduler returns `false`
+    /// even when its local worker number matches.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use moirai_executor::schedule::{SchedulerControl, ThreadScheduler};
+    ///
+    /// # fn main() -> moirai_core::error::ExecutorResult<()> {
+    /// let scheduler = ThreadScheduler::new(1, "membership-example")?;
+    /// assert!(!SchedulerControl::is_current_worker(&scheduler));
+    /// scheduler.shutdown();
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn is_current_worker(&self) -> bool;
     /// Block until the scheduler is quiescent (no queued or running work).
     ///
     /// # Errors
@@ -159,6 +178,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> SchedulerCon
     }
     fn has_work(&self) -> bool {
         ThreadScheduler::has_work(self)
+    }
+    fn is_current_worker(&self) -> bool {
+        ThreadScheduler::is_current_worker(self)
     }
     fn join(&self) -> ExecutorResult<()> {
         ThreadScheduler::join(self)

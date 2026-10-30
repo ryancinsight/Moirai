@@ -9,8 +9,6 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use moirai_core::error::TaskError;
-
 use super::{
     future_state::AsyncFutureState,
     lifecycle::AsyncLifecycle,
@@ -61,6 +59,10 @@ where
         let mut inline_repolls = 0usize;
 
         loop {
+            if self.cancel_pending() {
+                self.complete_cancelled();
+                return;
+            }
             let poll_result = {
                 // Safety: `state` grants this worker the only polling
                 // permission, and the `Arc` allocation keeps the address
@@ -72,8 +74,7 @@ where
 
             match poll_result {
                 Ok(Poll::Ready(output)) => {
-                    let execution_time = self.complete_with_result(Ok(output));
-                    self.metrics.record_task_completed(execution_time);
+                    self.complete_with_result(Ok(output));
                     return;
                 }
                 Ok(Poll::Pending) => match self.finish_pending_poll(&mut inline_repolls) {
@@ -84,8 +85,8 @@ where
                         return;
                     }
                 },
-                Err(_) => {
-                    self.complete_failed(TaskError::Panicked);
+                Err(panic_payload) => {
+                    self.complete_panicked(panic_payload);
                     return;
                 }
             }
@@ -97,7 +98,11 @@ where
         // Safety: only the poll owner selected by the async state machine calls
         // this method, so the lifecycle cell access is single-threaded.
         let lifecycle = unsafe { &*self.lifecycle.get() };
-        matches!(lifecycle, AsyncLifecycle::Registered(token) if token.cancel_requested())
+        match lifecycle {
+            AsyncLifecycle::Registered(token) => token.cancel_requested(),
+            AsyncLifecycle::Running(token) => token.cancel_requested(),
+            AsyncLifecycle::Completed => false,
+        }
     }
 
     fn mark_running(&self, worker_id: usize) {

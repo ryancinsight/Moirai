@@ -16,13 +16,13 @@ description = "Work-stealing scheduler implementation for Moirai concurrency lib
 [dependencies]
 moirai-core = { workspace = true }
 moirai-utils = { workspace = true }
-num_cpus = "1.16"
+num_cpus = "1.17.0"
 mnemosyne = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
-static_assertions = "1.1"
+static_assertions = "1.1.0"
 
 # Loom model checker — only compiled under `--cfg loom` so the models exercise
 # the same gate transition code as production (see tests/loom_chase_lev*.rs).

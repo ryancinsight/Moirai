@@ -15,6 +15,16 @@ on:
       - "deny.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
+      - ".github/workflows/release-preflight.yml"
+      - ".github/workflows/rust-release.yml"
+      - ".github/workflows/quic-transport.yml"
+      - ".config/release-tools.toml"
+      - "scripts/release_preflight.py"
+      - "scripts/tests/test_release_preflight.py"
+      - "scripts/tests/test_release_sbom.py"
+      - "scripts/release_sbom.py"
+      - "scripts/release_minimum_versions.py"
+      - "scripts/tests/test_release_minimum_versions.py"
   schedule:
     # Weekly parser-fuzz campaign (MOI-SEC-001-B) and Miri run; main only.
     - cron: "0 6 * * 1"
@@ -46,12 +56,20 @@ jobs:
     permissions:
       contents: read
 
+  release-preflight:
+    name: Release prerequisites
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    uses: ./.github/workflows/release-preflight.yml
+    permissions:
+      contents: read
+
   quic-diagnostics:
     name: Native QUIC diagnosis
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.quic_case != '' }}
     uses: ./.github/workflows/quic-transport.yml
     with:
       case: ${{ inputs.quic_case }}
+      profile: true
     permissions:
       contents: read
   quic:
@@ -60,16 +78,16 @@ jobs:
     uses: ./.github/workflows/quic-transport.yml
     permissions:
       contents: read
-  # Atlas ATLAS-SEMVER-GATE-FLEETWIDE-2026-08-28. The fleet gate retired
-  # the locked-source contract job after 7a5a1036; its compare crashed on
-  # any package absent from the base inventory (moirai-quic is new here).
   semver:
     name: SemVer gate
     uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@0227830912a12dbae0ff62b3f16575899fc9087e
     with:
+      # Compare every candidate with the published contract. The manifest
+      # version determines which API changes that comparison permits.
+      release-gate: true
       # Proc-macro-only targets have no library surface for this checker;
       # the workspace gate still compiles and tests moirai-async-macros.
-      package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-quic,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
+      package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-quic,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime,moirai-webview
       rust-toolchain: 1.97.0
       atlas-ref: 0227830912a12dbae0ff62b3f16575899fc9087e
     permissions:
@@ -109,6 +127,7 @@ jobs:
         with:
           toolchain: 1.97.0
           components: clippy,rustfmt
+          targets: x86_64-unknown-none
 
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
@@ -124,11 +143,28 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check the core and alloc boundary
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          timeout --kill-after=30s 600s cargo clippy --locked -p moirai-core -p moirai-utils --no-default-features --all-targets -- -D warnings
+          timeout --kill-after=30s 600s cargo clippy --locked -p moirai-core -p moirai-utils --no-default-features --target x86_64-unknown-none -- -D warnings
+          cargo tree --locked -p moirai-core --no-default-features --target x86_64-unknown-none --edges normal --prefix none --format '{p}' | cut -d' ' -f1 | sort -u > "$RUNNER_TEMP/bare-dependencies"
+          printf 'moirai-core\nmoirai-utils\n' | diff - "$RUNNER_TEMP/bare-dependencies"
+          timeout --kill-after=30s 600s cargo nextest run --locked -p moirai-core -p moirai-utils --no-default-features --profile ci
+          timeout --kill-after=30s 600s cargo test --locked -p moirai-core -p moirai-utils --no-default-features --doc
+          timeout --kill-after=30s 600s cargo doc --locked -p moirai-core -p moirai-utils --no-default-features --target x86_64-unknown-none --no-deps
+
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
 
       - name: Run workspace tests
-        run: cargo nextest run --locked --workspace --all-features
+        run: cargo nextest run --locked --workspace --all-features --profile ci
+
+      - name: Verify task lifecycle example
+        run: |
+          timeout --kill-after=30s 60s cargo nextest run --locked -p moirai-runtime --example book_task_spawning --profile ci
+          timeout --kill-after=30s 60s cargo nextest run --locked -p moirai-runtime --example book_task_spawning --no-default-features --profile ci
 
       - name: Verify QUIC in default and minimal native builds
         run: |
@@ -177,12 +213,16 @@ jobs:
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.95.0
+          targets: x86_64-unknown-none
 
       - name: Prove the toolchain under test
         run: rustc --version && cargo --version
 
       - name: Check the workspace at the floor
         run: cargo check --locked --workspace --all-features --all-targets
+
+      - name: Check the bare subset at the floor
+        run: timeout --kill-after=30s 600s cargo check --locked -p moirai-core -p moirai-utils --no-default-features --target x86_64-unknown-none
 
   loom:
     name: Loom channel models
@@ -218,6 +258,7 @@ jobs:
           cargo nextest run --locked
           -p moirai-core --test loom_mpmc_waiter --test loom_spsc_ring
           -p moirai-async --test loom_wake_dedup --test loom_connection_pool
+          --test loom_result_slot
           -p moirai-iter --test loom_retained_ready_set
           -p moirai-scheduler
           --test loom_chase_lev
@@ -233,8 +274,19 @@ jobs:
           --test loom_shutdown_admission
           --release
 
-      - name: Run PAL timer interleaving models
-        run: cargo nextest run --locked -p moirai-pal loom_timer_ --release
+      - name: Run the production admission cell model
+        env:
+          LOOM_MAX_PREEMPTIONS: 4
+        run: >-
+          cargo nextest run --locked -p moirai-executor --lib --release
+          -E 'test(hybrid::shutdown::admission::loom_tests::production_admission_linearizes_close_and_release)'
+
+      - name: Run the production PAL timer models
+        env:
+          LOOM_MAX_PREEMPTIONS: 4
+        run: >-
+          cargo nextest run --locked -p moirai-pal --lib --release
+          -E 'test(loom_timer)'
 
   supply-chain:
     name: Supply-chain
@@ -270,6 +322,7 @@ jobs:
     # libFuzzer's -Z flags fail to build.
     env:
       RUSTUP_TOOLCHAIN: nightly-2026-08-01
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -491,22 +544,26 @@ jobs:
           rustc --version
           cargo miri --version
 
+      - name: Interpret PAL timer callback ownership
+        if: matrix.suite == 'foundation'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo miri test --locked -p moirai-pal --lib -- timer::tests:: \
+            -Zunstable-options --report-time --test-threads=1 | tee "$RUNNER_TEMP/pal-timer-miri.log"
+          grep -Fq 'test timer::tests::callbacks::pal_timer_waker_callbacks_run_outside_the_registry_lock ... ok' "$RUNNER_TEMP/pal-timer-miri.log"
+
       # Each group records its wall seconds as stacked-borrows / tree-borrows
       # and names its slowest tests.
       - name: Interpret the executor lease, scope, and queue tests
         if: matrix.suite == 'executor'
-        # Previous executor selection: 91 tests, 554.54 s stacked / 1540.31 s tree
-        # (run 41008882833). These timings exclude the callback filters below.
+        # Executor selection at a936146: 804.90 s stacked / 1760.94 s tree.
         # registry::tests:: includes the cancel_before_start regression, and
         # schedule::queue includes the queue shrink tests.
         run: >-
           cargo miri test --locked -p moirai-executor --lib --
           hybrid:: schedule::job schedule::queue
-          schedule::runtime::tests::scope registry::tests:: registry::state
-          registry::token_tests::
-          registry::waiter_tests::raw_waker_
-          registry::waiter_tests::discarded_raw_waker_
-          registry::fan_out::tests::
+          schedule::runtime::tests::scope registry::tests:: registry::state registry::waiter_tests:: registry::token_tests::
           -Zunstable-options --report-time --test-threads=1
 
       - name: Interpret the scheduler deque tests
@@ -596,7 +653,7 @@ jobs:
   verdict:
     name: Verification result
     if: ${{ always() }}
-    needs: [workflow-lint, semver, adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri, quic]
+    needs: [workflow-lint, semver, adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri, quic, release-preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}

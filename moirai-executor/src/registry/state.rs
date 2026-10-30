@@ -9,7 +9,7 @@ use std::{
 use moirai_core::Priority;
 
 use super::super::task::TaskMetadata;
-use super::{TaskCompletion, fan_out};
+use super::{TaskCompletion, TaskWaiter, waiter::WaiterSetSlot};
 
 /// Inverse of [`Priority::index`]: `PRIORITY_FROM_INDEX[p.index()] == p` for
 /// every variant (asserted by `priority_index_round_trips` in the registry tests).
@@ -45,9 +45,8 @@ pub(super) enum Retirement {
 /// keeps the allocation alive; scheduler-bounded tokens require their registry
 /// to outlive the job and make their final access to the state when they retire.
 ///
-/// The flags live apart from the states: a flag beside its state would pad every
-/// 64-byte state to 72 bytes, and the retirement scan reads flags without
-/// touching state lines.
+/// Publication flags live apart from the states so retirement scans inspect
+/// densely packed flags without loading the task-state lines.
 pub(super) struct TaskStateBlock {
     published: Box<[AtomicBool]>,
     states: Box<[UnsafeCell<MaybeUninit<TaskState>>]>,
@@ -59,81 +58,6 @@ pub(super) struct TaskStateBlock {
 // threads is sound.
 unsafe impl Sync for TaskStateBlock {}
 
-/// The waker slot of a [`TaskState`]: an `Option<Waker>` behind a tiny
-/// self-contained spin lock.
-///
-/// [`std::sync::Mutex`] was rejected for this slot: `Mutex<Option<Waker>>` is
-/// 32 bytes on macOS, where std reaches its `pthread_mutex_t` through a lazily
-/// boxed pointer, against 24 on the futex targets (Linux, Windows), and with it
-/// the per-task state was 80 bytes on macOS. The lock here is one flag byte
-/// plus padding, and the critical sections move an already-cloned waker, run
-/// [`Waker::will_wake`](std::task::Waker::will_wake) over a short member list,
-/// or take the waker out — all
-/// bounded, never blocking, so spinning with a yield is safe under any
-/// scheduler.
-pub(super) struct WakerSlot {
-    locked: AtomicBool,
-    slot: UnsafeCell<Option<std::task::Waker>>,
-}
-
-struct WakerSlotGuard<'slot> {
-    locked: &'slot AtomicBool,
-}
-
-impl Drop for WakerSlotGuard<'_> {
-    fn drop(&mut self) {
-        self.locked.store(false, Ordering::Release);
-    }
-}
-
-impl WakerSlot {
-    const fn new() -> Self {
-        Self {
-            locked: AtomicBool::new(false),
-            slot: UnsafeCell::new(None),
-        }
-    }
-
-    /// Run `body` with exclusive access to the slot.
-    fn with_slot<R>(&self, body: impl FnOnce(&mut Option<std::task::Waker>) -> R) -> R {
-        let mut spins = 0_usize;
-        while self
-            .locked
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            // Bounded spin first, then yield: the critical sections are short,
-            // but a preempted holder must never deadlock the contender.
-            if spins < 16 {
-                std::hint::spin_loop();
-            } else {
-                std::thread::yield_now();
-            }
-            spins += 1;
-        }
-        let guard = WakerSlotGuard {
-            locked: &self.locked,
-        };
-        // SAFETY: the `locked` flag is held by this call, so this borrow is the
-        // only slot access; it ends before the flag is released.
-        let slot = unsafe { &mut *self.slot.get() };
-        let result = body(slot);
-        drop(guard);
-        result
-    }
-
-    #[cfg(test)]
-    pub(super) fn is_locked(&self) -> bool {
-        self.locked.load(Ordering::Acquire)
-    }
-}
-
-// SAFETY: the slot is reached only through `with_slot`, which serializes access
-// with the `locked` flag; a `Waker` is `Send`, so moving one between threads
-// through the slot is sound.
-unsafe impl Send for WakerSlot {}
-unsafe impl Sync for WakerSlot {}
-
 /// Shared lifecycle state for one task.
 pub(crate) struct TaskState {
     pub(crate) created_at: Instant,
@@ -143,9 +67,8 @@ pub(crate) struct TaskState {
     /// its pinned budget on every supported pointer width; no scheduler this
     /// executor builds approaches 2^32 workers.
     pub(super) worker_id: AtomicU32,
-    /// Waker slot behind its own tiny spin lock — see [`WakerSlot`] for why
-    /// this is not a [`std::sync::Mutex`].
-    pub(super) waker: WakerSlot,
+    /// Lazily allocated owned completion registrations.
+    pub(super) waiters: WaiterSetSlot,
     /// True while a lifecycle token can still access this slot; clearing it is
     /// the token's last access ([`TaskState::retire_token`]).
     token_active: AtomicBool,
@@ -155,15 +78,14 @@ pub(crate) struct TaskState {
     pub(super) cancel_requested: AtomicBool,
     /// Set when the task ended without a result: a cancel request was honored,
     /// or its lifecycle token was dropped before completing. The task's handle
-    /// reports `TaskError::Cancelled` in both cases.
+    /// normally reports `TaskError::Cancelled`; destruction failures are
+    /// reported separately by the result handle.
     pub(super) cancelled: AtomicBool,
 }
 
-// A registry block holds 1,024 of these plus one flag byte each; the size is
-// pinned because retained memory per task is this figure: 64 bytes on every
-// 64-bit target (`Instant` is 16 bytes, 8-aligned, on each), 56 on wasm32.
-// `worker_id` is `u32` and the waker slot carries its own spin lock (see
-// `WakerSlot`) to stay within it.
+// A registry block holds 1,024 of these plus one publication byte each.
+// Keep the complete state within its budget despite platform mutex layouts;
+// waiter-set allocations are separate from this inline lifecycle storage.
 const _: () = assert!(size_of::<TaskState>() <= 64);
 
 impl std::fmt::Debug for TaskState {
@@ -173,10 +95,7 @@ impl std::fmt::Debug for TaskState {
             .field("started_after_ns", &self.started_after_ns)
             .field("completed_after_ns", &self.completed_after_ns)
             .field("worker_id", &self.worker_id)
-            .field(
-                "waker_registered",
-                &self.waker.with_slot(|slot| slot.is_some()),
-            )
+            .field("waiter_set_allocated", &self.waiters.is_some())
             .finish()
     }
 }
@@ -189,7 +108,7 @@ impl TaskState {
             started_after_ns: AtomicU64::new(TIMESTAMP_NOT_RECORDED),
             completed_after_ns: AtomicU64::new(TIMESTAMP_NOT_RECORDED),
             worker_id: AtomicU32::new(NO_WORKER),
-            waker: WakerSlot::new(),
+            waiters: WaiterSetSlot::new(),
             token_active: AtomicBool::new(true),
             // Lossless enum-to-int cast: Priority discriminants are 0..=3.
             priority: AtomicU8::new(Priority::Normal as u8),
@@ -255,7 +174,8 @@ impl TaskState {
         unsafe { (*flag).store(false, Ordering::Release) };
     }
 
-    /// Publish that a cancel request was honored and detach its waiter.
+    /// Publish that a cancel request was honored: the task completes without
+    /// its body having run, and any registered waiter is woken.
     pub(super) fn mark_cancelled(&self) -> TaskCompletion {
         self.cancelled.store(true, Ordering::Release);
         self.mark_completed()
@@ -277,18 +197,29 @@ impl TaskState {
 
     #[inline]
     pub(super) fn mark_completed_since(&self, started_after_ns: u64) -> TaskCompletion {
+        self.mark_completed_at(started_after_ns, elapsed_nanos_since(self.created_at))
+    }
+
+    #[inline]
+    fn mark_completed_at(&self, started_after_ns: u64, measured_after_ns: u64) -> TaskCompletion {
         // `Instant` documents saturation for rare platform monotonicity
         // violations. Preserve that contract across thread/core migration by
         // clamping the published completion offset to the recorded start.
-        let completed_after_ns = elapsed_nanos_since(self.created_at).max(started_after_ns);
+        let completed_after_ns = measured_after_ns.max(started_after_ns);
         self.completed_after_ns
             .store(completed_after_ns, Ordering::Release);
 
-        let waker = self.waker.with_slot(|slot| slot.take());
-        TaskCompletion {
-            elapsed: Duration::from_nanos(completed_after_ns - started_after_ns),
-            waker,
-        }
+        // Detach the set before closing it. A racing registration either lands
+        // before `close` and is included, or observes the closed set and keeps
+        // no callback. Notification runs later through `TaskCompletion`.
+        let notifications = self
+            .waiters
+            .take()
+            .map_or_else(super::waiter::WaiterNotifications::empty, |set| set.close());
+        TaskCompletion::new(
+            Duration::from_nanos(completed_after_ns - started_after_ns),
+            notifications,
+        )
     }
 
     pub(super) fn mark_completed(&self) -> TaskCompletion {
@@ -301,28 +232,23 @@ impl TaskState {
         self.mark_completed_since(started_after_ns)
     }
 
-    /// Register a waker to be notified when the task completes.
-    ///
-    /// Wakers that do not `will_wake` the held one accumulate in the slot
-    /// ([`fan_out`]), so every waiter is woken by completion.
-    pub(super) fn register_waker(&self, waker: &std::task::Waker) {
-        let waker = waker.clone();
-        let discarded = self.waker.with_slot(|slot| fan_out::register(slot, waker));
-        drop(discarded);
-        // Store first, then re-check completion, mirroring the ordering
-        // `mark_completed_since` publishes: it stores the completion offset
-        // before taking the waker. A task that completed before this store
-        // has already taken the absent waker and will never take again, so
-        // the one just stored would be held for the life of the slot —
-        // along with whatever it owns, typically an `Arc` to async task
-        // state. Reclaiming it here is race-free in both directions: if
-        // completion lands after the store, it takes and wakes; if it
-        // landed before, this take wins and wakes instead. Only one take
-        // can succeed, and a spurious wake is always permitted.
+    /// Register an owned waiter while this task is pending.
+    pub(super) fn register_waker(&self, waker: &std::task::Waker) -> Option<TaskWaiter> {
         if self.is_completed() {
-            let stranded = self.waker.with_slot(|slot| slot.take());
-            if let Some(stranded) = stranded {
-                stranded.wake();
+            return None;
+        }
+        // A RawWaker clone callback is arbitrary user code. Clone before either
+        // the task's compact slot lock or the set's bookkeeping mutex.
+        let incoming = waker.clone();
+        let Some(set) = self.waiters.get_or_create(|| self.is_completed()) else {
+            super::waiter::dispose_unregistered(incoming);
+            return None;
+        };
+        match set.register(incoming) {
+            Ok(waiter) => Some(waiter),
+            Err(unused) => {
+                super::waiter::dispose_unregistered(unused);
+                None
             }
         }
     }
@@ -480,4 +406,33 @@ pub(crate) fn instant_from_offset(origin: Instant, offset_ns: u64) -> Option<Ins
 pub(crate) fn task_location(id: u64) -> (usize, usize) {
     let index = usize::try_from(id).expect("task ID must fit in usize");
     (index / TASK_STATE_BLOCK_SIZE, index % TASK_STATE_BLOCK_SIZE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TaskState;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    #[test]
+    fn completion_clamps_to_recorded_start_offset() {
+        for (started, measured, completed, duration) in [(7, 3, 7, 0), (7, 7, 7, 0), (7, 13, 13, 6)]
+        {
+            let state = TaskState::new();
+            state.started_after_ns.store(started, Ordering::Release);
+
+            let elapsed = state.mark_completed_at(started, measured).notify();
+            let snapshot = state.snapshot(7);
+
+            assert_eq!(elapsed, Duration::from_nanos(duration));
+            assert_eq!(state.completed_after_ns.load(Ordering::Acquire), completed);
+            assert_eq!(
+                snapshot.completed_at,
+                state
+                    .created_at
+                    .checked_add(Duration::from_nanos(completed))
+            );
+            assert_eq!(snapshot.execution_duration(), Some(elapsed));
+        }
+    }
 }

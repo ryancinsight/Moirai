@@ -99,12 +99,11 @@ fn cancel_completed_task_is_noop_ok_and_unknown_id_errors() {
     executor.cancel_task(id).unwrap();
     assert_eq!(executor.task_status(id), Some(TaskStatus::Completed));
 
-    assert_eq!(
-        executor.cancel_task(moirai_core::TaskId::new(u64::MAX / 2)),
-        Err(moirai_core::error::ExecutorError::SpawnFailed(
-            moirai_core::TaskError::InvalidOperation
-        ))
-    );
+    let unknown_id = moirai_core::TaskId::new(u64::MAX / 2);
+    assert!(matches!(
+        executor.cancel_task(unknown_id),
+        Err(moirai_core::error::ExecutorError::UnknownTask { id }) if id == unknown_id
+    ));
     executor.shutdown();
 }
 

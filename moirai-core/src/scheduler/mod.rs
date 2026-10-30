@@ -38,6 +38,8 @@ impl fmt::Display for SchedulerId {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+
     use super::SchedulerId;
 
     #[test]

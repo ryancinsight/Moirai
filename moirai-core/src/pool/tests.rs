@@ -3,8 +3,11 @@
 use super::global::GlobalPool;
 use super::slab::SlabAllocator;
 use super::stack::LockFreeStack;
+#[cfg(feature = "std")]
 use super::wrapper::TaskWrapper;
+#[cfg(feature = "std")]
 use crate::{Priority, TaskId};
+use alloc::{vec, vec::Vec};
 
 #[test]
 fn test_lock_free_stack() {
@@ -72,6 +75,7 @@ fn test_slab_allocator() {
     assert_eq!(idx3, idx1); // Should reuse the freed slot
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_task_wrapper() {
     let mut wrapper = TaskWrapper::<String>::new();

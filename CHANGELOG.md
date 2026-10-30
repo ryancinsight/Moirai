@@ -5,6 +5,37 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0]
+
+### Added
+- Cancel parked async work
+- Await spawned task results
+- **Breaking:** Compose task lifecycle release
+  StateWord replaces get_mut with exclusive_state, and
+ExecutorMetrics adds publication_panics. See the task migration guide
+and ADRs 0084 and 0085.
+
+### Fixed
+- Retain tasks across shutdown races
+- Settle panicking future destruction
+- Defer terminal waiter notification
+- **Breaking:** Finish callback cleanup
+  ExecutorMetrics adds publication_panics for notification
+failures; exhaustive external struct literals must initialize it.
+Use ExecutorMetrics::new() to retain constructor-owned initialization.
+- Bound shutdown cancellation wait
+- Guard unrun cancellation captures
+- Release waiters before callbacks
+- **Breaking:** Separate completion ownership
+  StateWord implementors return exclusive_state values
+instead of mutable references; see docs/migrations/task-results.md.
+- Assert pending result wakeups
+- Wake completion waits at deadlines
+
+### refactor
+- **Breaking:** Share terminal publication
+  ExecutorMetrics adds publication_panics; exhaustive
+external literals must initialize it or use ExecutorMetrics::new().
 ## [0.11.3] - Unreleased
 
 ### Changed

@@ -26,9 +26,11 @@ pub struct ExecutorMetrics {
     pub tasks_spawned: AtomicU64,
     /// Tasks whose body ran to completion.
     pub tasks_completed: AtomicU64,
-    /// Tasks whose body panicked or reported failure.
+    /// Tasks whose execution or destruction panicked or reported failure.
     pub tasks_failed: AtomicU64,
-    /// Tasks whose cancel request was honored before the body ran.
+    /// Panics during result publication or lifecycle notification.
+    pub publication_panics: AtomicU64,
+    /// Tasks that settled as cancelled without a destruction failure.
     pub tasks_cancelled: AtomicU64,
 
     // Timing metrics
@@ -64,6 +66,7 @@ impl ExecutorMetrics {
             tasks_spawned: AtomicU64::new(0),
             tasks_completed: AtomicU64::new(0),
             tasks_failed: AtomicU64::new(0),
+            publication_panics: AtomicU64::new(0),
             tasks_cancelled: AtomicU64::new(0),
             total_execution_time: AtomicU64::new(0),
             active_workers: AtomicUsize::new(0),
@@ -196,6 +199,7 @@ impl ExecutorMetrics {
         self.tasks_spawned.store(0, Ordering::Relaxed);
         self.tasks_completed.store(0, Ordering::Relaxed);
         self.tasks_failed.store(0, Ordering::Relaxed);
+        self.publication_panics.store(0, Ordering::Relaxed);
         self.tasks_cancelled.store(0, Ordering::Relaxed);
         self.total_execution_time.store(0, Ordering::Relaxed);
         self.active_workers.store(0, Ordering::Relaxed);

@@ -1,19 +1,13 @@
 //! Public certificate fixtures are restricted to controlled transport probes.
 
-use super::{Plan, ProbeResult, invalid};
-use moirai_quic::{Identity, QuicConfig, QuicConnection, QuicEndpoint, rustls};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+use super::{Plan, ProbeResult, identity, invalid};
+use moirai_quic::{Identity, QuicConfig, QuicConnection, QuicEndpoint};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-const CHAIN: &[u8] = include_bytes!("../../../tests/fixtures/localhost-cert.pem");
-const KEY: &[u8] = include_bytes!("../../../tests/fixtures/localhost-key.pem");
-
 pub(super) fn authorize(connection: &QuicConnection) -> ProbeResult<()> {
-    let expected = CertificateDer::pem_slice_iter(CHAIN)
-        .next()
-        .ok_or_else(|| invalid("fixture has no leaf"))??;
+    let expected = identity::leaf()?;
     let peer = connection
         .peer_certificates()
         .ok_or_else(|| invalid("mutual TLS peer identity is absent"))?;
@@ -30,15 +24,8 @@ pub(crate) fn endpoint<const RESPONDER: bool>(
     address: SocketAddr,
     plan: Plan,
 ) -> ProbeResult<QuicEndpoint> {
-    let certificates = CertificateDer::pem_slice_iter(CHAIN).collect::<Result<Vec<_>, _>>()?;
-    let mut roots = rustls::RootCertStore::empty();
-    roots.add(
-        certificates
-            .last()
-            .ok_or_else(|| invalid("fixture root is absent"))?
-            .clone(),
-    )?;
-    let identity = Identity::new(certificates, PrivateKeyDer::from_pem_slice(KEY)?);
+    let identity = Identity::new(identity::certificates()?, identity::private_key()?);
+    let roots = identity::roots()?;
     let executor = Arc::new(
         moirai_executor::ExecutorBuilder::new()
             .worker_threads(2)

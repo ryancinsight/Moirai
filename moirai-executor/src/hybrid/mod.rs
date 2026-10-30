@@ -9,17 +9,14 @@
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
 };
 
 use moirai_core::{
     Priority,
-    error::{ExecutorResult, TaskError},
+    error::ExecutorResult,
     executor::ExecutorConfig,
-    task::{TaskHandle, TaskId, TaskResultSender},
+    task::{TaskHandle, TaskId},
 };
 
 use crate::{
@@ -31,11 +28,16 @@ use crate::{
 mod async_state;
 pub(crate) mod control;
 pub(crate) mod manager;
+mod result;
 #[cfg(test)]
 mod retention_tests;
+mod shutdown;
 pub(crate) mod spawner;
 #[cfg(test)]
 mod tests;
+
+use result::{TaskEnd, cancel_task_result, send_task_result};
+use shutdown::{Admission, Shutdown};
 
 #[derive(Clone, Copy)]
 struct MetricsRef {
@@ -75,7 +77,9 @@ pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
     scheduler: S,
     task_registry: Arc<TaskRegistry>,
     metrics: Arc<ExecutorMetrics>,
-    shutdown_signal: Arc<AtomicBool>,
+    admission: Arc<Admission>,
+    async_tasks: Arc<async_state::AsyncTasks>,
+    shutdown: Shutdown,
 }
 
 impl HybridExecutor<ThreadScheduler> {
@@ -99,13 +103,25 @@ impl HybridExecutor<ThreadScheduler> {
         let metrics = Arc::new(ExecutorMetrics::new());
         scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)));
         metrics.update_worker_counts(0, scheduler.worker_count(), scheduler.worker_count());
+        let admission = Arc::new(Admission::new());
+        let async_tasks = Arc::new(async_state::AsyncTasks::default());
+        let shutdown = Shutdown::new(
+            format!("{}-shutdown", config.thread_name_prefix),
+            &scheduler,
+            &async_tasks,
+            &task_registry,
+            &metrics,
+            &admission,
+        )?;
 
         Ok(Self {
             config,
             scheduler,
             task_registry,
             metrics,
-            shutdown_signal: Arc::new(AtomicBool::new(false)),
+            admission,
+            async_tasks,
+            shutdown,
         })
     }
 
@@ -124,7 +140,9 @@ impl HybridExecutor<ThreadScheduler> {
         C: WorkClass,
         F: FnOnce(&SchedulerScope<'scope, C>) -> ExecutorResult<()>,
     {
-        self.scheduler.scope::<C, _>(Priority::Normal, None, body)
+        self.admission
+            .admit(body)?
+            .run(|body| self.scheduler.scope::<C, _>(Priority::Normal, None, body))
     }
 }
 
@@ -136,8 +154,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 
     /// Shutdown the executor gracefully.
     pub fn shutdown(&mut self) -> ExecutorResult<()> {
-        self.shutdown_signal.store(true, Ordering::Release);
-        self.scheduler.shutdown();
+        self.request_shutdown();
         Ok(())
     }
 
@@ -173,31 +190,34 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         C: WorkClass,
         R: Send + 'static,
     {
-        let (task_id, lifecycle) = self.register_scheduled_task(priority)?;
+        self.admission.admit(func)?.run(|func| {
+            let (task_id, lifecycle) = self.register_scheduled_task(priority)?;
 
-        let (handle, result_sender) = TaskHandle::new_pending(task_id);
-        let metrics = MetricsRef::new(&self.metrics);
+            let (handle, result_sender) = TaskHandle::new_pending(task_id);
+            let metrics = MetricsRef::new(&self.metrics);
 
-        self.scheduler
-            .schedule::<C, _>(priority, locality_hint, move |worker_id| {
-                let running = match lifecycle.start_unless_cancelled(worker_id) {
-                    Ok(running) => running,
-                    Err(completion) => {
-                        completion.notify();
-                        // Record before publishing the result so a joiner observes
-                        // the cancelled counter as soon as the handle resolves.
-                        metrics.get().record_task_cancelled();
-                        result_sender.send(Err(TaskError::Cancelled));
-                        return;
-                    }
-                };
-                let result = catch_unwind(AssertUnwindSafe(func));
-                let execution_time = running.complete().notify();
-                send_task_result(result, result_sender, metrics.get(), execution_time);
-            })?;
+            self.scheduler
+                .schedule::<C, _>(priority, locality_hint, move |worker_id| {
+                    let running = match lifecycle.start_unless_cancelled(worker_id) {
+                        Ok(running) => running,
+                        Err(receipt) => {
+                            cancel_task_result(func, Some(result_sender), metrics.get(), receipt);
+                            return;
+                        }
+                    };
+                    let result = catch_unwind(AssertUnwindSafe(func));
+                    let receipt = running.complete();
+                    send_task_result(
+                        TaskEnd::Completed(result),
+                        Some(result_sender),
+                        metrics.get(),
+                        receipt,
+                    );
+                })?;
 
-        self.metrics.record_task_spawned();
-        Ok(handle)
+            self.metrics.record_task_spawned();
+            Ok(handle)
+        })
     }
 
     /// Run indexed work in worker-sized chunks on the unified scheduler.
@@ -209,8 +229,10 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         C: WorkClass,
         F: Fn(usize) + Send + Sync + 'scope,
     {
-        self.scheduler
-            .for_each_indexed::<C, _>(Priority::Normal, None, count, task)
+        self.admission.admit(task)?.run(|task| {
+            self.scheduler
+                .for_each_indexed::<C, _>(Priority::Normal, None, count, task)
+        })
     }
 
     /// Run indexed map/reduce in worker-sized chunks on the unified scheduler.
@@ -227,14 +249,18 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         Map: Fn(usize) -> T + Send + Sync + 'scope,
         Reduce: Fn(T, T) -> T + Send + Sync + 'scope,
     {
-        self.scheduler.map_reduce_indexed::<C, _, _, _>(
-            Priority::Normal,
-            None,
-            count,
-            identity,
-            map,
-            reduce,
-        )
+        self.admission
+            .admit((identity, map, reduce))?
+            .run(|(identity, map, reduce)| {
+                self.scheduler.map_reduce_indexed::<C, _, _, _>(
+                    Priority::Normal,
+                    None,
+                    count,
+                    identity,
+                    map,
+                    reduce,
+                )
+            })
     }
 
     /// Get the number of active workers.
@@ -302,27 +328,6 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 
 impl<S: WorkScheduler> Drop for HybridExecutor<S> {
     fn drop(&mut self) {
-        let _ = Self::shutdown(self);
-    }
-}
-
-#[inline]
-fn send_task_result<T>(
-    result: Result<T, Box<dyn std::any::Any + Send>>,
-    sender: TaskResultSender<T>,
-    metrics: &ExecutorMetrics,
-    execution_time: core::time::Duration,
-) where
-    T: Send + 'static,
-{
-    match result {
-        Ok(value) => {
-            sender.send(Ok(value));
-            metrics.record_task_completed(execution_time);
-        }
-        Err(_) => {
-            sender.send(Err(TaskError::Panicked));
-            metrics.record_task_failed();
-        }
+        self.admission.close();
     }
 }

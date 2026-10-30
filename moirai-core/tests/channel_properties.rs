@@ -5,6 +5,8 @@
 //! concurrent case terminates deterministically: threads join on exact
 //! expected counts, never on wall-clock timing.
 
+#![cfg(feature = "std")]
+
 use moirai_core::channel::{mpmc, spsc};
 
 use proptest::prelude::*;

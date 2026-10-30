@@ -14,21 +14,22 @@ rust-version.workspace = true
 description = "Core abstractions and traits for the Moirai concurrency library"
 
 [dependencies]
-moirai-utils = { workspace = true, features = ["std"] }
+moirai-utils.workspace = true
 mnemosyne = { workspace = true, optional = true }
 themis = { workspace = true, optional = true }
-# Pod bound for shared-memory IPC payloads (any-bit-pattern validity across the
-# process trust boundary). no_std-compatible; only reached by the std+OS-gated
-# `ipc` module.
-bytemuck = { workspace = true }
 
 # Unix dependencies
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = "0.2.190"
+
+# Pod bound for shared-memory IPC payloads (any-bit-pattern validity across the
+# process trust boundary). Only the std+OS-gated `ipc` module reaches it.
+[target.'cfg(any(unix, windows))'.dependencies]
+bytemuck = { workspace = true }
 
 [dev-dependencies]
 # Asserts that the SPSC halves stay !Sync, which a positive assertion cannot express.
-static_assertions = "1.1"
+static_assertions = "1.1.0"
 criterion = { workspace = true }
 proptest = { workspace = true }
 
@@ -39,8 +40,7 @@ loom = { workspace = true }
 
 [features]
 default = ["std", "parallel", "mnemosyne-memory"]
-no-std = []
-std = ["dep:themis"]
+std = ["dep:themis", "moirai-utils/std"]
 parallel = []
 metrics = []
 coroutine = ["std"]

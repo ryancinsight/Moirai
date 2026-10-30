@@ -2,65 +2,99 @@
 
 Status: Accepted
 
-Revision 2026-10-29: install the pending publisher with an empty release cohort
-before any task-lifecycle source or version change lands. Activation remains a
-separate, full-cohort change after the exact release candidate passes every
-release gate.
+Revision 2026-10-30: preserve the unarmed automatic publisher while integrating
+the lifecycle candidate. Compatible private repairs land before the public
+0.12 boundary; activation remains a separate reviewed full-cohort change.
 
 ## Context
 
-The default-branch workflow invokes the version-change publisher on every push
-and daily schedule. Without an explicit cohort, that publisher selects every
-workspace manifest version missing from crates.io. This makes a version bump an
-immediate publication trigger even while the 0.12.0 task-lifecycle composition
-and its release evidence remain under review.
+Awaitable task results, owned cancellation, shutdown ownership, and autonomous
+wait deadlines form the runtime release scope. ADRs 0083-0086 and 0089 describe
+their contracts. Owned completion registration, fallible timer construction,
+and the owned I/O error source change public contracts. Cargo's pre-1.0
+compatibility boundary therefore requires 0.12.0.
 
-The pinned shared workflow accepts an exact package/version JSON object. Its
-pinned planning action treats an empty object as a zero-package plan before it
-reads Cargo metadata or registry state. The shared SemVer and publication jobs
-run only when that plan reports a nonzero package count.
+The user authorizes that version change and registry release subject to full
+release gates. PR 650 preserves the complete candidate while compatible repairs
+and release prerequisites are integrated. The preserved composition does not
+itself certify a release or justify merging unrelated changes.
+
+The default-branch publisher runs on every push and daily schedule. Without an
+explicit cohort it selects every workspace version missing from crates.io.
+PR 654 installs its existing empty-cohort interface before lifecycle or version
+changes can trigger automatic publication.
 
 ## Decision
 
-Pass the literal empty object to the pending publisher on push and schedule.
-The plan then reports zero packages, so the SemVer, registry authentication,
-upload, and release-tag jobs cannot run from those events.
+Workspace version: 0.12.0
 
-Keep the existing release-event and manual-dispatch paths unchanged. A published
-`crate-<package>-v<version>` release validates and publishes that package through
-the established trusted-publishing workflow. A manual dispatch validates the
-explicit package and version with a dry run; its shared publication job remains
-restricted to release events. Neither path gains authority from this decision.
+Release every publishable workspace package at that version as one dependency-closed
+unit and one matching annotated source tag. QUIC and WebView inherit that version
+for their first publication. Internal requirements and the unpublished Python,
+benchmark, and test consumers advance with the same source unit. The pinned
+cargo-release version step performs no upload or tag operation.
 
-Activate automatic publication only in one later reviewed change that replaces
-the empty object with the complete publishable 0.12.0 workspace cohort. That
-activation follows the version change and the exact candidate's full native,
-SemVer, documentation, feature, supply-chain, package, reproducibility, and
-strict QUIC gates. Historical or scoped results do not satisfy that condition.
+Keep literal empty-cohort input on automatic push and schedule events.
+The pinned planning action returns zero before Cargo metadata or registry reads;
+its SemVer, authentication, upload, and release-tag jobs then remain skipped.
+Keep existing release-event and manual-dispatch paths under their established
+authority. This decision does not grant a separate package or Python release.
 
-This decision delivers only the unarmed workflow state. It does not deliver the
-task-lifecycle contracts, change a manifest version, authorize an upload, or
-create a source or registry tag.
+Integrate compatible private repairs first. Keep public additions and their
+native callers at the one 0.12 boundary, with migration documentation and exact
+consumer preparation. The executor error enum becomes non-exhaustive;
+shutdown-worker creation failures retain their original I/O source. Changes to StateWord, metrics, or no-std capability are
+included only when independently required by the delivered contracts; their
+presence in the preservation branch is insufficient.
+
+For this candidate, direct registry dependency floors use versions from the
+verified lock as supported minimums, retaining caret compatibility. A later lock
+advance does not itself raise those floors. The minimum-version gate preserves
+Git provider identities and checks the direct-floor graph with Rust 1.95.
+
+Before public integration, verify exact source with format, strict Clippy,
+Nextest, benchmark smoke, doctests, rustdoc, MSRV, and supported features.
+Compare the fetched base and published contracts under the declared breaking
+classification. Run applicable production-cell Loom and Miri cases, consumer
+contracts, dependency-closed packaging, minimal versions, an SBOM, and independent
+reproducible builds.
+
+The original strict Linux QUIC matrix retains every admitted workload and its
+existing deadlines. Any pair failure blocks release. The default branch's
+historical known-limit result does not establish 108 successful pairs.
+
+Activate automatic publication only after the exact full candidate and release
+cohort pass those gates. Replace the empty input with the complete publishable
+workspace cohort in one reviewed change. Interrupted uploads retain the same
+candidate, version, cohort, toolchain, target, profile, and archive hashes; only
+the pending subset changes. Registry-installed smoke tests and documentation
+health cover the entire unit before one source release is finalized.
 
 ## Alternatives
 
-Leaving workspace discovery enabled until the final composition lands couples
-ordinary source integration to registry mutation. Removing the push and schedule
-events would discard the established retry path rather than hold it in a tested,
-explicit state. Advancing the shared workflow pin is unnecessary because the
-current pinned interface already provides the empty-cohort contract.
+A 0.11 patch release misclassifies public breaks. Independently published source
+slices can release an incomplete runtime. Removing the QUIC dependency,
+suppressing a failing workload, or raising its deadline changes acceptance
+instead of establishing it. Replacing the publisher duplicates its existing
+owner rather than repairing the required unit semantics.
 
 ## Consequences
 
-Task-lifecycle slices and release prerequisites can land without automatic
-publication. Push and schedule runs still execute the real pinned plan, but its
-zero count prevents any credential request or external mutation. Final release
-activation must name every publishable workspace package at version 0.12.0 and
-remains reviewable as a single bounded configuration change.
+Private source repairs can land while publication remains unarmed. Publication
+does not follow merely from completion of a source merge or a historical green
+run. First publication may require the existing local Cargo credential store;
+credentials never enter source, evidence, or logs.
+
+The release does not claim Tokio feature, performance, or platform parity.
+Non-yielding work remains nonpreemptible, task-wait expiry does not cancel the
+underlying task, and thread-per-pending-timer scaling remains a limitation.
+[ADR 0090](0090-shared-shutdown-ownership.md) is Accepted and implements shared
+teardown ownership and request-only destruction. Its admission, reentrancy,
+settlement, and caller deadline oracles must pass before release.
 
 ## Overturning evidence
 
-If the pinned plan no longer returns zero before metadata and registry access,
-or a zero-count plan can reach authentication, upload, or tagging, publication
-stays unarmed until the shared owner restores those properties and this repository
-updates to a reviewed pin.
+A gate failure, incompatible consumer, incomplete registry unit, changed source
+identity, or differing independent artifact holds activation until corrected.
+If the pinned empty-cohort plan can reach authentication, upload, or tagging,
+publication stays unarmed until its shared owner restores that boundary.

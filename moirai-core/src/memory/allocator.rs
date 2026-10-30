@@ -1,6 +1,8 @@
 use crate::memory::CACHE_LINE_SIZE;
-use std::alloc::Layout;
-use std::ptr::NonNull;
+use alloc::alloc::Layout;
+#[cfg(not(feature = "mnemosyne"))]
+use alloc::alloc::{alloc, dealloc};
+use core::ptr::NonNull;
 
 /// Cache-aligned memory allocator for high-performance data structures.
 pub struct CacheAlignedAllocator;
@@ -40,7 +42,7 @@ impl CacheAlignedAllocator {
             }
             #[cfg(not(feature = "mnemosyne"))]
             {
-                let ptr = std::alloc::alloc(layout);
+                let ptr = alloc(layout);
                 NonNull::new(ptr.cast::<T>())
             }
         }
@@ -65,7 +67,7 @@ impl CacheAlignedAllocator {
                 }
                 #[cfg(not(feature = "mnemosyne"))]
                 {
-                    std::alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
+                    dealloc(ptr.as_ptr().cast::<u8>(), layout);
                 }
             }
         }

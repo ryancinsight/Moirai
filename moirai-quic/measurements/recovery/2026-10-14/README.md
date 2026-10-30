@@ -291,9 +291,9 @@ Run the Python contract tests, then independently recompute:
 
 ```sh
 python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'
-python3 scripts/quic_trace_audit.py moirai-quic/measurements/recovery/2026-10-14/140d60cf-{matrix,fairness}-*.json.gz --output /tmp/quic-trace-audit.json
+python3 scripts/quic_trace_audit.py moirai-quic/measurements/recovery/2026-10-14/140d60cf-{matrix,fairness}-*.json.gz --probe-executable quic_load --output /tmp/quic-trace-audit.json
 python3 scripts/quic_recovery_audit.py --original-gate moirai-quic/measurements/recovery/2026-10-14/140d60cf-default-matrix.json.gz --output /tmp/quic-original-audit.json
-python3 scripts/quic_trace_audit.py moirai-quic/measurements/recovery/2026-10-14/state/03dcc4a3-{matrix,fairness}-*.json.gz --output /tmp/quic-state-audit.json
+python3 scripts/quic_trace_audit.py moirai-quic/measurements/recovery/2026-10-14/state/03dcc4a3-{matrix,fairness}-*.json.gz --probe-executable quic_load --output /tmp/quic-state-audit.json
 python3 scripts/quic_recovery_audit.py --original-gate moirai-quic/measurements/recovery/2026-10-14/state/03dcc4a3-original-matrix.json.gz --output /tmp/quic-state-original-audit.json
 ```
 

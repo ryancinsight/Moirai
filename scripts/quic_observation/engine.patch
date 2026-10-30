@@ -1,54 +1,45 @@
+diff --git a/src/connection/mod.rs b/src/connection/mod.rs
+index 5155740b..a11fe79f 100644
 --- a/src/connection/mod.rs
 +++ b/src/connection/mod.rs
-@@ -59,6 +59,7 @@
- mod packet_crypto;
- use packet_crypto::{PrevCrypto, ZeroRttCrypto};
- 
-+mod observation;
- mod paths;
- pub use paths::RttEstimator;
- use paths::{PathData, PathResponses};
-@@ -384,6 +385,7 @@
-     /// - a call was made to `handle_timeout`
-     #[must_use]
-     pub fn poll_timeout(&mut self) -> Option<Instant> {
+@@ -61,0 +62 @@ use packet_crypto::{PrevCrypto, ZeroRttCrypto};
++pub(crate) mod observation;
+@@ -386,0 +388 @@ impl Connection {
 +        self.observe_recovery("driver");
-         self.timers.next_timeout()
-     }
- 
-@@ -1468,6 +1470,11 @@
-         space: SpaceId,
-         ack: frame::Ack,
-     ) -> Result<(), TransportError> {
+@@ -618,0 +619,4 @@ impl Connection {
++                        trace!(target: "quinn_proto::observation",
++                            flight_bytes = self.path.in_flight.bytes, bytes_to_send,
++                            window_bytes = self.path.congestion.window(),
++                            "engine congestion blocked");
+@@ -633,0 +640,8 @@ impl Connection {
++                        trace!(target: "quinn_proto::observation",
++                            flight_bytes = self.path.in_flight.bytes, bytes_to_send,
++                            window_bytes = self.path.congestion.window(),
++                            smoothed_rtt_ns = u64::try_from(smoothed_rtt.as_nanos())
++                                .expect("invariant: bounded diagnostic RTT fits u64 nanoseconds"),
++                            delay_ns = u64::try_from(delay.saturating_duration_since(now).as_nanos())
++                                .expect("invariant: bounded diagnostic delay fits u64 nanoseconds"),
++                            "engine pacing blocked");
+@@ -1470,0 +1485,5 @@ impl Connection {
 +        if space != SpaceId::Data {
 +            trace!(target: "quinn_proto::observation", ?space,
 +                ranges = ?ack.iter().map(|r| [*r.start(), *r.end()]).collect::<Vec<_>>(),
 +                "engine ack received");
 +        }
-         if ack.largest >= self.spaces[space].next_packet_number {
-             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
-         }
-@@ -1667,6 +1674,7 @@
-                 return;
-             }
-         };
+@@ -1669,0 +1689 @@ impl Connection {
 +        self.observe_recovery("pto");
-         trace!(
-             in_flight = self.path.in_flight.bytes,
-             count = self.pto_count,
-@@ -2111,6 +2119,8 @@
-         // complete. Therefore, we will never see CRYPTO data from a later-than-expected space.
-         debug_assert!(space <= expected, "received out-of-order CRYPTO data");
- 
+@@ -2113,0 +2134,2 @@ impl Connection {
 +        trace!(target: "quinn_proto::observation", ?space,
 +            offset = crypto.offset, len = crypto.data.len(), "engine crypto received");
-         let end = crypto.offset + crypto.data.len() as u64;
-         if space < expected && end > self.spaces[space].crypto_stream.bytes_read() {
-             warn!(
---- a/src/connection/observation.rs
+diff --git a/src/connection/observation.rs b/src/connection/observation.rs
+new file mode 100644
+index 00000000..bc28f25e
+--- /dev/null
 +++ b/src/connection/observation.rs
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,131 @@
 +//! Read-only diagnostic instrumentation; never published as a recovery fork.
++//! Tracing changes work and allocation, so its timings do not characterize the
++//! pristine engine's performance.
 +use super::{Connection, SpaceId, timer::Timer};
 +use crate::Instant;
 +
@@ -112,12 +103,231 @@
 +            "engine recovery state");
 +    }
 +}
++#[cfg(test)]
++pub(crate) use capture::{trace_event, trace_event_with_field};
++
++#[cfg(test)]
++mod capture {
++    use std::{io::{self, Write}, sync::{Arc, Mutex}};
++    use tracing_subscriber::{filter::filter_fn, fmt::MakeWriter, prelude::*};
++
++    #[derive(Clone, Default)]
++    struct Buffer(Arc<Mutex<Vec<u8>>>);
++
++    struct BufferWriter(Buffer);
++
++    impl Write for BufferWriter {
++        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
++            self.0.0.lock()
++                .expect("invariant: trace capture mutex is not poisoned")
++                .extend_from_slice(bytes);
++            Ok(bytes.len())
++        }
++
++        fn flush(&mut self) -> io::Result<()> {
++            Ok(())
++        }
++    }
++
++    impl<'a> MakeWriter<'a> for Buffer {
++        type Writer = BufferWriter;
++
++        fn make_writer(&'a self) -> Self::Writer {
++            BufferWriter(self.clone())
++        }
++    }
++
++    pub(crate) fn trace_event(action: impl FnOnce()) -> String {
++        let output = Buffer::default();
++        let layer = tracing_subscriber::fmt::layer().without_time().with_level(false)
++            .with_target(false).with_ansi(false).with_writer(output.clone())
++            .with_filter(filter_fn(|metadata| metadata.target() == "quinn_proto::observation"));
++        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), action);
++        let bytes = output.0.lock()
++            .expect("invariant: trace capture mutex is not poisoned").clone();
++        let event = String::from_utf8(bytes)
++            .expect("invariant: tracing formatter emits UTF-8");
++        assert_eq!(event.lines().count(), 1, "production callback must emit exactly one event");
++        event
++    }
++
++    pub(crate) fn trace_event_with_field(field: &'static str, action: impl FnOnce()) -> String {
++        let output = Buffer::default();
++        let layer = tracing_subscriber::fmt::layer().without_time().with_level(false)
++            .with_target(false).with_ansi(false).with_writer(output.clone())
++            .with_filter(filter_fn(move |metadata| {
++                metadata.target() == "quinn_proto::observation"
++                    && metadata.fields().field(field).is_some()
++            }));
++        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), action);
++        let bytes = output.0.lock()
++            .expect("invariant: trace capture mutex is not poisoned").clone();
++        let event = String::from_utf8(bytes)
++            .expect("invariant: tracing formatter emits UTF-8");
++        assert_eq!(event.lines().count(), 1, "production branch must emit exactly one event");
++        event
++    }
++}
+diff --git a/src/tests/mod.rs b/src/tests/mod.rs
+--- a/src/tests/mod.rs
++++ b/src/tests/mod.rs
+@@ -34,0 +35,2 @@
++#[cfg(quic_observation)]
++use crate::connection::observation::trace_event_with_field;
+@@ -38,0 +41,148 @@
++
++#[cfg(quic_observation)]
++#[test]
++fn pair_pacing_block_reports_native_deadline_and_resumes() {
++    const MTU: u16 = 1_200;
++    const WINDOW: u64 = 24_000;
++    const RTT: Duration = Duration::from_millis(100);
++
++    let mut cubic = crate::congestion::CubicConfig::default();
++    cubic.initial_window(WINDOW);
++    let mut transport = TransportConfig::default();
++    transport
++        .initial_rtt(RTT)
++        .initial_mtu(MTU)
++        .min_mtu(MTU)
++        .mtu_discovery_config(None)
++        .pad_to_mtu(true)
++        .congestion_controller_factory(Arc::new(cubic));
++    let mut client = client_config();
++    client.transport_config(Arc::new(transport));
++    let mut endpoint = EndpointConfig::default();
++    endpoint
++        .max_udp_payload_size(MTU)
++        .expect("invariant: QUIC minimum datagram size is valid");
++    let mut pair = Pair::new(Arc::new(endpoint), server_config());
++    pair.mtu = usize::from(MTU);
++    let (handle, _) = pair.connect_with(client);
++    let now = pair.time;
++    let connection = pair.client_conn_mut(handle);
++    assert_eq!(connection.bytes_in_flight(), 0);
++    connection.path_changed(now);
++    assert_eq!(connection.stats().path.cwnd, WINDOW);
++    assert_eq!(connection.rtt(), RTT);
++    let stream = connection
++        .streams()
++        .open(Dir::Uni)
++        .expect("invariant: connected peer permits a unidirectional stream");
++    assert_eq!(
++        connection
++            .send_stream(stream)
++            .write(&vec![37; usize::from(MTU) * 16]),
++        Ok(usize::from(MTU) * 16)
++    );
++    let mut buffer = Vec::with_capacity(usize::from(MTU));
++    for _ in 0..10 {
++        let transmit = connection
++            .poll_transmit(now, 1, &mut buffer)
++            .expect("invariant: queued stream data produces one datagram");
++        assert_eq!((transmit.size, buffer.len()), (usize::from(MTU), usize::from(MTU)));
++        buffer.clear();
++    }
++    assert_eq!(connection.bytes_in_flight(), 12_000);
++
++    let event = trace_event_with_field("delay_ns", || {
++        assert_matches!(connection.poll_transmit(now, 1, &mut buffer), None);
++    });
++    assert_eq!(
++        event.trim_end(),
++        "engine pacing blocked flight_bytes=12000 bytes_to_send=1200 window_bytes=24000 smoothed_rtt_ns=100000000 delay_ns=40000000"
++    );
++    // The native bucket holds 10 MTUs, so its empty-bucket deadline is
++    // 100 ms * (12_000 / 24_000) * (4 / 5) = 40 ms.
++    let deadline = now + Duration::from_millis(40);
++    assert_eq!(connection.poll_timeout(), Some(deadline));
++    connection.handle_timeout(deadline);
++    let resumed = connection
++        .poll_transmit(deadline, 1, &mut buffer)
++        .expect("invariant: native pacing deadline replenishes the token bucket");
++    assert_eq!((resumed.size, buffer.len()), (usize::from(MTU), usize::from(MTU)));
++}
++
++#[cfg(quic_observation)]
++#[test]
++fn pair_congestion_block_reports_native_guard_and_resumes_after_ack() {
++    const MTU: u16 = 1_200;
++    const WINDOW: u64 = 12_000;
++
++    let mut cubic = crate::congestion::CubicConfig::default();
++    cubic.initial_window(WINDOW);
++    let mut transport = TransportConfig::default();
++    transport
++        .initial_mtu(MTU)
++        .min_mtu(MTU)
++        .mtu_discovery_config(None)
++        .pad_to_mtu(true)
++        .congestion_controller_factory(Arc::new(cubic));
++    let mut client = client_config();
++    client.transport_config(Arc::new(transport));
++    let mut endpoint = EndpointConfig::default();
++    endpoint
++        .max_udp_payload_size(MTU)
++        .expect("invariant: QUIC minimum datagram size is valid");
++    let mut pair = Pair::new(Arc::new(endpoint), server_config());
++    pair.mtu = usize::from(MTU);
++    let (handle, _) = pair.connect_with(client);
++    let now = pair.time;
++    let (event, packets) = {
++        let connection = pair.client_conn_mut(handle);
++        assert_eq!(connection.bytes_in_flight(), 0);
++        connection.path_changed(now);
++        assert_eq!(connection.stats().path.cwnd, WINDOW);
++        let stream = connection
++            .streams()
++            .open(Dir::Uni)
++            .expect("invariant: connected peer permits a unidirectional stream");
++        assert_eq!(
++            connection
++                .send_stream(stream)
++                .write(&vec![41; usize::from(MTU) * 16]),
++            Ok(usize::from(MTU) * 16)
++        );
++        let mut packets = Vec::with_capacity(9);
++        let mut buffer = Vec::with_capacity(usize::from(MTU));
++        for _ in 0..9 {
++            let transmit = connection
++                .poll_transmit(now, 1, &mut buffer)
++                .expect("invariant: available congestion credit sends one datagram");
++            assert_eq!((transmit.size, buffer.len()), (usize::from(MTU), usize::from(MTU)));
++            packets.push((transmit, Bytes::copy_from_slice(&buffer)));
++            buffer.clear();
++        }
++        assert_eq!(connection.bytes_in_flight(), 10_800);
++        let event = trace_event_with_field("window_bytes", || {
++            assert_matches!(connection.poll_transmit(now, 1, &mut buffer), None);
++        });
++        (event, packets)
++    };
++    assert_eq!(
++        event.trim_end(),
++        "engine congestion blocked flight_bytes=10800 bytes_to_send=1200 window_bytes=12000"
++    );
++
++    pair.client.outbound.extend(packets);
++    pair.drive_client();
++    pair.drive_server();
++    assert_eq!(pair.client.inbound.len(), 1);
++    let now = pair.time;
++    let remote = pair.server.addr;
++    pair.client.drive_incoming(now, remote);
++    assert_eq!(pair.client.outbound.len(), 0);
++    pair.client.drive_outgoing(now);
++    let (resumed, buffer) = pair
++        .client
++        .outbound
++        .front()
++        .expect("invariant: a real peer ACK releases congestion credit");
++    assert_eq!((resumed.size, buffer.len()), (usize::from(MTU), usize::from(MTU)));
++}
+diff --git a/src/connection/packet_builder.rs b/src/connection/packet_builder.rs
+index d67c85a2..685ac6a8 100644
 --- a/src/connection/packet_builder.rs
 +++ b/src/connection/packet_builder.rs
-@@ -233,6 +233,13 @@
-             stream_frames: sent.stream_frames,
-         };
- 
+@@ -235,0 +236,7 @@ impl PacketBuilder {
 +        if space_id != SpaceId::Data {
 +            trace!(target: "quinn_proto::observation", space = ?space_id,
 +                pn = exact_number, size, ack_eliciting,
@@ -125,15 +335,11 @@
 +                    .map(|c| [c.offset, c.data.len() as u64]).collect::<Vec<_>>())
 +                    .unwrap_or_default(), "engine packet sent");
 +        }
-         conn.path
-             .sent(exact_number, packet, &mut conn.spaces[space_id]);
-         conn.stats.path.sent_packets += 1;
+diff --git a/src/connection/streams/state.rs b/src/connection/streams/state.rs
+index 7a5908d1..17f3cb4a 100644
 --- a/src/connection/streams/state.rs
 +++ b/src/connection/streams/state.rs
-@@ -144,6 +144,17 @@
- }
- 
- impl StreamsState {
+@@ -146,0 +147,10 @@ impl StreamsState {
 +    /// Numeric metadata only; no stream payload is inspected.
 +    pub(crate) fn observe_credit(&self) -> ([u64; 4], Vec<[u64; 5]>) {
 +        let mut rows: Vec<_> = self.send.iter().filter_map(|(id, send)| {
@@ -144,7 +350,493 @@
 +        rows.sort_unstable_by_key(|row| row[0]);
 +        ([self.max_data, self.data_sent, self.buffered_data, self.send_window], rows)
 +    }
+diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
+--- a/src/congestion/cubic.rs
++++ b/src/congestion/cubic.rs
+@@ -74,0 +75,7 @@
++struct CallbackTrace {
++    state_before: [u64; 6],
++    recovery_before: (bool, u64, bool),
++    now: Instant,
++    sent: Instant,
++}
 +
-     #[allow(unreachable_pub)] // fuzzing only
-     pub fn new(
-         side: Side,
+@@ -90,0 +98,65 @@
++
++    fn trace_state(&self) -> [u64; 6] {
++        [
++            self.window,
++            self.ssthresh,
++            self.current_mtu,
++            self.cubic_state.k.to_bits(),
++            self.cubic_state.w_max.to_bits(),
++            self.cubic_state.cwnd_inc,
++        ]
++    }
++
++    fn trace_nanos(duration: Duration) -> u64 {
++        u64::try_from(duration.as_nanos()).expect(
++            "invariant: a 300-second diagnostic is below the 18446744073-second u64 nanosecond ceiling",
++        )
++    }
++
++    fn trace_recovery(&self, now: Instant, sent: Instant) -> (bool, u64, bool) {
++        self.recovery_start_time.map_or((false, 0, false), |start| {
++            (
++                true,
++                Self::trace_nanos(now.saturating_duration_since(start)),
++                sent > start,
++            )
++        })
++    }
++
++    fn trace_before(&self, now: Instant, sent: Instant) -> Option<CallbackTrace> {
++        tracing::enabled!(target: "quinn_proto::observation", tracing::Level::TRACE).then(|| {
++            CallbackTrace {
++                state_before: self.trace_state(),
++                recovery_before: self.trace_recovery(now, sent),
++                now,
++                sent,
++            }
++        })
++    }
++
++    fn trace_callback(
++        &self,
++        trace: CallbackTrace,
++        callback: &'static str,
++        outcome: &'static str,
++        bytes: u64,
++        app_limited: bool,
++        rtt_ns: u64,
++        persistent: bool,
++        lost_bytes: u64,
++    ) {
++        let recovery_after = self.trace_recovery(trace.now, trace.sent);
++        tracing::trace!(target: "quinn_proto::observation",
++            callback, outcome, bytes, app_limited, rtt_ns,
++            sent_age_ns = Self::trace_nanos(trace.now.saturating_duration_since(trace.sent)),
++            persistent, lost_bytes,
++            recovery_active_before = trace.recovery_before.0,
++            recovery_age_ns_before = trace.recovery_before.1,
++            sent_after_recovery_before = trace.recovery_before.2,
++            recovery_active_after = recovery_after.0,
++            recovery_age_ns_after = recovery_after.1,
++            sent_after_recovery_after = recovery_after.2,
++            state_before = ?trace.state_before,
++            state_after = ?self.trace_state(),
++            "engine cubic callback");
++    }
+@@ -101,0 +174 @@
++        let trace = self.trace_before(now, sent);
+@@ -107,0 +181,17 @@
++            if let Some(trace) = trace {
++                let outcome = if app_limited {
++                    "app_limited"
++                } else {
++                    "recovery"
++                };
++                self.trace_callback(
++                    trace,
++                    "ack",
++                    outcome,
++                    bytes,
++                    app_limited,
++                    Self::trace_nanos(rtt.get()),
++                    false,
++                    0,
++                );
++            }
+@@ -110,0 +201,5 @@
++        let outcome = if self.window < self.ssthresh {
++            "slow_start"
++        } else {
++            "avoidance"
++        };
+@@ -164,0 +260,12 @@
++        if let Some(trace) = trace {
++            self.trace_callback(
++                trace,
++                "ack",
++                outcome,
++                bytes,
++                app_limited,
++                Self::trace_nanos(rtt.get()),
++                false,
++                0,
++            );
++        }
+@@ -173,0 +281 @@
++        let trace = self.trace_before(now, sent);
+@@ -178,0 +287,12 @@
++            if let Some(trace) = trace {
++                self.trace_callback(
++                    trace,
++                    "congestion",
++                    "recovery",
++                    0,
++                    false,
++                    0,
++                    is_persistent_congestion,
++                    _lost_bytes,
++                );
++            }
+@@ -180,0 +301,6 @@
++
++        let outcome = if is_persistent_congestion {
++            "persistent"
++        } else {
++            "loss"
++        };
+@@ -214,0 +341,12 @@
++        if let Some(trace) = trace {
++            self.trace_callback(
++                trace,
++                "congestion",
++                outcome,
++                0,
++                false,
++                0,
++                is_persistent_congestion,
++                _lost_bytes,
++            );
++        }
+@@ -279,0 +418,338 @@
++    use crate::connection::observation::trace_event;
++
++    fn event_fields(event: &str) -> std::collections::BTreeMap<&str, &str> {
++        let mut remaining = event
++            .trim_end()
++            .strip_prefix("engine cubic callback ")
++            .expect("invariant: callback message prefix is exact");
++        let mut fields = std::collections::BTreeMap::new();
++        while !remaining.is_empty() {
++            let (key, value) = remaining
++                .split_once('=')
++                .expect("invariant: callback field has a value");
++            let end = match value.as_bytes().first() {
++                Some(b'\"') => value[1..].find('\"').map_or(value.len(), |index| index + 2),
++                Some(b'[') => value.find(']').map_or(value.len(), |index| index + 1),
++                _ => value.find(' ').unwrap_or(value.len()),
++            };
++            let (value, rest) = value.split_at(end);
++            assert_eq!(fields.insert(key, value), None, "duplicate callback field");
++            remaining = rest.trim_start();
++        }
++        fields
++    }
++
++    fn assert_fields(event: &str, expected: &[(&str, String)]) {
++        let actual = event_fields(event);
++        assert_eq!(actual.len(), expected.len());
++        for (key, value) in expected {
++            assert_eq!(actual.get(key).copied(), Some(value.as_str()), "{key}");
++        }
++    }
++
++    fn state(cubic: &Cubic) -> [u64; 6] {
++        [
++            cubic.window,
++            cubic.ssthresh,
++            cubic.current_mtu,
++            cubic.cubic_state.k.to_bits(),
++            cubic.cubic_state.w_max.to_bits(),
++            cubic.cubic_state.cwnd_inc,
++        ]
++    }
++
++    fn recovery(cubic: &Cubic, now: Instant, sent: Instant) -> (bool, u64, bool) {
++        cubic
++            .recovery_start_time
++            .map_or((false, 0, false), |start| {
++                (
++                    true,
++                    u64::try_from(now.saturating_duration_since(start).as_nanos())
++                        .expect("invariant: test durations fit u64 nanoseconds"),
++                    sent > start,
++                )
++            })
++    }
++
++    struct ExpectedCallback {
++        callback: &'static str,
++        outcome: &'static str,
++        bytes: u64,
++        app_limited: bool,
++        rtt_ns: u64,
++        persistent: bool,
++        lost_bytes: u64,
++        now: Instant,
++        sent: Instant,
++        state_before: [u64; 6],
++        recovery_before: (bool, u64, bool),
++    }
++
++    fn assert_callback(cubic: &Cubic, event: &str, expected: ExpectedCallback) {
++        let recovery_after = recovery(cubic, expected.now, expected.sent);
++        let expected_fields = [
++            ("callback", format!("\"{}\"", expected.callback)),
++            ("outcome", format!("\"{}\"", expected.outcome)),
++            ("bytes", expected.bytes.to_string()),
++            ("app_limited", expected.app_limited.to_string()),
++            ("rtt_ns", expected.rtt_ns.to_string()),
++            (
++                "sent_age_ns",
++                expected
++                    .now
++                    .saturating_duration_since(expected.sent)
++                    .as_nanos()
++                    .to_string(),
++            ),
++            ("persistent", expected.persistent.to_string()),
++            ("lost_bytes", expected.lost_bytes.to_string()),
++            (
++                "recovery_active_before",
++                expected.recovery_before.0.to_string(),
++            ),
++            (
++                "recovery_age_ns_before",
++                expected.recovery_before.1.to_string(),
++            ),
++            (
++                "sent_after_recovery_before",
++                expected.recovery_before.2.to_string(),
++            ),
++            ("recovery_active_after", recovery_after.0.to_string()),
++            ("recovery_age_ns_after", recovery_after.1.to_string()),
++            ("sent_after_recovery_after", recovery_after.2.to_string()),
++            ("state_before", format!("{:?}", expected.state_before)),
++            ("state_after", format!("{:?}", state(cubic))),
++        ];
++        assert_fields(event, &expected_fields);
++    }
++
++    fn ack(
++        cubic: &mut Cubic,
++        rtt: &RttEstimator,
++        now: Instant,
++        sent: Instant,
++        bytes: u64,
++        app_limited: bool,
++    ) {
++        let before = state(cubic);
++        let epoch_before = recovery(cubic, now, sent);
++        let outcome = if app_limited {
++            "app_limited"
++        } else if epoch_before.0 && !epoch_before.2 {
++            "recovery"
++        } else if before[0] < before[1] {
++            "slow_start"
++        } else {
++            "avoidance"
++        };
++        let event = trace_event(|| cubic.on_ack(now, sent, bytes, app_limited, rtt));
++        assert_callback(
++            cubic,
++            &event,
++            ExpectedCallback {
++                callback: "ack",
++                outcome,
++                bytes,
++                app_limited,
++                rtt_ns: u64::try_from(rtt.get().as_nanos())
++                    .expect("invariant: test RTT fits u64 nanoseconds"),
++                persistent: false,
++                lost_bytes: 0,
++                now,
++                sent,
++                state_before: before,
++                recovery_before: epoch_before,
++            },
++        );
++    }
++
++    #[test]
++    #[should_panic(expected = "bytes")]
++    fn callback_fields_reject_numeric_prefix_matches() {
++        assert_fields(
++            "engine cubic callback bytes=12000",
++            &[("bytes", "1200".into())],
++        );
++    }
++
++    fn congestion(
++        cubic: &mut Cubic,
++        now: Instant,
++        sent: Instant,
++        persistent: bool,
++        lost_bytes: u64,
++    ) {
++        let before = state(cubic);
++        let epoch_before = recovery(cubic, now, sent);
++        let outcome = if epoch_before.0 && !epoch_before.2 {
++            "recovery"
++        } else if persistent {
++            "persistent"
++        } else {
++            "loss"
++        };
++        let event = trace_event(|| {
++            cubic.on_congestion_event(now, sent, persistent, lost_bytes);
++        });
++        assert_callback(
++            cubic,
++            &event,
++            ExpectedCallback {
++                callback: "congestion",
++                outcome,
++                bytes: 0,
++                app_limited: false,
++                rtt_ns: 0,
++                persistent,
++                lost_bytes,
++                now,
++                sent,
++                state_before: before,
++                recovery_before: epoch_before,
++            },
++        );
++    }
++
++    fn cubic(now: Instant) -> Cubic {
++        Cubic::new(
++            Arc::new(CubicConfig::default()),
++            now,
++            BASE_DATAGRAM_SIZE as u16,
++        )
++    }
++
++    #[test]
++    fn callback_ack_guards_and_slow_start_are_observed() {
++        let now = Instant::now();
++        let rtt = RttEstimator::new(Duration::from_millis(100));
++        let mut value = cubic(now);
++        value.recovery_start_time = Some(now);
++        let unchanged = state(&value);
++        ack(&mut value, &rtt, now, now, 1_200, true);
++        assert_eq!(state(&value), unchanged);
++        for sent in [now - Duration::from_millis(1), now] {
++            ack(
++                &mut value,
++                &rtt,
++                now + Duration::from_millis(2),
++                sent,
++                1_200,
++                false,
++            );
++            assert_eq!(state(&value), unchanged);
++        }
++        value.recovery_start_time = None;
++        ack(&mut value, &rtt, now, now, 1_200, false);
++        assert_eq!(value.window, unchanged[0] + 1_200);
++        assert_eq!(value.recovery_start_time, None);
++    }
++
++    #[test]
++    fn callback_ack_avoidance_boundaries_are_observed() {
++        let now = Instant::now();
++        let rtt = RttEstimator::new(Duration::from_millis(100));
++        let mut initialized = cubic(now);
++        (initialized.window, initialized.ssthresh) = (12_000, 12_000);
++        ack(&mut initialized, &rtt, now, now, 1_200, false);
++        assert_eq!(
++            state(&initialized),
++            [
++                12_000,
++                12_000,
++                1_200,
++                0.0_f64.to_bits(),
++                12_000.0_f64.to_bits(),
++                0
++            ]
++        );
++        assert_eq!(initialized.recovery_start_time, Some(now));
++        for (increment, expected) in [(1_199, (12_000, 1_199)), (1_200, (13_200, 0))] {
++            let mut retained = cubic(now);
++            (retained.window, retained.ssthresh) = (12_000, 11_999);
++            retained.recovery_start_time = Some(now);
++            retained.cubic_state.w_max = 12_000.0;
++            retained.cubic_state.cwnd_inc = increment;
++            ack(
++                &mut retained,
++                &rtt,
++                now + Duration::from_millis(2),
++                now + Duration::from_millis(1),
++                1_200,
++                false,
++            );
++            assert_eq!((retained.window, retained.cubic_state.cwnd_inc), expected);
++            assert_eq!(retained.recovery_start_time, Some(now));
++        }
++    }
++
++    #[test]
++    fn callback_congestion_recovery_guard_precedes_persistence() {
++        let start = Instant::now();
++        let now = start + Duration::from_millis(2);
++        let mut value = cubic(start);
++        value.recovery_start_time = Some(start);
++        let unchanged = state(&value);
++        for sent in [start - Duration::from_millis(1), start] {
++            congestion(&mut value, now, sent, true, 1_337);
++            assert_eq!(state(&value), unchanged);
++            assert_eq!(value.recovery_start_time, Some(start));
++        }
++    }
++
++    #[test]
++    fn callback_congestion_loss_branches_preserve_exact_state() {
++        let start = Instant::now();
++        let now = start + Duration::from_millis(2);
++        let sent = start + Duration::from_millis(1);
++
++        let mut ordinary = cubic(start);
++        ordinary.window = 12_000;
++        ordinary.cubic_state.w_max = 6_000.0;
++        ordinary.cubic_state.cwnd_inc = 1_001;
++        congestion(&mut ordinary, now, sent, false, 1_337);
++        assert_eq!(ordinary.window, 8_400);
++        assert_eq!(ordinary.ssthresh, 8_400);
++        assert_eq!(ordinary.current_mtu, 1_200);
++        assert_eq!(ordinary.cubic_state.w_max.to_bits(), 12_000.0_f64.to_bits());
++        assert_eq!(ordinary.cubic_state.cwnd_inc, 700);
++        assert!(ordinary.cubic_state.k.is_finite() && ordinary.cubic_state.k >= 0.0);
++        assert_eq!(ordinary.recovery_start_time, Some(now));
++        let ordinary_k = ordinary.cubic_state.k.to_bits();
++
++        let mut fast = cubic(start);
++        fast.window = 9_600;
++        fast.cubic_state.w_max = 12_000.0;
++        fast.cubic_state.cwnd_inc = 10;
++        congestion(&mut fast, now, sent, false, 2_674);
++        assert_eq!((fast.window, fast.ssthresh), (6_720, 6_720));
++        assert_eq!(fast.cubic_state.w_max.to_bits(), 8_160.0_f64.to_bits());
++        assert_eq!(fast.cubic_state.cwnd_inc, 7);
++        assert!(fast.cubic_state.k.is_finite() && fast.cubic_state.k >= 0.0);
++
++        let mut clamped = cubic(start);
++        clamped.window = 2_401;
++        clamped.cubic_state.w_max = 0.0;
++        clamped.cubic_state.cwnd_inc = 1;
++        congestion(&mut clamped, now, sent, false, 4_011);
++        assert_eq!((clamped.window, clamped.ssthresh), (2_400, 2_400));
++        assert_eq!(clamped.cubic_state.w_max.to_bits(), 2_401.0_f64.to_bits());
++        assert_eq!(clamped.cubic_state.cwnd_inc, 0);
++        assert!(clamped.cubic_state.k.is_finite() && clamped.cubic_state.k >= 0.0);
++
++        let mut persistent = cubic(start);
++        persistent.window = 12_000;
++        persistent.cubic_state.w_max = 6_000.0;
++        persistent.cubic_state.cwnd_inc = 1_001;
++        congestion(&mut persistent, now, sent, true, 5_348);
++        assert_eq!(persistent.window, 2_400);
++        assert_eq!(persistent.ssthresh, 5_880);
++        assert_eq!(persistent.current_mtu, 1_200);
++        assert_eq!(persistent.cubic_state.k.to_bits(), ordinary_k);
++        assert_eq!(
++            persistent.cubic_state.w_max.to_bits(),
++            8_400.0_f64.to_bits()
++        );
++        assert_eq!(persistent.cubic_state.cwnd_inc, 0);
++        assert_eq!(persistent.recovery_start_time, None);
++    }

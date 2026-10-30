@@ -3,12 +3,16 @@ use std::sync::Arc;
 
 use moirai_core::{
     Priority,
-    error::ExecutorResult,
+    error::{ExecutorError, ExecutorResult},
     executor::TaskSpawner,
     task::{Task, TaskHandle},
 };
 
-use super::{HybridExecutor, MetricsRef, async_state::AsyncFutureState};
+use super::{
+    HybridExecutor, MetricsRef,
+    async_state::AsyncFutureState,
+    result::{TaskEnd, cancel_task_result, send_task_result},
+};
 use crate::schedule::{BlockingTask, SyncTask, WorkScheduler};
 
 impl<S: WorkScheduler> HybridExecutor<S> {
@@ -46,20 +50,32 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
         F: core::future::Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let (task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
+        self.admission.admit(future)?.run(|future| {
+            let (task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
 
-        let (handle, result_sender) = TaskHandle::new_pending(task_id);
-        let state = AsyncFutureState::new(
-            self.scheduler.clone(),
-            future,
-            lifecycle,
-            result_sender,
-            Arc::clone(&self.metrics),
-        );
-        Arc::clone(&state).schedule()?;
+            let (handle, result_sender) = TaskHandle::new_pending(task_id);
+            let state = AsyncFutureState::new(
+                self.scheduler.clone(),
+                future,
+                lifecycle,
+                result_sender,
+                Arc::clone(&self.metrics),
+            );
+            let scheduled = state
+                .track(&self.async_tasks, task_id.0, Arc::clone(&self.admission))
+                .and_then(|()| Arc::clone(&state).schedule());
+            if let Err(error) = scheduled {
+                let rejection = state.complete_rejected();
+                drop(state);
+                return match rejection {
+                    Ok(()) => Err(error),
+                    Err(drop_error) => Err(ExecutorError::SpawnFailed(drop_error)),
+                };
+            }
 
-        self.metrics.record_task_spawned();
-        Ok(handle)
+            self.metrics.record_task_spawned();
+            Ok(handle)
+        })
     }
 
     fn spawn_blocking<F, R>(&self, func: F) -> ExecutorResult<TaskHandle<R>>
@@ -80,37 +96,33 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
         // no `Arc<TaskResultSlot>` heap allocation or atomic refcount — the win
         // over routing through `spawn_result`. Lifecycle tracking and metrics
         // are preserved so shutdown drain and counters stay accurate.
-        let (_task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
-        let metrics = MetricsRef::new(&self.metrics);
+        self.admission.admit(func)?.run(|func| {
+            let (_task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
+            let metrics = MetricsRef::new(&self.metrics);
 
-        self.scheduler
-            .schedule::<BlockingTask, _>(Priority::Normal, None, move |worker_id| {
-                let running = match lifecycle.start_unless_cancelled(worker_id) {
-                    Ok(running) => running,
-                    Err(completion) => {
-                        completion.notify();
-                        metrics.get().record_task_cancelled();
-                        return;
-                    }
-                };
-                // Catch here (not only at the job level) so `complete()` runs and
-                // the executor-level completed/failed metric is recorded, matching
-                // `send_task_result`.
-                match catch_unwind(AssertUnwindSafe(func)) {
-                    Ok(()) => {
-                        metrics
-                            .get()
-                            .record_task_completed(running.complete().notify());
-                    }
-                    Err(_) => {
-                        running.complete().notify();
-                        metrics.get().record_task_failed();
-                    }
-                }
-            })?;
+            self.scheduler.schedule::<BlockingTask, _>(
+                Priority::Normal,
+                None,
+                move |worker_id| {
+                    let running = match lifecycle.start_unless_cancelled(worker_id) {
+                        Ok(running) => running,
+                        Err(receipt) => {
+                            cancel_task_result::<_, ()>(func, None, metrics.get(), receipt);
+                            return;
+                        }
+                    };
+                    // Catch here (not only at the job level) so `complete()` runs and
+                    // the executor-level completed/failed metric is recorded, matching
+                    // `send_task_result`.
+                    let result = catch_unwind(AssertUnwindSafe(func));
+                    let receipt = running.complete();
+                    send_task_result(TaskEnd::Completed(result), None, metrics.get(), receipt);
+                },
+            )?;
 
-        self.metrics.record_task_spawned();
-        Ok(())
+            self.metrics.record_task_spawned();
+            Ok(())
+        })
     }
 
     fn spawn_with_priority<T>(

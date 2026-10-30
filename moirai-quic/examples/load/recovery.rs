@@ -7,6 +7,7 @@
 use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::field::{Field, Visit};
@@ -15,6 +16,8 @@ use tracing_subscriber::filter::{LevelFilter, filter_fn};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::prelude::*;
 mod engine;
+
+use super::protocol::PHASE_TARGET;
 
 #[derive(Clone)]
 pub(crate) struct Recovery {
@@ -36,9 +39,9 @@ struct Counts {
     pto_data: u64,
     max_pto_backoff: u64,
     max_pto_in_flight_bytes: u64,
-    timer_driver_wakes: u64,
-    timer_lateness_ns: u128,
-    max_timer_lateness_ns: u128,
+    timer_driver_wakes: Option<u64>,
+    timer_lateness_ns: Option<u128>,
+    max_timer_lateness_ns: Option<u128>,
 }
 
 #[derive(Clone, Serialize)]
@@ -79,7 +82,7 @@ struct Snapshot {
 }
 
 impl Recovery {
-    pub(crate) fn install() -> super::ProbeResult<Self> {
+    pub(crate) fn install(observes_driver_lateness: bool) -> super::ProbeResult<Self> {
         let enabled = match std::env::var("MOIRAI_QUIC_RECOVERY_TRACE") {
             Err(std::env::VarError::NotPresent) => false,
             Ok(value) if value == "1" => true,
@@ -89,7 +92,7 @@ impl Recovery {
                 );
             }
         };
-        let recovery = Self::new(enabled);
+        let recovery = Self::new(enabled, observes_driver_lateness);
         tracing_subscriber::registry()
             .with(
                 tracing_subscriber::fmt::layer()
@@ -104,13 +107,19 @@ impl Recovery {
         Ok(recovery)
     }
 
-    fn new(enabled: bool) -> Self {
+    fn new(enabled: bool, observes_driver_lateness: bool) -> Self {
+        let mut counts = Counts::default();
+        if observes_driver_lateness {
+            counts.timer_driver_wakes = Some(0);
+            counts.timer_lateness_ns = Some(0);
+            counts.max_timer_lateness_ns = Some(0);
+        }
         Self {
             enabled,
             started: Instant::now(),
             state: Arc::new(Mutex::new(State {
                 phase: "handshake".into(),
-                counts: Counts::default(),
+                counts,
                 phases: Vec::new(),
                 timeouts: Vec::new(),
                 engine: engine::Capture::default(),
@@ -147,12 +156,16 @@ impl Recovery {
         Ok(())
     }
 
-    pub(crate) async fn observe(&self) -> Infallible {
+    pub(crate) async fn observe<S, F>(&self, sleep: S) -> Infallible
+    where
+        S: Fn(Duration) -> F,
+        F: Future<Output = ()>,
+    {
         if !self.enabled {
             return std::future::pending().await;
         }
         loop {
-            moirai_async::timer::sleep(Duration::from_secs(1)).await;
+            sleep(Duration::from_secs(1)).await;
             // Serialization errors invalidate evidence rather than dropping it.
             self.emit("sample").expect("recovery evidence serializes");
         }
@@ -166,7 +179,7 @@ fn selected(target: &str) -> bool {
             | "quinn_proto::connection::streams::state"
             | "moirai_async::timer::driver"
     ) || target == engine::TARGET
-        || target.starts_with("quic_load::load")
+        || target == PHASE_TARGET
 }
 
 #[derive(Default)]
@@ -230,7 +243,7 @@ impl<S: Subscriber> Layer<S> for Recovery {
         let protocol = target.starts_with("quinn_proto::connection");
         let timer = target == "moirai_async::timer::driver"
             && fields.message == "timer driver wakes registration";
-        let phase = target.starts_with("quic_load::load") && fields.message == "load probe phase";
+        let phase = target == PHASE_TARGET && fields.message == "load probe phase";
         if !protocol && !timer && !phase {
             return;
         }
@@ -250,9 +263,15 @@ impl<S: Subscriber> Layer<S> for Recovery {
             let lateness = fields
                 .lateness
                 .expect("timer trace records actual lateness");
-            state.counts.timer_driver_wakes += 1;
-            state.counts.timer_lateness_ns += lateness;
-            state.counts.max_timer_lateness_ns = state.counts.max_timer_lateness_ns.max(lateness);
+            if let Some(wakes) = state.counts.timer_driver_wakes.as_mut() {
+                *wakes += 1;
+            }
+            if let Some(total) = state.counts.timer_lateness_ns.as_mut() {
+                *total += lateness;
+            }
+            if let Some(maximum) = state.counts.max_timer_lateness_ns.as_mut() {
+                *maximum = (*maximum).max(lateness);
+            }
         } else {
             match fields.message.as_str() {
                 "blocked by congestion control" => state.counts.congestion_blocked += 1,
@@ -293,10 +312,11 @@ impl<S: Subscriber> Layer<S> for Recovery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::load::{Phase, emit_phase};
 
     #[test]
-    fn actual_tracing_events_preserve_counts_spaces_and_timer_values() {
-        let recovery = Recovery::new(true);
+    fn actual_phase_emitter_preserves_progress_and_recovery_values() {
+        let recovery = Recovery::new(true, true);
         let subscriber = tracing_subscriber::registry()
             .with(
                 tracing_subscriber::fmt::layer()
@@ -307,7 +327,10 @@ mod tests {
         let _tracing = tracing::subscriber::set_default(subscriber);
         {
             let _arrange = tracing::info_span!("arrange").entered();
-            tracing::info!(phase = "authenticated", "load probe phase");
+            emit_phase(Phase::Authenticated {
+                connection_setup_ns: 17,
+            });
+            emit_phase(Phase::Exchange { elapsed_ns: 29 });
             let _act = tracing::info_span!("act").entered();
             tracing::trace!(target: "quinn_proto::connection", "blocked by congestion control");
             tracing::trace!(target: "quinn_proto::connection", "blocked by pacing");
@@ -323,10 +346,20 @@ mod tests {
             tracing::trace!(target: "quinn_proto::connection", "established");
             // A message from a different component must not count as Quinn.
             tracing::trace!("blocked by pacing");
+            emit_phase(Phase::Complete { elapsed_ns: 43 });
+            emit_phase(Phase::Drain);
         }
         let _assert = tracing::info_span!("assert").entered();
         let snapshot = recovery.snapshot("test");
-        assert_eq!(snapshot.phase, "authenticated");
+        assert_eq!(snapshot.phase, "drain");
+        assert_eq!(
+            snapshot
+                .phases
+                .iter()
+                .map(|phase| phase.phase.as_str())
+                .collect::<Vec<_>>(),
+            ["authenticated", "exchange", "complete", "drain"]
+        );
         assert_eq!(snapshot.counts.congestion_blocked, 1);
         assert_eq!(snapshot.counts.pacing_blocked, 2);
         assert_eq!(snapshot.counts.anti_amplification_blocked, 1);
@@ -335,17 +368,33 @@ mod tests {
         assert_eq!(snapshot.counts.pto_initial, 0);
         assert_eq!(snapshot.counts.max_pto_backoff, 2);
         assert_eq!(snapshot.counts.max_pto_in_flight_bytes, 12_000);
-        assert_eq!(snapshot.counts.timer_driver_wakes, 2);
-        assert_eq!(snapshot.counts.timer_lateness_ns, 48);
-        assert_eq!(snapshot.counts.max_timer_lateness_ns, 31);
+        assert_eq!(snapshot.counts.timer_driver_wakes, Some(2));
+        assert_eq!(snapshot.counts.timer_lateness_ns, Some(48));
+        assert_eq!(snapshot.counts.max_timer_lateness_ns, Some(31));
         assert_eq!(snapshot.counts.data_blocked, 1);
         assert_eq!(snapshot.counts.stream_data_blocked, 1);
         assert_eq!(snapshot.counts.established, 1);
+        assert_eq!(
+            snapshot
+                .timeouts
+                .iter()
+                .map(|timeout| (
+                    timeout.phase.as_str(),
+                    timeout.space.as_str(),
+                    timeout.in_flight_bytes,
+                    timeout.backoff,
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("exchange", "Handshake", 12_000, 2),
+                ("exchange", "Data", 2_400, 0),
+            ]
+        );
     }
 
     #[test]
     fn disabled_capture_and_nonselected_events_do_not_change_counts() {
-        let recovery = Recovery::new(false);
+        let recovery = Recovery::new(false, true);
         let subscriber = tracing_subscriber::registry()
             .with(
                 tracing_subscriber::fmt::layer()
@@ -360,7 +409,34 @@ mod tests {
             tracing::trace!(target: "moirai_async::timer::driver", lateness_ns = 31_u128, "timer driver wakes registration");
         }
         let _assert = tracing::info_span!("assert").entered();
-        assert_eq!(recovery.snapshot("test").counts, Counts::default());
+        assert_eq!(
+            recovery.snapshot("test").counts,
+            Counts {
+                timer_driver_wakes: Some(0),
+                timer_lateness_ns: Some(0),
+                max_timer_lateness_ns: Some(0),
+                ..Counts::default()
+            }
+        );
         assert_eq!(recovery.snapshot("test").phase, "handshake");
+    }
+
+    #[test]
+    fn runtime_without_driver_events_reports_timer_lateness_as_unavailable() {
+        let recovery = Recovery::new(true, false);
+        let snapshot = serde_json::to_value(recovery.snapshot("test"))
+            .expect("recovery snapshot serialization");
+        assert_eq!(
+            snapshot["counts"]["timer_driver_wakes"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            snapshot["counts"]["timer_lateness_ns"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            snapshot["counts"]["max_timer_lateness_ns"],
+            serde_json::Value::Null
+        );
     }
 }

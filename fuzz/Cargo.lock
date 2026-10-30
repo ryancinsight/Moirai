@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "futures",
  "libc",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-async-macros"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-core"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "bytemuck",
  "libc",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-crypto"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -993,14 +993,16 @@ dependencies = [
 
 [[package]]
 name = "moirai-executor"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
+ "loom",
  "melinoe",
  "mnemosyne-memory",
  "moirai-core",
  "moirai-pal",
  "moirai-scheduler",
  "moirai-utils",
+ "pin-project-lite",
  "themis-topology",
 ]
 
@@ -1017,7 +1019,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-http"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "http",
  "httparse",
@@ -1028,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-pal"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -1047,7 +1049,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-scheduler"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "loom",
  "mnemosyne-memory",
@@ -1058,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-tls"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "futures-io",
  "futures-rustls",
@@ -1070,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "moirai-transport"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "bytemuck",
  "libc",
@@ -1081,7 +1083,10 @@ dependencies = [
 
 [[package]]
 name = "moirai-utils"
-version = "0.11.3"
+version = "0.12.0"
+dependencies = [
+ "loom",
+]
 
 [[package]]
 name = "nu-ansi-term"

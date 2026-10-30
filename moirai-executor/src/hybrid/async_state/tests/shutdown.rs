@@ -12,7 +12,7 @@ use moirai_core::{
 };
 
 use super::super::AsyncFutureState;
-use super::fixtures::{AlwaysSelfWake, GatedInjector, WakeThenReady};
+use super::fixtures::{AlwaysSelfWake, GatedInjector, WakeThenReady, register_state};
 use crate::metrics::ExecutorMetrics;
 use crate::registry::TaskRegistry;
 
@@ -55,6 +55,7 @@ fn wake_refused_by_shutdown_completes_the_task_as_cancelled() {
         result_sender,
         Arc::clone(&metrics),
     );
+    let _tasks = register_state(&state, task_id);
 
     Arc::clone(&state).schedule().expect("first poll admits");
     injector.drain();
@@ -64,7 +65,9 @@ fn wake_refused_by_shutdown_completes_the_task_as_cancelled() {
         .take()
         .expect("first poll published its waker");
     let waiter = Arc::new(CompletionWaiter(AtomicUsize::new(0)));
-    assert!(registry.register_waker(task_id, &Waker::from(Arc::clone(&waiter))));
+    let _completion_waiter = registry
+        .register_waker(task_id, &Waker::from(Arc::clone(&waiter)))
+        .unwrap();
     assert!(!registry.is_completed(task_id));
 
     injector.shutting_down.store(true, Ordering::SeqCst);
@@ -106,6 +109,7 @@ fn reschedule_refused_by_shutdown_completes_the_running_task_as_cancelled() {
         result_sender,
         Arc::clone(&metrics),
     );
+    let _tasks = register_state(&state, task_id);
 
     Arc::clone(&state).schedule().expect("first poll admits");
     injector.shutting_down.store(true, Ordering::SeqCst);

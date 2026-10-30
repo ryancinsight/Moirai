@@ -236,14 +236,9 @@ fn result_handle_diagnostics_requires_registry_diagnostics() {
 #[test]
 fn version_artifacts_are_synchronized_for_current_target() {
     let manifest = read_benchmark("../Cargo.toml");
-    let checklist = read_benchmark("../docs/checklist.md");
+    let release_scope = read_benchmark("../docs/adr/0087-task-lifecycle-release.md");
     let changelog = read_benchmark("../CHANGELOG.md");
 
-    // The contract is that these artifacts agree, not that they say any
-    // particular number. Pinning last release's literal made the *next*
-    // release fail this test rather than the desynchronization it exists to
-    // catch: 0.5.0 -> 0.6.0 moved the manifests, and this reported "must
-    // retain ... 0.5.0" instead of naming the artifacts left behind.
     let workspace_version = manifest
         .split("[workspace.package]")
         .nth(1)
@@ -261,11 +256,11 @@ fn version_artifacts_are_synchronized_for_current_target() {
         );
     }
 
-    let expected_checklist = format!("**Target Version**: {workspace_version}");
-    assert!(
-        checklist.contains(&expected_checklist),
-        "checklist target version must match the workspace version {workspace_version}"
-    );
+    let release_version = release_scope
+        .lines()
+        .find_map(|line| line.strip_prefix("Workspace version: "))
+        .expect("release scope must declare its workspace version");
+    assert_eq!(release_version, workspace_version);
     let expected_section = format!("## [{workspace_version}]");
     assert!(
         changelog.contains(&expected_section),

@@ -1,9 +1,12 @@
 //! Task registry for tracking and managing task lifecycle.
 
+mod completion;
 pub(crate) mod diagnostics;
 mod directory;
-mod fan_out;
-#[allow(clippy::module_inception)]
+#[expect(
+    clippy::module_inception,
+    reason = "the registry facade owns its module"
+)]
 pub(crate) mod registry;
 mod retention;
 #[cfg(test)]
@@ -14,13 +17,15 @@ mod tests;
 pub(crate) mod token;
 #[cfg(test)]
 mod token_tests;
+mod waiter;
 #[cfg(test)]
 mod waiter_tests;
 
+pub(crate) use completion::TaskCompletion;
 pub(crate) use registry::CancelOutcome;
 pub use registry::TaskRegistry;
 pub use retention::RetentionPolicy;
 pub(crate) use token::{
-    OwnedStateLease, RunningTaskToken, SchedulerStateLease, StateLease, TaskCompletion,
-    TaskLifecycleToken,
+    OwnedStateLease, RunningTaskToken, SchedulerStateLease, StateLease, TaskLifecycleToken,
 };
+pub use waiter::TaskWaiter;

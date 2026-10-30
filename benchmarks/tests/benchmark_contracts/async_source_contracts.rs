@@ -78,60 +78,6 @@ fn timer_wheel_cancellation_is_real_and_lazy() {
 }
 
 #[test]
-fn pal_timer_future_waits_until_deadline() {
-    let timer = read_benchmark("../moirai-pal/src/timer.rs");
-    let timer_tests = read_benchmark("../moirai-pal/src/timer/tests.rs");
-    let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
-
-    for required in [
-        "pub struct Timer",
-        "deadline: Instant",
-        "pub fn new(duration: Duration) -> Self",
-        "pub fn deadline(&self) -> Instant",
-        "impl Future for Timer",
-        "type Output = io::Result<()>",
-        "Poll::Pending",
-        "pub fn sleep(duration: Duration) -> Timer",
-    ] {
-        assert!(
-            timer.contains(required),
-            "PAL timer future must retain deadline contract {required}"
-        );
-    }
-
-    for required in [
-        "pal_timer_is_pending_before_deadline_and_wakes",
-        "Duration::from_millis(20)",
-        "recv_timeout(Duration::from_secs(1))",
-        "Poll::Ready(Ok(()))",
-        "pal_timer_zero_duration_completes_immediately",
-        "sleep(Duration::ZERO)",
-    ] {
-        assert!(
-            timer_tests.contains(required),
-            "PAL timer tests must retain deadline behavior {required}"
-        );
-    }
-
-    assert!(
-        audit.contains("PAL platform timer future"),
-        "Rayon/Tokio audit must retain PAL timer boundary"
-    );
-
-    for prohibited in [
-        "Placeholder for platform-agnostic timer operations",
-        "This will be fully implemented",
-        "In a real implementation",
-        "For now, yield once",
-    ] {
-        assert!(
-            !timer.contains(prohibited) && !timer_tests.contains(prohibited),
-            "PAL timer future must not reintroduce placeholder marker {prohibited}"
-        );
-    }
-}
-
-#[test]
 fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
     let fs_source = format!(
         "{}\n{}",

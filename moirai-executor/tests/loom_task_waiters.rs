@@ -1,30 +1,29 @@
-//! loom exhaustive-interleaving model of two waiters racing one completion.
+//! loom model of owned waiter registration racing task completion.
 //!
-//! `TaskState::register_waker` stores a waker in the task's slot under the slot
-//! mutex, then re-checks the completion flag; `mark_completed_since` publishes
-//! the completion flag, then takes the slot under the same mutex and wakes what
-//! it took. Two waiters on one task share that slot (the second turns it into a
-//! fan-out waker owning both, `registry/fan_out.rs`), so the slot's content is
-//! modeled as the set of registered waiter ids.
+//! `TaskState::register_waker` publishes a lazily allocated waiter set through
+//! `WaiterSetSlot`'s mutex. Completion publishes its state, detaches that
+//! set under the same lock, closes registration, and claims each occupied slot
+//! separately. An owner may remove its slot until notification claims it.
 //!
-//! The danger is a stranded waiter: it registered, its recheck saw the task
-//! still pending, and completion drained the slot before its registration —
-//! or drained without it. Either the recheck sees the completion, or the
-//! completion's drain sees the registration; loom confirms no interleaving
-//! leaves a waiter with neither.
+//! Two bounded scenarios use at most two identities. One owner unregisters
+//! before completion can claim it and must not be notified. On a fresh task,
+//! one live registration races completion across lazy set publication; it
+//! either observes completion or is accepted and then notified.
 //!
-//! The model covers the ordering protocol over loom-tracked atoms and a loom
-//! mutex; loom cannot instrument the production `TaskState` storage, and the
-//! fan-out waker's vtable is covered by ordinary unit tests. Keep the orderings
-//! in sync with `registry/state.rs`.
+//! loom tracks the slot lock, set mutex, and completion/wake atomics. It cannot
+//! instrument the production registry block, `std::sync::Mutex`, or callback
+//! vtables. Keep the protocol in sync with `registry/state.rs` and
+//! `registry/waiter.rs`.
 //!
 //! Run with:
-//! `RUSTFLAGS="--cfg loom" cargo test -p moirai-executor --test loom_task_waiters --release`
+//! `RUSTFLAGS="--cfg loom" cargo nextest run --locked -p moirai-executor`
+//! `--test loom_task_waiters --release`
 //!
 //! Under a normal build the `#![cfg(loom)]` gate makes this file empty.
 
 #![cfg(loom)]
-#![allow(clippy::unwrap_used, reason = "test scope")]
+#![forbid(unsafe_code)]
+#![expect(clippy::unwrap_used, reason = "test scope")]
 
 use loom::sync::atomic::{AtomicBool, Ordering};
 use loom::sync::{Arc, Mutex};
@@ -32,73 +31,189 @@ use loom::thread;
 
 const WAITERS: usize = 2;
 
-/// The completion flag, the slot's registered waiters, and which were woken.
+/// The completion state, lazily published waiter set, and observed wakes.
 struct Task {
     completed: AtomicBool,
-    slot: Mutex<Vec<usize>>,
+    waiters: WaiterSetSlot,
     woken: [AtomicBool; WAITERS],
+}
+
+/// Bounded model of the production mutex and set pointer.
+struct WaiterSetSlot {
+    set: Mutex<Option<Arc<WaiterSet>>>,
+}
+
+impl WaiterSetSlot {
+    fn new() -> Self {
+        Self {
+            set: Mutex::new(None),
+        }
+    }
+
+    fn get_or_create(&self, completed: impl FnOnce() -> bool) -> Option<Arc<WaiterSet>> {
+        let mut set = self.set.lock().unwrap();
+        if completed() {
+            return None;
+        }
+        Some(Arc::clone(
+            set.get_or_insert_with(|| Arc::new(WaiterSet::new())),
+        ))
+    }
+
+    fn take(&self) -> Option<Arc<WaiterSet>> {
+        self.set.lock().unwrap().take()
+    }
+}
+
+struct WaiterSet {
+    slots: Mutex<WaiterSlots>,
+}
+
+struct WaiterSlots {
+    closed: bool,
+    entries: [Option<usize>; WAITERS],
+}
+
+impl WaiterSet {
+    fn new() -> Self {
+        Self {
+            slots: Mutex::new(WaiterSlots {
+                closed: false,
+                entries: [None; WAITERS],
+            }),
+        }
+    }
+
+    fn register(set: &Arc<Self>, waiter: usize) -> Option<Waiter> {
+        let mut slots = set.slots.lock().unwrap();
+        if slots.closed {
+            return None;
+        }
+        let key = slots.entries.iter().position(Option::is_none)?;
+        slots.entries[key] = Some(waiter);
+        Some(Waiter {
+            set: Arc::clone(set),
+            key,
+            registered: true,
+        })
+    }
+
+    fn remove(&self, key: usize) -> Option<usize> {
+        self.slots.lock().unwrap().entries[key].take()
+    }
+
+    fn close(set: &Arc<Self>) -> Notifications {
+        set.slots.lock().unwrap().closed = true;
+        Notifications {
+            set: Arc::clone(set),
+        }
+    }
+}
+
+struct Waiter {
+    set: Arc<WaiterSet>,
+    key: usize,
+    registered: bool,
+}
+
+impl Waiter {
+    fn unregister(mut self) -> bool {
+        let removed = self.set.remove(self.key).is_some();
+        self.registered = false;
+        removed
+    }
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        if self.registered {
+            assert!(
+                self.set.remove(self.key).is_none(),
+                "an accepted live waiter must be claimed before owner drop"
+            );
+        }
+    }
+}
+
+struct Notifications {
+    set: Arc<WaiterSet>,
+}
+
+impl Notifications {
+    fn notify(self, woken: &[AtomicBool; WAITERS]) {
+        for key in 0..WAITERS {
+            if let Some(waiter) = self.set.remove(key) {
+                woken[waiter].store(true, Ordering::Release);
+            }
+        }
+    }
 }
 
 impl Task {
     fn new() -> Self {
         Self {
             completed: AtomicBool::new(false),
-            slot: Mutex::new(Vec::new()),
+            waiters: WaiterSetSlot::new(),
             woken: [AtomicBool::new(false), AtomicBool::new(false)],
         }
     }
 
-    /// Take everything in the slot and wake it, outside the slot lock.
-    fn take_and_wake(&self) {
-        let taken = std::mem::take(&mut *self.slot.lock().unwrap());
-        for waiter in taken {
-            self.woken[waiter].store(true, Ordering::Release);
+    /// Mirrors `TaskState::register_waker`.
+    fn register(&self, waiter: usize) -> Option<Waiter> {
+        if self.completed.load(Ordering::Acquire) {
+            return None;
         }
+        let set = self
+            .waiters
+            .get_or_create(|| self.completed.load(Ordering::Acquire))?;
+        WaiterSet::register(&set, waiter)
     }
 
-    /// Mirrors `TaskState::register_waker`; returns whether the recheck saw the
-    /// completion.
-    fn register(&self, waiter: usize) -> bool {
-        self.slot.lock().unwrap().push(waiter);
-        let completed = self.completed.load(Ordering::Acquire);
-        if completed {
-            self.take_and_wake();
-        }
-        completed
-    }
-
-    /// Mirrors `TaskState::mark_completed_since`.
+    /// Mirrors publication, detachment, closing, and deferred notification.
     fn complete(&self) {
         self.completed.store(true, Ordering::Release);
-        self.take_and_wake();
+        if let Some(set) = self.waiters.take() {
+            WaiterSet::close(&set).notify(&self.woken);
+        }
     }
 }
 
 #[test]
-fn two_waiters_are_never_stranded_by_completion() {
+fn removed_waiter_stays_quiet() {
     loom::model(|| {
         let task = Arc::new(Task::new());
 
-        let waiters: Vec<_> = (0..WAITERS)
-            .map(|waiter| {
-                let task = Arc::clone(&task);
-                thread::spawn(move || task.register(waiter))
-            })
-            .collect();
+        let removed = task
+            .register(0)
+            .expect("completion has not started")
+            .unregister();
+        assert!(removed, "the owner removes its slot before notification");
 
         task.complete();
 
-        // Join every thread first: a wake recorded by another waiter's thread is
-        // visible only once that thread is joined.
-        let outcomes: Vec<bool> = waiters
-            .into_iter()
-            .map(|handle| handle.join().unwrap())
-            .collect();
-        for (waiter, saw_completion) in outcomes.into_iter().enumerate() {
-            assert!(
-                saw_completion || task.woken[waiter].load(Ordering::Acquire),
-                "waiter {waiter} registered, saw a pending task, and was never woken"
-            );
-        }
+        assert!(
+            !task.woken[0].load(Ordering::Acquire),
+            "an unregistered waiter was notified"
+        );
+    });
+}
+
+#[test]
+fn live_waiter_is_not_stranded_during_publication() {
+    loom::model(|| {
+        let task = Arc::new(Task::new());
+
+        let live = {
+            let task = Arc::clone(&task);
+            thread::spawn(move || task.register(1))
+        };
+
+        task.complete();
+        let live_waiter = live.join().unwrap();
+
+        assert!(
+            live_waiter.is_none() || task.woken[1].load(Ordering::Acquire),
+            "a live waiter was accepted but never notified"
+        );
     });
 }

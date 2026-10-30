@@ -21,19 +21,16 @@ use crate::{Priority, TaskId};
 /// - Cancellation: O(1) operation, cooperative completion
 /// - Statistics: Atomic operations, minimal overhead
 pub trait TaskManager: Send + Sync + 'static {
-    /// Cancels a running task by its ID.
+    /// Request cancellation of a task.
     ///
-    /// # Arguments
-    /// * `id` - The unique identifier of the task to cancel
-    ///
-    /// # Returns
-    /// `Ok(())` if the task was successfully cancelled or was already completed.
+    /// Queued work skips execution. Async work is dropped at a poll boundary;
+    /// a poll already returning its result may complete instead. Running
+    /// synchronous and blocking closures are not forcibly interrupted.
+    /// Cancelling a settled task succeeds without changing its outcome.
     ///
     /// # Errors
-    /// Returns `TaskError` in the following cases:
-    /// - `NotFound` if no task with the given ID exists
-    /// - `InvalidState` if the task cannot be cancelled (e.g., already completed)
-    /// - `SystemError` if the cancellation operation fails due to internal errors
+    /// Returns [`ExecutorError::UnknownTask`](crate::error::ExecutorError::UnknownTask)
+    /// with `id` when no registered task has that identifier.
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()>;
 
     /// Get the current status of a task.
@@ -51,25 +48,20 @@ pub trait TaskManager: Send + Sync + 'static {
     /// - Non-blocking: Never blocks calling thread
     fn task_status(&self, id: TaskId) -> Option<TaskStatus>;
 
-    /// Wait for a task to complete.
+    /// Wait for a task to settle, optionally bounded by a timer.
     ///
-    /// Returns a future that resolves when the task completes or the timeout expires.
-    /// This enables async/await patterns for task coordination.
+    /// Completion includes success, failure, and cancellation; collect the task
+    /// handle to inspect its result. A timeout stops this wait and leaves the
+    /// underlying task running. Completion already visible when polled wins a
+    /// simultaneous deadline observation.
     ///
-    /// # Arguments
-    /// - `id`: The task ID to wait for
-    /// - `timeout`: Optional timeout duration
-    ///
-    /// # Returns
-    /// A future that resolves to:
-    /// - `Ok(())` when the task completes successfully
-    /// - `Err(TaskError::Timeout)` if the timeout expires
-    /// - `Err(TaskError::NotFound)` if the task doesn't exist
-    ///
-    /// # Performance
-    /// - Immediate return: < 10ns if already complete
-    /// - Waiting overhead: Event-driven, no busy polling
-    /// - Memory: Minimal waker chain overhead
+    /// # Errors
+    /// Returns [`ExecutorError::UnknownTask`](crate::error::ExecutorError::UnknownTask)
+    /// when `id` is not registered,
+    /// [`ExecutorError::WaitTimedOut`](crate::error::ExecutorError::WaitTimedOut)
+    /// when the deadline expires. With the standard library, it returns
+    /// `ExecutorError::TimerFailed` when the timer cannot be constructed or
+    /// driven.
     fn wait_for_task(
         &self,
         id: TaskId,
@@ -132,7 +124,8 @@ pub enum TaskStatus {
     ///
     /// Reached when a cancel request is honored, or when the executor discards
     /// the task before it finishes (for example at shutdown). The task's handle
-    /// resolves to `TaskError::Cancelled` in both cases.
+    /// normally resolves to `TaskError::Cancelled`; destruction failures can
+    /// instead report `TaskError::Panicked`.
     ///
     /// # Guarantees
     /// - Task did not complete normally

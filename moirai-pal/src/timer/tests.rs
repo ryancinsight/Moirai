@@ -1,148 +1,69 @@
 use std::{
     future::Future,
-    mem::ManuallyDrop,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use futures::task::{ArcWake, waker};
 
-use super::{TimerState, sleep};
+use super::{SleeperEvent, TimerState, sleep};
 
-#[derive(Debug, PartialEq, Eq)]
-struct CallbackCounts {
-    clones: usize,
-    wakes: usize,
-    drops: usize,
+#[path = "tests/callbacks.rs"]
+mod callbacks;
+#[path = "tests/concernfixture.rs"]
+mod concern_fixture;
+
+use concern_fixture::CallbackFixture;
+
+const SLEEPER_DEADLINE: Duration = Duration::from_secs(60);
+const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn event_deadline() -> Instant {
+    Instant::now()
+        .checked_add(EVENT_TIMEOUT)
+        .expect("invariant: five seconds fits in the platform instant range")
 }
 
-enum CallbackKind {
-    Clone,
-    Wake,
-    Drop,
+fn receive_event_before(
+    receiver: &std::sync::mpsc::Receiver<SleeperEvent>,
+    deadline: Instant,
+) -> SleeperEvent {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .expect("sleeper event must arrive before the test deadline");
+    receiver
+        .recv_timeout(remaining)
+        .expect("sleeper must publish the expected event")
 }
 
-struct CallbackProbe {
-    state: Arc<TimerState>,
-    clones: AtomicUsize,
-    wakes: AtomicUsize,
-    drops: AtomicUsize,
-    panic_on_clone: AtomicBool,
-    panic_on_wake: AtomicBool,
-    panic_on_drop: AtomicBool,
-}
-
-impl CallbackProbe {
-    fn new(state: Arc<TimerState>) -> Self {
-        Self {
-            state,
-            clones: AtomicUsize::new(0),
-            wakes: AtomicUsize::new(0),
-            drops: AtomicUsize::new(0),
-            panic_on_clone: AtomicBool::new(false),
-            panic_on_wake: AtomicBool::new(false),
-            panic_on_drop: AtomicBool::new(false),
-        }
-    }
-
-    fn record(&self, kind: CallbackKind) {
-        if std::thread::panicking() {
+fn receive_until(
+    receiver: &std::sync::mpsc::Receiver<SleeperEvent>,
+    expected: SleeperEvent,
+    deadline: Instant,
+) {
+    loop {
+        let event = receive_event_before(receiver, deadline);
+        if event == expected {
             return;
         }
-        let registry = self
-            .state
-            .waker
-            .try_lock()
-            .expect("waker callback must run outside the registry lock");
-        drop(registry);
-        let (count, panics, name) = match kind {
-            CallbackKind::Clone => (&self.clones, &self.panic_on_clone, "clone"),
-            CallbackKind::Wake => (&self.wakes, &self.panic_on_wake, "wake"),
-            CallbackKind::Drop => (&self.drops, &self.panic_on_drop, "drop"),
-        };
-        count.fetch_add(1, Ordering::Relaxed);
-        assert!(
-            !panics.load(Ordering::Relaxed),
-            "injected {name} callback panic"
+        assert_eq!(
+            event,
+            SleeperEvent::Waiting,
+            "only a genuine spurious wake may precede the expected event"
         );
     }
-
-    fn counts(&self) -> CallbackCounts {
-        CallbackCounts {
-            clones: self.clones.load(Ordering::Relaxed),
-            wakes: self.wakes.load(Ordering::Relaxed),
-            drops: self.drops.load(Ordering::Relaxed),
-        }
-    }
 }
 
-static CALLBACK_WAKER: std::task::RawWakerVTable = std::task::RawWakerVTable::new(
-    clone_callback,
-    wake_callback,
-    wake_by_ref_callback,
-    drop_callback,
-);
-
-unsafe fn clone_callback(data: *const ()) -> std::task::RawWaker {
-    // SAFETY: `data` owns one `Arc<CallbackProbe>` under `CALLBACK_WAKER`.
-    let probe = ManuallyDrop::new(unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) });
-    probe.record(CallbackKind::Clone);
-    let clone = Arc::clone(&probe);
-    std::task::RawWaker::new(Arc::into_raw(clone).cast(), &CALLBACK_WAKER)
-}
-
-unsafe fn wake_callback(data: *const ()) {
-    // SAFETY: wake consumes the `Arc<CallbackProbe>` owned by this raw waker.
-    let probe = unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) };
-    probe.record(CallbackKind::Wake);
-}
-
-unsafe fn wake_by_ref_callback(data: *const ()) {
-    // SAFETY: wake-by-reference borrows the raw waker's owned Arc.
-    let probe = ManuallyDrop::new(unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) });
-    probe.record(CallbackKind::Wake);
-}
-
-unsafe fn drop_callback(data: *const ()) {
-    // SAFETY: drop consumes the `Arc<CallbackProbe>` owned by this raw waker.
-    let probe = unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) };
-    probe.record(CallbackKind::Drop);
-}
-
-fn callback_waker(probe: &Arc<CallbackProbe>) -> std::task::Waker {
-    let raw = std::task::RawWaker::new(Arc::into_raw(Arc::clone(probe)).cast(), &CALLBACK_WAKER);
-    // SAFETY: `CALLBACK_WAKER` preserves the Arc ownership represented by `raw`.
-    unsafe { std::task::Waker::from_raw(raw) }
-}
-
-fn registered_waker_count(state: &TimerState) -> usize {
-    usize::from(
-        state
-            .waker
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .is_some(),
-    )
-}
-
-fn registered_waker_matches(state: &TimerState, expected: &std::task::Waker) -> bool {
+fn observe_sleeper(state: &TimerState) -> std::sync::mpsc::Receiver<SleeperEvent> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(8);
     state
-        .waker
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-        .is_some_and(|stored| stored.will_wake(expected))
-}
-
-#[cfg(not(loom))]
-fn expect_callback_panic(callback: impl FnOnce()) {
-    let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) else {
-        panic!("injected callback must panic");
-    };
+        .observe_sleeper_with(sender)
+        .expect("invariant: each timer test installs one sleeper observer");
+    receiver
 }
 
 struct WakeFlag {
@@ -177,7 +98,10 @@ fn pal_timer_is_pending_before_deadline_and_wakes() {
     let wake_flag = Arc::new(WakeFlag::new(wake_tx));
     let waker = waker(Arc::clone(&wake_flag));
     let mut context = Context::from_waker(&waker);
-    let mut timer = Box::pin(sleep(Duration::from_millis(20)));
+    let mut timer = Box::pin(
+        sleep(Duration::from_millis(20))
+            .expect("invariant: twenty milliseconds fits in the instant range"),
+    );
 
     assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
     assert!(!wake_flag.woke.load(Ordering::Acquire));
@@ -199,7 +123,9 @@ fn pal_timer_zero_duration_completes_immediately() {
     let wake_flag = Arc::new(WakeFlag::new(wake_tx));
     let waker = waker(wake_flag);
     let mut context = Context::from_waker(&waker);
-    let mut timer = Box::pin(sleep(Duration::ZERO));
+    let mut timer = Box::pin(
+        sleep(Duration::ZERO).expect("invariant: zero duration fits in the instant range"),
+    );
 
     assert!(matches!(
         timer.as_mut().poll(&mut context),
@@ -209,176 +135,230 @@ fn pal_timer_zero_duration_completes_immediately() {
 
 #[test]
 fn pal_timer_extreme_duration_does_not_panic() {
-    // Regression: `Instant::now() + Duration::MAX` panics on overflow. The
-    // deadline computation must clamp/`checked_add` instead, yielding a far-future
-    // deadline rather than aborting.
-    let timer = super::Timer::new(Duration::MAX);
-    assert!(timer.deadline() > std::time::Instant::now());
+    for duration in [Duration::MAX, Duration::from_secs(u64::MAX)] {
+        let error = match super::Timer::new(duration) {
+            Ok(_) => panic!("unrepresentable timer duration must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
 
-    let timer = super::Timer::new(Duration::from_secs(u64::MAX));
-    assert!(timer.deadline() > std::time::Instant::now());
+    let start = Instant::now();
+    let duration = Duration::from_secs(366 * 24 * 60 * 60);
+    let expected = start
+        .checked_add(duration)
+        .expect("invariant: one year fits in the platform instant range");
+    assert_eq!(
+        super::deadline_after(start, duration)
+            .expect("invariant: the same representable deadline must be accepted"),
+        expected
+    );
 }
 
-#[cfg(not(loom))]
 #[test]
-fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
-    let state = Arc::new(TimerState::new());
-    let retained_probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
-    let retained = callback_waker(&retained_probe);
+fn pal_timer_preserves_exact_century_plus_duration() {
+    const ONE_HUNDRED_YEARS: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
+    let duration = ONE_HUNDRED_YEARS
+        .checked_add(Duration::from_secs(1))
+        .expect("invariant: adding one second to one hundred years cannot overflow Duration");
+    let start = Instant::now();
+    let expected = start
+        .checked_add(duration)
+        .expect("invariant: supported targets represent a timer beyond one hundred years");
+    assert_eq!(
+        super::deadline_after(start, duration)
+            .expect("invariant: a representable deadline must retain the requested duration"),
+        expected
+    );
+}
 
-    state.register_waker(&retained);
-    state.register_waker(&retained);
-    assert_eq!(
-        retained_probe.counts(),
-        CallbackCounts {
-            clones: 2,
-            wakes: 0,
-            drops: 1,
-        }
-    );
-    assert_eq!(registered_waker_count(&state), 1);
-    assert!(registered_waker_matches(&state, &retained));
+#[test]
+fn pal_timer_cancellation_before_wait_releases_the_waker() {
+    let timer =
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range");
+    let deadline = timer.deadline;
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let callback = CallbackFixture::new(&state);
 
-    let rejected_probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
-    let rejected = callback_waker(&rejected_probe);
-    rejected_probe.panic_on_clone.store(true, Ordering::Relaxed);
-    expect_callback_panic(|| state.register_waker(&rejected));
-    rejected_probe
-        .panic_on_clone
-        .store(false, Ordering::Relaxed);
-    assert!(!state.waker.is_poisoned());
-    assert_eq!(registered_waker_count(&state), 1);
-    assert!(registered_waker_matches(&state, &retained));
-    assert!(!registered_waker_matches(&state, &rejected));
-    assert_eq!(
-        rejected_probe.counts(),
-        CallbackCounts {
-            clones: 1,
-            wakes: 0,
-            drops: 0,
-        }
-    );
+    state.register_waker(callback.waker());
+    let probe = callback.into_registered_probe(&state);
+    drop(timer);
+    assert_eq!(Arc::strong_count(&probe), 2);
 
-    let replacement_probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
-    let replacement = callback_waker(&replacement_probe);
-    retained_probe.panic_on_drop.store(true, Ordering::Relaxed);
-    expect_callback_panic(|| state.register_waker(&replacement));
-    retained_probe.panic_on_drop.store(false, Ordering::Relaxed);
-    assert!(!state.waker.is_poisoned());
-    assert_eq!(registered_waker_count(&state), 1);
-    assert!(registered_waker_matches(&state, &replacement));
-    assert!(!registered_waker_matches(&state, &retained));
+    state
+        .spawn_sleeper(deadline)
+        .expect("real sleeper must spawn after pre-cancellation");
     assert_eq!(
-        retained_probe.counts(),
-        CallbackCounts {
-            clones: 2,
-            wakes: 0,
-            drops: 2,
-        }
+        receive_event_before(&events, event_deadline()),
+        SleeperEvent::Exited
     );
-    assert_eq!(
-        replacement_probe.counts(),
-        CallbackCounts {
-            clones: 1,
-            wakes: 0,
-            drops: 0,
-        }
-    );
+    CallbackFixture::assert_cleared(&state, &probe);
+}
 
-    state.complete();
-    assert!(state.is_completed());
-    assert_eq!(registered_waker_count(&state), 0);
-    assert_eq!(
-        replacement_probe.counts(),
-        CallbackCounts {
-            clones: 1,
-            wakes: 1,
-            drops: 0,
-        }
+#[test]
+fn pal_timer_drop_during_wait_is_nonblocking() {
+    let mut timer = Box::pin(
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
     );
-    drop(retained);
-    drop(rejected);
-    drop(replacement);
-    assert_eq!(
-        retained_probe.counts(),
-        CallbackCounts {
-            clones: 2,
-            wakes: 0,
-            drops: 3,
-        }
-    );
-    assert_eq!(
-        rejected_probe.counts(),
-        CallbackCounts {
-            clones: 1,
-            wakes: 0,
-            drops: 1,
-        }
-    );
-    assert_eq!(
-        replacement_probe.counts(),
-        CallbackCounts {
-            clones: 1,
-            wakes: 1,
-            drops: 1,
-        }
-    );
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let deadline = event_deadline();
+    let callback = CallbackFixture::new(&state);
 
-    let wake_state = Arc::new(TimerState::new());
-    let wake_probe = Arc::new(CallbackProbe::new(Arc::clone(&wake_state)));
-    let wake = callback_waker(&wake_probe);
-    wake_state.register_waker(&wake);
-    wake_probe.panic_on_wake.store(true, Ordering::Relaxed);
-    expect_callback_panic(|| wake_state.complete());
-    wake_probe.panic_on_wake.store(false, Ordering::Relaxed);
-    assert!(!wake_state.waker.is_poisoned());
-    assert!(wake_state.is_completed());
-    assert_eq!(registered_waker_count(&wake_state), 0);
-    assert_eq!(
-        wake_probe.counts(),
-        CallbackCounts {
-            clones: 1,
-            wakes: 1,
-            drops: 0,
-        }
-    );
+    {
+        let mut context = Context::from_waker(callback.waker());
+        assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    }
+    receive_until(&events, SleeperEvent::Waiting, deadline);
+    let probe = callback.into_registered_probe(&state);
 
-    drop(wake);
-    let completed_counts = wake_probe.counts();
-    assert_eq!(
-        completed_counts,
-        CallbackCounts {
-            clones: 1,
-            wakes: 1,
-            drops: 1,
-        }
+    let registry = state
+        .waker
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let (dropped_tx, dropped_rx) = std::sync::mpsc::sync_channel(0);
+    let dropper = std::thread::spawn(move || {
+        drop(timer);
+        dropped_tx
+            .send(())
+            .expect("drop observer must remain connected");
+    });
+    dropped_rx
+        .recv_timeout(EVENT_TIMEOUT)
+        .expect("timer drop must not wait for the waker registry");
+    drop(registry);
+    dropper.join().expect("timer drop thread must exit");
+    receive_until(&events, SleeperEvent::Exited, deadline);
+    CallbackFixture::assert_cleared(&state, &probe);
+}
+
+#[test]
+fn pal_timer_spurious_unpark_reparks_the_sleeper() {
+    let mut timer = Box::pin(
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
     );
-    wake_state.complete();
-    assert!(wake_state.is_completed());
-    assert_eq!(registered_waker_count(&wake_state), 0);
-    assert_eq!(wake_probe.counts(), completed_counts);
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    let deadline = event_deadline();
+
+    assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    receive_until(&events, SleeperEvent::Waiting, deadline);
+    state
+        .sleeper_thread
+        .get()
+        .expect("invariant: waiting follows sleeper publication")
+        .unpark();
+    receive_until(&events, SleeperEvent::Waiting, deadline);
+    assert!(!state.is_completed());
+
+    drop(timer);
+    receive_until(&events, SleeperEvent::Exited, deadline);
+}
+
+#[test]
+fn pal_timer_repeated_ready_polls_release_the_waker() {
+    let mut timer = Box::pin(
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
+    );
+    let state = Arc::clone(&timer.state);
+    let events = observe_sleeper(&state);
+    let deadline = event_deadline();
+    let callback = CallbackFixture::new(&state);
+
+    {
+        let mut context = Context::from_waker(callback.waker());
+        assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
+    }
+    receive_until(&events, SleeperEvent::Waiting, deadline);
+    let probe = callback.into_registered_probe(&state);
+
+    timer.as_mut().get_mut().deadline = Instant::now();
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    for _ in 0..2 {
+        assert!(matches!(
+            timer.as_mut().poll(&mut context),
+            Poll::Ready(Ok(()))
+        ));
+    }
+    receive_until(&events, SleeperEvent::Exited, deadline);
+    CallbackFixture::assert_cleared(&state, &probe);
 }
 
 #[test]
 fn pal_timer_spawn_failure_preserves_error_and_releases_the_waker() {
     let state = Arc::new(TimerState::new());
-    let probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
-    let task_waker = callback_waker(&probe);
-
-    state.register_waker(&task_waker);
-    drop(task_waker);
-    assert_eq!(Arc::strong_count(&probe), 2);
+    let callback = CallbackFixture::new(&state);
+    state.register_waker(callback.waker());
+    let probe = callback.into_registered_probe(&state);
 
     let error = state
         .finish_spawn(Err(std::io::Error::from_raw_os_error(i32::MAX)))
         .expect_err("injected worker spawn failure must remain an error");
-
     assert_eq!(error.raw_os_error(), Some(i32::MAX));
     assert!(state.is_completed());
-    assert_eq!(registered_waker_count(&state), 0);
-    assert_eq!(Arc::strong_count(&probe), 1);
-    assert_eq!(probe.counts().drops, 2);
+    CallbackFixture::assert_cleared(&state, &probe);
 }
 
-#[path = "tests/cancellation.rs"]
-mod cancellation;
+#[cfg(loom)]
+#[test]
+fn loom_timer_cancellation_publication_has_no_lost_wakeup() {
+    let mut model = loom::model::Builder::new();
+    model.preemption_bound = Some(4);
+    model.check(|| {
+        let state = Arc::new(TimerState::new());
+        state.register_waker(std::task::Waker::noop());
+        let worker_state = Arc::clone(&state);
+        let deadline = Instant::now()
+            .checked_add(SLEEPER_DEADLINE)
+            .expect("invariant: one minute fits in the platform instant range");
+        let worker = loom::thread::spawn(move || worker_state.run_sleeper(deadline));
+
+        state.cancel();
+        worker
+            .join()
+            .expect("timer worker must observe cancellation");
+        assert_eq!(
+            super::lifecycle(state.status.load(loom::sync::atomic::Ordering::Acquire)),
+            super::TIMER_CANCELLED
+        );
+        assert!(
+            state
+                .waker
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_none()
+        );
+    });
+}
+
+#[cfg(loom)]
+#[test]
+fn loom_timer_completion_and_registration_release_the_waker() {
+    let mut model = loom::model::Builder::new();
+    model.preemption_bound = Some(4);
+    model.check(|| {
+        let state = Arc::new(TimerState::new());
+        let registering = Arc::clone(&state);
+        let completing = Arc::clone(&state);
+        let register = loom::thread::spawn(move || {
+            registering.register_waker(std::task::Waker::noop());
+            if registering.is_completed() {
+                registering.clear_waker();
+            }
+        });
+        let complete = loom::thread::spawn(move || completing.complete());
+
+        register.join().expect("registration must finish");
+        complete.join().expect("completion must finish");
+        assert!(state.is_completed());
+        assert!(
+            state
+                .waker
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_none()
+        );
+    });
+}

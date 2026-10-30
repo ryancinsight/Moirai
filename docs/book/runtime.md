@@ -5,12 +5,16 @@ task scheduling and parallel work-stealing into a single unified executor.
 
 ## Building the Runtime
 
-```rust,ignore
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use moirai::Moirai;
 
 let runtime = Moirai::builder()
     .worker_threads(4)
     .build()?;
+# Ok(())
+# }
 ```
 
 `Moirai::builder()` returns a `MoiraiBuilder` that accepts:
@@ -34,16 +38,29 @@ Moirai supports three execution contexts:
 | Context | API | Use Case |
 |---------|-----|---------|
 | CPU-bound parallel | `spawn_fn` | Physics kernels, matrix ops, image processing |
-| Async tasks | `spawn` (async block) | I/O, network, file, coordinated workflows |
+| Async tasks | `spawn_async` | I/O, network, file, coordinated workflows |
 | Blocking | `spawn_blocking` | Synchronous I/O or FFI that must not block async workers |
 
 ## Graceful Shutdown
 
-```rust,ignore
-runtime.shutdown();  // wait for all tasks to drain
+```rust,edition2024
+# extern crate moirai;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let runtime = moirai::Moirai::new()?;
+runtime.shutdown();
+assert!(runtime.is_shutting_down());
+# Ok(())
+# }
 ```
 
-The runtime drops all worker threads and their associated resources.
+`shutdown()` rejects new work, requests cancellation of pending async tasks at
+their next poll boundary, and joins the workers. Running synchronous and
+blocking closures are not preempted and finish before the call returns.
+
+`shutdown_timeout(duration)` performs the same shutdown but bounds how long the
+caller waits. If the deadline expires, the shared drain continues. Dropping the
+runtime requests shutdown without joining it. The timeout does not make
+non-yielding work preemptible.
 
 ## Performance Characteristics
 

@@ -21,8 +21,12 @@ let total = handle
 assert_eq!(total, 55);
 ```
 
-`join()` returns a nested result: the outer reports whether the task completed,
-the inner whether it errored. The runnable form of this is
+`join()` and awaiting the handle return the same nested value. The outer
+`Option` reports whether an attached result remained available; the inner
+`Result` reports the task outcome. Cancellation is
+`Some(Err(TaskError::Cancelled))`, while `None` means the handle was detached or
+its result was already consumed by polling. Dropping a handle alone does not
+cancel its task. The runnable form of the blocking path is
 [`examples/basic_usage.rs`](examples/basic_usage.rs).
 
 ## What this crate is
