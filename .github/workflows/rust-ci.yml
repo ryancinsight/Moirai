@@ -500,8 +500,7 @@ jobs:
           cargo miri test --locked -p moirai-executor --lib --
           hybrid:: schedule::job schedule::queue
           schedule::runtime::tests::scope registry::tests:: registry::state
-          registry::token_tests::terminal_receipts_outlive_owned_and_scheduled_state
-          registry::token_tests::job_cleanup_contains_drop_notification_panics
+          registry::token_tests::
           registry::waiter_tests::raw_waker_
           registry::waiter_tests::discarded_raw_waker_
           registry::fan_out::tests::
