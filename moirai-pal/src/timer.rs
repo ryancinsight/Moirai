@@ -3,12 +3,32 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
-use std::sync::{
-    Arc, Condvar, Mutex,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+
+#[cfg(loom)]
+use loom::{
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
+    thread,
+};
+#[cfg(not(loom))]
+use std::{
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
+    thread,
+};
+
+const TIMER_PENDING: u8 = 0;
+const TIMER_COMPLETED: u8 = 1;
+const TIMER_CANCELLED: u8 = 2;
+const TIMER_LIFECYCLE_MASK: u8 = 3;
+const TIMER_SLEEPER_PUBLISHED: u8 = 4;
 
 /// Platform-agnostic one-shot timer future.
 ///
@@ -48,11 +68,9 @@ impl Timer {
 }
 
 struct TimerState {
-    cancelled: AtomicBool,
-    completed: AtomicBool,
+    status: AtomicU8,
     sleeper_started: AtomicBool,
-    sleeper_wait: Condvar,
-    sleeper_wait_lock: Mutex<()>,
+    sleeper_thread: OnceLock<thread::Thread>,
     #[cfg(test)]
     sleeper_events: std::sync::OnceLock<std::sync::mpsc::SyncSender<SleeperEvent>>,
     waker: Mutex<Option<std::task::Waker>>,
@@ -68,11 +86,9 @@ enum SleeperEvent {
 impl TimerState {
     fn new() -> Self {
         Self {
-            cancelled: AtomicBool::new(false),
-            completed: AtomicBool::new(false),
+            status: AtomicU8::new(TIMER_PENDING),
             sleeper_started: AtomicBool::new(false),
-            sleeper_wait: Condvar::new(),
-            sleeper_wait_lock: Mutex::new(()),
+            sleeper_thread: OnceLock::new(),
             #[cfg(test)]
             sleeper_events: std::sync::OnceLock::new(),
             waker: Mutex::new(None),
@@ -92,9 +108,8 @@ impl TimerState {
         let Some(observer) = self.sleeper_events.get() else {
             return;
         };
-        // The worker can publish while holding `sleeper_wait_lock`, so the
-        // observer must never block it. Disconnect means test teardown; saturation
-        // fails the test rather than silently losing the observed transition.
+        // The observer must never block the worker. Disconnect means test
+        // teardown; saturation fails rather than losing a transition.
         if let Err(undelivered) = observer.try_send(event) {
             assert!(
                 matches!(undelivered, std::sync::mpsc::TrySendError::Disconnected(_)),
@@ -120,35 +135,88 @@ impl TimerState {
     }
 
     fn complete(&self) {
-        let wake = if !self.cancelled.load(Ordering::Acquire)
-            && !self.completed.swap(true, Ordering::AcqRel)
-        {
-            self.waker
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .take()
-        } else {
-            None
-        };
+        if self.transition_from_pending(TIMER_COMPLETED).is_err() {
+            self.clear_waker();
+            return;
+        }
+        let wake = self
+            .waker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
         if let Some(wake) = wake {
             wake.wake();
         }
     }
 
-    fn cancel(&self) {
-        let guard = self
-            .sleeper_wait_lock
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        self.cancelled.store(true, Ordering::Release);
-        self.sleeper_wait.notify_one();
-        drop(guard);
+    fn is_completed(&self) -> bool {
+        lifecycle(self.status.load(Ordering::Acquire)) == TIMER_COMPLETED
+    }
+
+    fn finish_poll(&self) {
+        let observed = self
+            .transition_from_pending(TIMER_COMPLETED)
+            .unwrap_or_else(|current| current);
+        self.clear_waker();
+        self.unpark_sleeper(observed);
+    }
+
+    fn clear_waker(&self) {
         let removed = self
             .waker
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .take();
         drop(removed);
+    }
+
+    fn cancel(&self) {
+        let observed = self
+            .transition_from_pending(TIMER_CANCELLED)
+            .unwrap_or_else(|current| current);
+        self.unpark_sleeper(observed);
+    }
+
+    fn transition_from_pending(&self, next: u8) -> Result<u8, u8> {
+        self.status
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                (lifecycle(current) == TIMER_PENDING)
+                    .then_some((current & !TIMER_LIFECYCLE_MASK) | next)
+            })
+    }
+
+    fn unpark_sleeper(&self, observed: u8) {
+        if observed & TIMER_SLEEPER_PUBLISHED != 0 {
+            self.sleeper_thread
+                .get()
+                .expect("invariant: publication bit follows sleeper initialization")
+                .unpark();
+        }
+    }
+
+    fn run_sleeper(&self, deadline: Instant) {
+        self.sleeper_thread
+            .set(thread::current())
+            .expect("invariant: one worker owns each timer state");
+        self.status
+            .fetch_or(TIMER_SLEEPER_PUBLISHED, Ordering::AcqRel);
+
+        loop {
+            if lifecycle(self.status.load(Ordering::Acquire)) != TIMER_PENDING {
+                self.clear_waker();
+                break;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                self.complete();
+                break;
+            };
+            #[cfg(test)]
+            self.publish_sleeper_event(SleeperEvent::Waiting);
+            park_timeout(remaining);
+        }
+
+        #[cfg(test)]
+        self.publish_sleeper_event(SleeperEvent::Exited);
     }
 
     fn spawn_sleeper(self: &Arc<Self>, deadline: Instant) -> io::Result<()> {
@@ -161,37 +229,31 @@ impl TimerState {
         }
 
         let state = Arc::clone(self);
-        match std::thread::Builder::new()
+        match thread::Builder::new()
             .name("moirai-pal-timer".to_owned())
-            .spawn(move || {
-                let mut guard = state
-                    .sleeper_wait_lock
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
-                while !state.cancelled.load(Ordering::Acquire) {
-                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                        break;
-                    };
-                    #[cfg(test)]
-                    state.publish_sleeper_event(SleeperEvent::Waiting);
-                    let (next, _) = state
-                        .sleeper_wait
-                        .wait_timeout(guard, remaining)
-                        .unwrap_or_else(|error| error.into_inner());
-                    guard = next;
-                }
-                drop(guard);
-                state.complete();
-                #[cfg(test)]
-                state.publish_sleeper_event(SleeperEvent::Exited);
-            }) {
+            .spawn(move || state.run_sleeper(deadline))
+        {
             Ok(_) => Ok(()),
             Err(error) => {
-                self.completed.store(true, Ordering::Release);
+                self.finish_poll();
                 Err(error)
             }
         }
     }
+}
+
+fn lifecycle(status: u8) -> u8 {
+    status & TIMER_LIFECYCLE_MASK
+}
+
+#[cfg(not(loom))]
+fn park_timeout(duration: Duration) {
+    thread::park_timeout(duration);
+}
+
+#[cfg(loom)]
+fn park_timeout(_: Duration) {
+    thread::park();
 }
 
 impl Drop for Timer {
@@ -205,19 +267,17 @@ impl Future for Timer {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let now = Instant::now();
-        if now >= self.deadline || self.state.completed.load(Ordering::Acquire) {
-            self.state.completed.store(true, Ordering::Release);
-            self.state.cancel();
+        if now >= self.deadline || self.state.is_completed() {
+            self.state.finish_poll();
             Poll::Ready(Ok(()))
         } else {
             self.state.register_waker(cx.waker());
             if let Err(error) = self.state.spawn_sleeper(self.deadline) {
-                self.state.cancel();
                 return Poll::Ready(Err(error));
             }
 
-            if self.state.completed.load(Ordering::Acquire) {
-                self.state.cancel();
+            if self.state.is_completed() {
+                self.state.finish_poll();
                 Poll::Ready(Ok(()))
             } else {
                 Poll::Pending
