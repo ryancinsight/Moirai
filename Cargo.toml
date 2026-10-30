@@ -117,10 +117,10 @@ opt-level = 1
 debug = "line-tables-only"
 
 [workspace.lints.rust]
-# `loom` and `fuzzing` are supplied by verification tools rather than Cargo.
+# Tools select interleaving models, fuzz targets, and QUIC trace instrumentation.
 # Declared workspace-wide because a member cannot carry its own `[lints.rust]`
 # table alongside `lints.workspace = true`.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(fuzzing)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(fuzzing)', 'cfg(quic_observation)'] }
 
 [workspace.lints.clippy]
 pedantic = { level = "deny", priority = -1 }
