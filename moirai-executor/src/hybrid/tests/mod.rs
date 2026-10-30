@@ -18,3 +18,4 @@ mod shutdown_reentry;
 mod spawn;
 mod sync_completion_callbacks;
 mod wait;
+mod worker_failure;

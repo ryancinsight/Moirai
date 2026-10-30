@@ -190,6 +190,8 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     pub(super) shutdown: CacheAligned<AtomicBool>,
     /// Coordinates the single cold-path owner that joins scheduler workers.
     pub(super) shutdown_join_state: AtomicU8,
+    /// Identifies the external caller that owns worker joining.
+    pub(super) shutdown_joiner: OnceLock<thread::ThreadId>,
     pub(super) join_waiters: CacheAligned<AtomicUsize>,
     pub(super) wait_lock: Mutex<()>,
     pub(super) wait_signal: Condvar,

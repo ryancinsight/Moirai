@@ -66,6 +66,10 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             )
             .is_ok()
         {
+            self.inner
+                .shutdown_joiner
+                .set(thread::current().id())
+                .expect("invariant: shutdown join owner is elected once");
             self.join_worker_sets();
             {
                 // The completion predicate and waiter transition share this
@@ -79,6 +83,15 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }
             self.inner.wait_signal.notify_all();
         } else {
+            if self
+                .inner
+                .shutdown_joiner
+                .get()
+                .is_some_and(|joiner| *joiner == thread::current().id())
+            {
+                return;
+            }
+
             let mut guard = lock_mutex(&self.inner.wait_lock);
             while self.inner.shutdown_join_state.load(Ordering::Acquire) != JOIN_COMPLETE {
                 guard = self
