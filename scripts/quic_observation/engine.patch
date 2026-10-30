@@ -175,7 +175,7 @@ diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
 +    sent: Instant,
 +}
 +
-@@ -90,0 +98,62 @@
+@@ -90,0 +98,65 @@
 +
 +    fn trace_state(&self) -> [u64; 6] {
 +        [
@@ -215,19 +215,22 @@ diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
 +        })
 +    }
 +
-+    fn trace_ack(
++    fn trace_callback(
 +        &self,
 +        trace: CallbackTrace,
++        callback: &'static str,
 +        outcome: &'static str,
 +        bytes: u64,
 +        app_limited: bool,
 +        rtt_ns: u64,
++        persistent: bool,
++        lost_bytes: u64,
 +    ) {
 +        let recovery_after = self.trace_recovery(trace.now, trace.sent);
 +        tracing::trace!(target: "quinn_proto::observation",
-+            callback = "ack", outcome, bytes, app_limited, rtt_ns,
++            callback, outcome, bytes, app_limited, rtt_ns,
 +            sent_age_ns = Self::trace_nanos(trace.now.saturating_duration_since(trace.sent)),
-+            persistent = false, lost_bytes = 0_u64,
++            persistent, lost_bytes,
 +            recovery_active_before = trace.recovery_before.0,
 +            recovery_age_ns_before = trace.recovery_before.1,
 +            sent_after_recovery_before = trace.recovery_before.2,
@@ -238,40 +241,81 @@ diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
 +            state_after = ?self.trace_state(),
 +            "engine cubic callback");
 +    }
-@@ -101,0 +171 @@
+@@ -101,0 +174 @@
 +        let trace = self.trace_before(now, sent);
-@@ -107,0 +178,14 @@
+@@ -107,0 +181,17 @@
 +            if let Some(trace) = trace {
 +                let outcome = if app_limited {
 +                    "app_limited"
 +                } else {
 +                    "recovery"
 +                };
-+                self.trace_ack(
++                self.trace_callback(
 +                    trace,
++                    "ack",
 +                    outcome,
 +                    bytes,
 +                    app_limited,
 +                    Self::trace_nanos(rtt.get()),
++                    false,
++                    0,
 +                );
 +            }
-@@ -110,0 +195,5 @@
+@@ -110,0 +201,5 @@
 +        let outcome = if self.window < self.ssthresh {
 +            "slow_start"
 +        } else {
 +            "avoidance"
 +        };
-@@ -163,0 +253,9 @@
-+        }
+@@ -164,0 +260,12 @@
 +        if let Some(trace) = trace {
-+            self.trace_ack(
++            self.trace_callback(
 +                trace,
++                "ack",
 +                outcome,
 +                bytes,
 +                app_limited,
 +                Self::trace_nanos(rtt.get()),
++                false,
++                0,
 +            );
-@@ -279,0 +378,174 @@
++        }
+@@ -173,0 +281 @@
++        let trace = self.trace_before(now, sent);
+@@ -178,0 +287,12 @@
++            if let Some(trace) = trace {
++                self.trace_callback(
++                    trace,
++                    "congestion",
++                    "recovery",
++                    0,
++                    false,
++                    0,
++                    is_persistent_congestion,
++                    _lost_bytes,
++                );
++            }
+@@ -180,0 +301,6 @@
++
++        let outcome = if is_persistent_congestion {
++            "persistent"
++        } else {
++            "loss"
++        };
+@@ -214,0 +341,12 @@
++        if let Some(trace) = trace {
++            self.trace_callback(
++                trace,
++                "congestion",
++                outcome,
++                0,
++                false,
++                0,
++                is_persistent_congestion,
++                _lost_bytes,
++            );
++        }
+@@ -279,0 +418,338 @@
 +    use crate::connection::observation::trace_event;
 +
 +    fn event_fields(event: &str) -> std::collections::BTreeMap<&str, &str> {
@@ -328,6 +372,59 @@ diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
 +            })
 +    }
 +
++    struct ExpectedCallback {
++        callback: &'static str,
++        outcome: &'static str,
++        bytes: u64,
++        app_limited: bool,
++        rtt_ns: u64,
++        persistent: bool,
++        lost_bytes: u64,
++        now: Instant,
++        sent: Instant,
++        state_before: [u64; 6],
++        recovery_before: (bool, u64, bool),
++    }
++
++    fn assert_callback(cubic: &Cubic, event: &str, expected: ExpectedCallback) {
++        let recovery_after = recovery(cubic, expected.now, expected.sent);
++        let expected_fields = [
++            ("callback", format!("\"{}\"", expected.callback)),
++            ("outcome", format!("\"{}\"", expected.outcome)),
++            ("bytes", expected.bytes.to_string()),
++            ("app_limited", expected.app_limited.to_string()),
++            ("rtt_ns", expected.rtt_ns.to_string()),
++            (
++                "sent_age_ns",
++                expected
++                    .now
++                    .saturating_duration_since(expected.sent)
++                    .as_nanos()
++                    .to_string(),
++            ),
++            ("persistent", expected.persistent.to_string()),
++            ("lost_bytes", expected.lost_bytes.to_string()),
++            (
++                "recovery_active_before",
++                expected.recovery_before.0.to_string(),
++            ),
++            (
++                "recovery_age_ns_before",
++                expected.recovery_before.1.to_string(),
++            ),
++            (
++                "sent_after_recovery_before",
++                expected.recovery_before.2.to_string(),
++            ),
++            ("recovery_active_after", recovery_after.0.to_string()),
++            ("recovery_age_ns_after", recovery_after.1.to_string()),
++            ("sent_after_recovery_after", recovery_after.2.to_string()),
++            ("state_before", format!("{:?}", expected.state_before)),
++            ("state_after", format!("{:?}", state(cubic))),
++        ];
++        assert_fields(event, &expected_fields);
++    }
++
 +    fn ack(
 +        cubic: &mut Cubic,
 +        rtt: &RttEstimator,
@@ -348,31 +445,71 @@ diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
 +            "avoidance"
 +        };
 +        let event = trace_event(|| cubic.on_ack(now, sent, bytes, app_limited, rtt));
-+        let expected = [
-+            ("callback", "\"ack\"".into()),
-+            ("outcome", format!("\"{outcome}\"")),
-+            ("bytes", bytes.to_string()),
-+            ("app_limited", app_limited.to_string()),
-+            ("rtt_ns", rtt.get().as_nanos().to_string()),
-+            ("sent_age_ns", now.saturating_duration_since(sent).as_nanos().to_string()),
-+            ("persistent", false.to_string()),
-+            ("lost_bytes", 0_u64.to_string()),
-+            ("recovery_active_before", epoch_before.0.to_string()),
-+            ("recovery_age_ns_before", epoch_before.1.to_string()),
-+            ("sent_after_recovery_before", epoch_before.2.to_string()),
-+            ("recovery_active_after", recovery(cubic, now, sent).0.to_string()),
-+            ("recovery_age_ns_after", recovery(cubic, now, sent).1.to_string()),
-+            ("sent_after_recovery_after", recovery(cubic, now, sent).2.to_string()),
-+            ("state_before", format!("{before:?}")),
-+            ("state_after", format!("{:?}", state(cubic))),
-+        ];
-+        assert_fields(&event, &expected);
++        assert_callback(
++            cubic,
++            &event,
++            ExpectedCallback {
++                callback: "ack",
++                outcome,
++                bytes,
++                app_limited,
++                rtt_ns: u64::try_from(rtt.get().as_nanos())
++                    .expect("invariant: test RTT fits u64 nanoseconds"),
++                persistent: false,
++                lost_bytes: 0,
++                now,
++                sent,
++                state_before: before,
++                recovery_before: epoch_before,
++            },
++        );
 +    }
 +
 +    #[test]
 +    #[should_panic(expected = "bytes")]
 +    fn callback_fields_reject_numeric_prefix_matches() {
-+        assert_fields("engine cubic callback bytes=12000", &[("bytes", "1200".into())]);
++        assert_fields(
++            "engine cubic callback bytes=12000",
++            &[("bytes", "1200".into())],
++        );
++    }
++
++    fn congestion(
++        cubic: &mut Cubic,
++        now: Instant,
++        sent: Instant,
++        persistent: bool,
++        lost_bytes: u64,
++    ) {
++        let before = state(cubic);
++        let epoch_before = recovery(cubic, now, sent);
++        let outcome = if epoch_before.0 && !epoch_before.2 {
++            "recovery"
++        } else if persistent {
++            "persistent"
++        } else {
++            "loss"
++        };
++        let event = trace_event(|| {
++            cubic.on_congestion_event(now, sent, persistent, lost_bytes);
++        });
++        assert_callback(
++            cubic,
++            &event,
++            ExpectedCallback {
++                callback: "congestion",
++                outcome,
++                bytes: 0,
++                app_limited: false,
++                rtt_ns: 0,
++                persistent,
++                lost_bytes,
++                now,
++                sent,
++                state_before: before,
++                recovery_before: epoch_before,
++            },
++        );
 +    }
 +
 +    fn cubic(now: Instant) -> Cubic {
@@ -445,4 +582,75 @@ diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
 +            assert_eq!((retained.window, retained.cubic_state.cwnd_inc), expected);
 +            assert_eq!(retained.recovery_start_time, Some(now));
 +        }
++    }
++
++    #[test]
++    fn callback_congestion_recovery_guard_precedes_persistence() {
++        let start = Instant::now();
++        let now = start + Duration::from_millis(2);
++        let mut value = cubic(start);
++        value.recovery_start_time = Some(start);
++        let unchanged = state(&value);
++        for sent in [start - Duration::from_millis(1), start] {
++            congestion(&mut value, now, sent, true, 1_337);
++            assert_eq!(state(&value), unchanged);
++            assert_eq!(value.recovery_start_time, Some(start));
++        }
++    }
++
++    #[test]
++    fn callback_congestion_loss_branches_preserve_exact_state() {
++        let start = Instant::now();
++        let now = start + Duration::from_millis(2);
++        let sent = start + Duration::from_millis(1);
++
++        let mut ordinary = cubic(start);
++        ordinary.window = 12_000;
++        ordinary.cubic_state.w_max = 6_000.0;
++        ordinary.cubic_state.cwnd_inc = 1_001;
++        congestion(&mut ordinary, now, sent, false, 1_337);
++        assert_eq!(ordinary.window, 8_400);
++        assert_eq!(ordinary.ssthresh, 8_400);
++        assert_eq!(ordinary.current_mtu, 1_200);
++        assert_eq!(ordinary.cubic_state.w_max.to_bits(), 12_000.0_f64.to_bits());
++        assert_eq!(ordinary.cubic_state.cwnd_inc, 700);
++        assert!(ordinary.cubic_state.k.is_finite() && ordinary.cubic_state.k >= 0.0);
++        assert_eq!(ordinary.recovery_start_time, Some(now));
++        let ordinary_k = ordinary.cubic_state.k.to_bits();
++
++        let mut fast = cubic(start);
++        fast.window = 9_600;
++        fast.cubic_state.w_max = 12_000.0;
++        fast.cubic_state.cwnd_inc = 10;
++        congestion(&mut fast, now, sent, false, 2_674);
++        assert_eq!((fast.window, fast.ssthresh), (6_720, 6_720));
++        assert_eq!(fast.cubic_state.w_max.to_bits(), 8_160.0_f64.to_bits());
++        assert_eq!(fast.cubic_state.cwnd_inc, 7);
++        assert!(fast.cubic_state.k.is_finite() && fast.cubic_state.k >= 0.0);
++
++        let mut clamped = cubic(start);
++        clamped.window = 2_401;
++        clamped.cubic_state.w_max = 0.0;
++        clamped.cubic_state.cwnd_inc = 1;
++        congestion(&mut clamped, now, sent, false, 4_011);
++        assert_eq!((clamped.window, clamped.ssthresh), (2_400, 2_400));
++        assert_eq!(clamped.cubic_state.w_max.to_bits(), 2_401.0_f64.to_bits());
++        assert_eq!(clamped.cubic_state.cwnd_inc, 0);
++        assert!(clamped.cubic_state.k.is_finite() && clamped.cubic_state.k >= 0.0);
++
++        let mut persistent = cubic(start);
++        persistent.window = 12_000;
++        persistent.cubic_state.w_max = 6_000.0;
++        persistent.cubic_state.cwnd_inc = 1_001;
++        congestion(&mut persistent, now, sent, true, 5_348);
++        assert_eq!(persistent.window, 2_400);
++        assert_eq!(persistent.ssthresh, 5_880);
++        assert_eq!(persistent.current_mtu, 1_200);
++        assert_eq!(persistent.cubic_state.k.to_bits(), ordinary_k);
++        assert_eq!(
++            persistent.cubic_state.w_max.to_bits(),
++            8_400.0_f64.to_bits()
++        );
++        assert_eq!(persistent.cubic_state.cwnd_inc, 0);
++        assert_eq!(persistent.recovery_start_time, None);
 +    }
