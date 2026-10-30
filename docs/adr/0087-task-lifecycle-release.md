@@ -26,8 +26,10 @@ changes can trigger automatic publication.
 
 ## Decision
 
-Release every publishable workspace package at 0.12.0 as one dependency-closed
-unit and one annotated v0.12.0 source tag. QUIC and WebView inherit that version
+Workspace version: 0.12.0
+
+Release every publishable workspace package at that version as one dependency-closed
+unit and one matching annotated source tag. QUIC and WebView inherit that version
 for their first publication. Internal requirements and the unpublished Python,
 benchmark, and test consumers advance with the same source unit. The pinned
 cargo-release version step performs no upload or tag operation.
