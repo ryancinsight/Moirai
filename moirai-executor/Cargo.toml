@@ -31,8 +31,8 @@ proptest = { workspace = true }
 name = "blocking_lane"
 harness = false
 
-# loom model checker — only compiled under `--cfg loom` (see tests/loom_wake_handshake.rs).
-[target.'cfg(loom)'.dev-dependencies]
+# The production admission cell uses Loom atomics under `--cfg loom`.
+[target.'cfg(loom)'.dependencies]
 loom = { workspace = true }
 
 # Register the `loom` cfg so the gate stays warning-clean (it is set via
