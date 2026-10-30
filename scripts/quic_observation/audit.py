@@ -16,7 +16,10 @@ CUBIC_CALLBACK_FIELDS = {
 POINT_KINDS = {'engine recovery state', 'engine ack received',
                'engine crypto received', 'engine packet sent',
                'engine cubic callback', 'engine congestion blocked',
-               'engine pacing blocked'}
+               'engine pacing blocked', 'engine pacing transmit entry',
+               'engine pacing timeout', 'engine loss timeout'}
+DEADLINE_KINDS = {'engine pacing transmit entry', 'engine pacing timeout',
+                  'engine loss timeout'}
 # JSON limits match Capture in the pinned native collector.
 BUCKET_LIMITS = {'callback': 1_024, 'blocker': 256}
 
@@ -69,7 +72,10 @@ def point(value):
     require(type(value['fields']) is dict, 'invalid engine point fields')
     f = value['fields']
     if value['kind'] != 'engine recovery state':
-        if value['kind'] == 'engine cubic callback':
+        if value['kind'] in DEADLINE_KINDS:
+            require(set(f) == {'lateness_ns'} and within_bits(f['lateness_ns'], 64),
+                    'deadline metadata differs')
+        elif value['kind'] == 'engine cubic callback':
             cubic_callback(f)
         elif value['kind'] == 'engine congestion blocked':
             require(set(f) == {'flight_bytes', 'bytes_to_send', 'window_bytes'},
@@ -131,6 +137,53 @@ def point(value):
             'invalid selected PTO space')
     require(not f['pto'] or f['reason'] == 'pto' or any(r[0] == 0 for r in f['timers']),
             'PTO candidate without an armed loss timer')
+
+
+def deadline_summaries(state, sample, previous, previous_elapsed):
+    keys = {'deadline_observations', 'deadlines'}
+    require(keys.issubset(state), 'deadline extension is incomplete')
+    require(within_bits(state['deadline_observations'], 64) and
+            isinstance(state['deadlines'], list) and len(state['deadlines']) <= len(DEADLINE_KINDS),
+            'invalid deadline summary')
+    prior = {item['kind']: item for item in previous['deadlines']} if previous else {}
+    order = []
+    total = 0
+    for item in state['deadlines']:
+        require(type(item) is dict and set(item) == {
+            'kind', 'observations', 'max_lateness_ns', 'witness'},
+            'deadline summary differs')
+        kind = item['kind']
+        require(type(kind) is str and kind in DEADLINE_KINDS and kind not in order and
+                within_bits(item['observations'], 64) and item['observations'] > 0 and
+                within_bits(item['max_lateness_ns'], 64), 'invalid deadline summary')
+        order.append(kind)
+        witness = item['witness']
+        point(witness)
+        require(witness['kind'] == kind and witness['fields']['lateness_ns'] ==
+                item['max_lateness_ns'] and witness['elapsed_ns'] <= sample['elapsed_ns'],
+                'deadline witness contradicts its summary')
+        old = prior.get(kind)
+        if old:
+            require(old['observations'] <= item['observations'] and
+                    old['max_lateness_ns'] <= item['max_lateness_ns'],
+                    'deadline count or maximum decreases')
+            if old['observations'] == item['observations']:
+                require(old == item, 'deadline summary changes without observations')
+            elif old['max_lateness_ns'] == item['max_lateness_ns']:
+                require(old['witness'] == witness, 'deadline witness changes without a new maximum')
+            else:
+                require(witness['elapsed_ns'] >= previous_elapsed,
+                        'deadline maximum predates its observation')
+        elif previous_elapsed is not None:
+            require(witness['elapsed_ns'] >= previous_elapsed,
+                    'deadline summary appears before its observation')
+        total += item['observations']
+    require(total == state['deadline_observations'], 'deadline count differs from summaries')
+    if previous:
+        require(order[:len(previous['deadlines'])] == [item['kind'] for item in previous['deadlines']],
+                'deadline insertion order changes')
+        require(state['deadline_observations'] >= previous['deadline_observations'],
+                'deadline count decreases')
 
 
 def retained_buckets(state, sample, previous, previous_elapsed, history, group, prefix,
@@ -346,6 +399,10 @@ def state_trace(text, outcome: StateOutcome = StateOutcome.SUCCESS):
                 retained_buckets(state, sample, prior, previous_elapsed,
                                  callback_buckets if prefix == 'callback' else blocker_buckets,
                                  group, prefix, label, identity)
+        deadline_keys = {'deadline_observations', 'deadlines'}
+        prior_deadlines = previous if previous and deadline_keys.intersection(previous) else None
+        if deadline_keys.intersection(state) or prior_deadlines:
+            deadline_summaries(state, sample, prior_deadlines, previous_elapsed)
         previous = state
         previous_elapsed = sample['elapsed_ns']
         samples.append(sample)

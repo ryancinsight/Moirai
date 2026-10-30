@@ -1,10 +1,29 @@
 """Value-semantic QUIC observation decoder cases."""
+import copy
+import json
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from quic_observation.audit import StateOutcome, state_trace
 from quic_observation_support import native_evidence
+
+
+def deadline_sample(evidence):
+    stderr = evidence['runs'][0]['reports']['diagnostics']['client_stderr']
+    line = next(line for line in reversed(stderr.splitlines()) if 'protocol recovery observation' in line)
+    sample = json.JSONDecoder().raw_decode(line.split('protocol_recovery=', 1)[1])[0]
+    return {**sample, 'observation': 'sample'}, sample['elapsed_ns']
+
+
+def deadline_summary(at, kind='engine pacing timeout', count=1, maximum=3):
+    return {'kind': kind, 'observations': count, 'max_lateness_ns': maximum,
+            'witness': {'elapsed_ns': at, 'kind': kind, 'fields': {'lateness_ns': maximum}}}
+
+
+def encode_deadlines(values):
+    return '\n'.join(f'protocol recovery observation protocol_recovery={json.dumps(value)}' for value in values)
 
 
 class RealStateObservations(unittest.TestCase):
@@ -235,6 +254,76 @@ class RealStateObservations(unittest.TestCase):
         invalid[-1]['engine']['buckets'] = [final_bucket]
         with self.assertRaisesRegex(ValueError, 'final engine capture is not a full snapshot'):
             state_trace(encoded(invalid))
+
+    def test_deadline_summary_history_is_bounded_monotonic_and_source_witnessed(self):
+        sample, now = deadline_sample(self.evidence)
+        later = copy.deepcopy(sample)
+        later['elapsed_ns'] = now + 10
+        later['engine'].update({'deadline_observations': 2,
+                                'deadlines': [deadline_summary(now + 10, count=2, maximum=7)]})
+        decoded = state_trace(encode_deadlines([sample, later]), StateOutcome.FAILURE)
+        self.assertEqual((decoded['deadlines'][0]['max_lateness_ns'], decoded['deadline_observations']), (7, 2))
+
+        first = copy.deepcopy(sample)
+        first['engine'].update({'deadline_observations': 1, 'deadlines': [deadline_summary(now)]})
+        second = copy.deepcopy(later)
+        second['engine'].update({'deadline_observations': 3, 'deadlines': [
+            deadline_summary(now + 10, count=2, maximum=7),
+            deadline_summary(now + 10, 'engine loss timeout', 1, 0)]})
+        mixed = copy.deepcopy(first)
+        mixed['engine'] = None
+        self.assertEqual(state_trace(encode_deadlines([mixed, first, second]),
+                                     StateOutcome.FAILURE)['deadline_observations'], 3)
+
+    def test_deadline_summary_rejects_malformed_and_contradictory_history(self):
+        base, now = deadline_sample(self.evidence)
+        base['engine'].update({'deadline_observations': 1, 'deadlines': [deadline_summary(now)]})
+        for path in ('deadline_observations', 'observations', 'max_lateness_ns', 'lateness_ns'):
+            invalid = copy.deepcopy(base)
+            if path == 'deadline_observations':
+                invalid['engine'][path] = True
+            elif path == 'lateness_ns':
+                invalid['engine']['deadlines'][0]['witness']['fields'][path] = True
+            else:
+                invalid['engine']['deadlines'][0][path] = True
+            with self.subTest(boolean=path), self.assertRaises(ValueError):
+                state_trace(encode_deadlines([invalid]), StateOutcome.FAILURE)
+        for missing in ('deadline_observations', 'deadlines'):
+            invalid = copy.deepcopy(base)
+            invalid['engine'].pop(missing)
+            with self.subTest(missing=missing), self.assertRaisesRegex(
+                    ValueError, 'extension is incomplete'):
+                state_trace(encode_deadlines([invalid]), StateOutcome.FAILURE)
+        for field, value in (('kind', 'engine loss timeout'),
+                             ('maximum', 4), ('elapsed_ns', now + 1)):
+            invalid = copy.deepcopy(base)
+            target = invalid['engine']['deadlines'][0]
+            if field != 'maximum':
+                target = target['witness']
+            target['max_lateness_ns' if field == 'maximum' else field] = value
+            with self.subTest(witness=field), self.assertRaisesRegex(ValueError, 'witness'):
+                state_trace(encode_deadlines([invalid]), StateOutcome.FAILURE)
+        later = copy.deepcopy(base)
+        later['elapsed_ns'] = now + 1
+        later['engine']['deadline_observations'] = 2
+        later['engine']['deadlines'][0].update({'observations': 2, 'max_lateness_ns': 2})
+        later['engine']['deadlines'][0]['witness'].update({'elapsed_ns': now + 1})
+        later['engine']['deadlines'][0]['witness']['fields']['lateness_ns'] = 2
+        with self.assertRaisesRegex(ValueError, 'count or maximum decreases'):
+            state_trace(encode_deadlines([base, later]), StateOutcome.FAILURE)
+        earlier = copy.deepcopy(base)
+        earlier['engine']['deadline_observations'] = 2
+        earlier['engine']['deadlines'][0]['observations'] = 2
+        reduced = copy.deepcopy(base)
+        reduced['elapsed_ns'] = now + 1
+        with self.assertRaisesRegex(ValueError, 'count or maximum decreases'):
+            state_trace(encode_deadlines([earlier, reduced]), StateOutcome.FAILURE)
+        changed = copy.deepcopy(later)
+        changed['engine']['deadline_observations'] = 1
+        changed['engine']['deadlines'][0].update({'observations': 1, 'max_lateness_ns': 4})
+        changed['engine']['deadlines'][0]['witness']['fields']['lateness_ns'] = 4
+        with self.assertRaisesRegex(ValueError, 'changes without observations'):
+            state_trace(encode_deadlines([base, changed]), StateOutcome.FAILURE)
 
     def test_failed_archived_samples_match_existing_known_history(self):
         import copy

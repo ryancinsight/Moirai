@@ -30,6 +30,9 @@ def representative_points(evidence):
             'fields': {'flight_bytes': 1_200, 'bytes_to_send': 1_200,
                        'window_bytes': 12_000, 'smoothed_rtt_ns': 10_000_000,
                        'delay_ns': 37}},
+        **{kind: {'elapsed_ns': 29, 'kind': kind, 'fields': {'lateness_ns': 0}}
+           for kind in ('engine pacing transmit entry', 'engine pacing timeout',
+                        'engine loss timeout')},
     })
     return points
 

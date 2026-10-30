@@ -24,6 +24,8 @@ pub(super) struct Capture {
     blocker_observations: u64,
     blocker_buckets_dropped: u64,
     blockers: Vec<EventBucket>,
+    deadline_observations: u64,
+    deadlines: Vec<DeadlineSummary>,
 }
 
 #[derive(Clone, PartialEq, Serialize)]
@@ -66,6 +68,14 @@ struct EventBucket {
     observations: u64,
     first: Point,
     last: Point,
+}
+
+#[derive(Clone, Serialize)]
+struct DeadlineSummary {
+    kind: String,
+    observations: u64,
+    max_lateness_ns: u64,
+    witness: Point,
 }
 
 #[derive(Default)]
@@ -135,6 +145,13 @@ impl Capture {
             "engine congestion blocked" | "engine pacing blocked"
         ) {
             self.record_blocker(point);
+            return;
+        }
+        if matches!(
+            point.kind.as_str(),
+            "engine pacing transmit entry" | "engine pacing timeout" | "engine loss timeout"
+        ) {
+            self.record_deadline(point);
             return;
         }
         if point.kind != "engine recovery state" {
@@ -239,11 +256,35 @@ impl Capture {
         }
     }
 
+    fn record_deadline(&mut self, point: Point) {
+        self.deadline_observations += 1;
+        let lateness = number(&point, "lateness_ns");
+        if let Some(summary) = self
+            .deadlines
+            .iter_mut()
+            .find(|item| item.kind == point.kind)
+        {
+            summary.observations += 1;
+            if lateness > summary.max_lateness_ns {
+                summary.max_lateness_ns = lateness;
+                summary.witness = point;
+            }
+        } else {
+            self.deadlines.push(DeadlineSummary {
+                kind: point.kind.clone(),
+                observations: 1,
+                max_lateness_ns: lateness,
+                witness: point,
+            });
+        }
+    }
+
     pub(super) fn snapshot(&self, observation: &str) -> Option<Self> {
         if self.observed_states == 0
             && self.events.is_empty()
             && self.callback_observations == 0
             && self.blocker_observations == 0
+            && self.deadline_observations == 0
         {
             return None;
         }
@@ -375,6 +416,57 @@ mod tests {
         assert_eq!(
             engine["blockers"][1]["first"]["fields"]["delay_ns"],
             40_000_000
+        );
+    }
+
+    #[test]
+    fn collector_retains_bounded_deadline_counts_maxima_and_witnesses() {
+        let (recovery, _subscriber) = recovery();
+        for (kind, lateness_ns) in [
+            ("engine pacing timeout", 4_u64),
+            ("engine loss timeout", 7),
+            ("engine pacing timeout", 9),
+            ("engine pacing transmit entry", 2),
+            ("engine loss timeout", 6),
+        ] {
+            match kind {
+                "engine pacing timeout" => tracing::trace!(
+                    target: super::TARGET, lateness_ns, "engine pacing timeout"),
+                "engine loss timeout" => tracing::trace!(
+                    target: super::TARGET, lateness_ns, "engine loss timeout"),
+                _ => tracing::trace!(
+                    target: super::TARGET, lateness_ns, "engine pacing transmit entry"),
+            }
+        }
+        let capture = recovery
+            .snapshot("sample")
+            .engine
+            .expect("invariant: deadline events create an engine capture");
+        assert_eq!(capture.deadline_observations, 5);
+        assert_eq!(capture.deadlines.len(), 3);
+        assert_eq!(
+            capture
+                .deadlines
+                .iter()
+                .map(|item| (
+                    item.kind.as_str(),
+                    item.observations,
+                    item.max_lateness_ns,
+                    item.witness.kind.as_str(),
+                    super::number(&item.witness, "lateness_ns")
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("engine pacing timeout", 2, 9, "engine pacing timeout", 9),
+                ("engine loss timeout", 2, 7, "engine loss timeout", 7),
+                (
+                    "engine pacing transmit entry",
+                    1,
+                    2,
+                    "engine pacing transmit entry",
+                    2
+                )
+            ]
         );
     }
 
