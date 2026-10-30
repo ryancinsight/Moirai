@@ -290,6 +290,7 @@ embedded_sources![
     "../moirai-pal/src/reactor/tls.rs",
     "../moirai-pal/src/timer.rs",
     "../moirai-pal/src/timer/tests.rs",
+    "../moirai-pal/src/timer/tests/callbacks.rs",
     "../moirai-pal/src/unix/epoll.rs",
     "../moirai-pal/src/unix/kqueue.rs",
     "../moirai-pal/src/windows/poll/mod.rs",

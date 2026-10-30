@@ -12,6 +12,13 @@ use futures::task::{ArcWake, waker};
 
 use super::{SleeperEvent, TimerState, sleep};
 
+#[path = "tests/callbacks.rs"]
+mod callbacks;
+#[path = "tests/concernfixture.rs"]
+mod concern_fixture;
+
+use concern_fixture::CallbackFixture;
+
 const SLEEPER_DEADLINE: Duration = Duration::from_secs(60);
 const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -83,17 +90,6 @@ impl ArcWake for WakeFlag {
             );
         }
     }
-}
-
-fn tracked_waker() -> (
-    std::sync::Weak<WakeFlag>,
-    std::task::Waker,
-    std::sync::mpsc::Receiver<()>,
-) {
-    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
-    let flag = Arc::new(WakeFlag::new(wake_tx));
-    let observer = Arc::downgrade(&flag);
-    (observer, waker(flag), wake_rx)
 }
 
 #[test]
@@ -183,37 +179,39 @@ fn pal_timer_cancellation_before_wait_releases_the_waker() {
     let deadline = timer.deadline;
     let state = Arc::clone(&timer.state);
     let events = observe_sleeper(&state);
-    let (observer, task_waker, _wake_events) = tracked_waker();
+    let callback = CallbackFixture::new(&state);
 
-    state.register_waker(&task_waker);
-    drop(task_waker);
-    assert_eq!(observer.strong_count(), 1);
+    state.register_waker(callback.waker());
+    let probe = callback.into_registered_probe(&state);
     drop(timer);
+    assert_eq!(Arc::strong_count(&probe), 2);
 
     state
         .spawn_sleeper(deadline)
         .expect("real sleeper must spawn after pre-cancellation");
-    receive_until(&events, SleeperEvent::Exited, event_deadline());
-    assert_eq!(observer.strong_count(), 0);
+    assert_eq!(
+        receive_event_before(&events, event_deadline()),
+        SleeperEvent::Exited
+    );
+    CallbackFixture::assert_cleared(&state, &probe);
 }
 
 #[test]
 fn pal_timer_drop_during_wait_is_nonblocking() {
-    let (observer, task_waker, _wake_events) = tracked_waker();
     let mut timer = Box::pin(
         sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
     );
     let state = Arc::clone(&timer.state);
     let events = observe_sleeper(&state);
     let deadline = event_deadline();
+    let callback = CallbackFixture::new(&state);
 
     {
-        let mut context = Context::from_waker(&task_waker);
+        let mut context = Context::from_waker(callback.waker());
         assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
     }
     receive_until(&events, SleeperEvent::Waiting, deadline);
-    drop(task_waker);
-    assert_eq!(observer.strong_count(), 1);
+    let probe = callback.into_registered_probe(&state);
 
     let registry = state
         .waker
@@ -232,7 +230,7 @@ fn pal_timer_drop_during_wait_is_nonblocking() {
     drop(registry);
     dropper.join().expect("timer drop thread must exit");
     receive_until(&events, SleeperEvent::Exited, deadline);
-    assert_eq!(observer.strong_count(), 0);
+    CallbackFixture::assert_cleared(&state, &probe);
 }
 
 #[test]
@@ -261,21 +259,20 @@ fn pal_timer_spurious_unpark_reparks_the_sleeper() {
 
 #[test]
 fn pal_timer_repeated_ready_polls_release_the_waker() {
-    let (observer, task_waker, _wake_events) = tracked_waker();
     let mut timer = Box::pin(
         sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
     );
     let state = Arc::clone(&timer.state);
     let events = observe_sleeper(&state);
     let deadline = event_deadline();
+    let callback = CallbackFixture::new(&state);
 
     {
-        let mut context = Context::from_waker(&task_waker);
+        let mut context = Context::from_waker(callback.waker());
         assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
     }
     receive_until(&events, SleeperEvent::Waiting, deadline);
-    drop(task_waker);
-    assert_eq!(observer.strong_count(), 1);
+    let probe = callback.into_registered_probe(&state);
 
     timer.as_mut().get_mut().deadline = Instant::now();
     let mut context = Context::from_waker(std::task::Waker::noop());
@@ -286,23 +283,22 @@ fn pal_timer_repeated_ready_polls_release_the_waker() {
         ));
     }
     receive_until(&events, SleeperEvent::Exited, deadline);
-    assert_eq!(observer.strong_count(), 0);
+    CallbackFixture::assert_cleared(&state, &probe);
 }
 
 #[test]
 fn pal_timer_spawn_failure_preserves_error_and_releases_the_waker() {
     let state = Arc::new(TimerState::new());
-    let (observer, task_waker, _wake_events) = tracked_waker();
-    state.register_waker(&task_waker);
-    drop(task_waker);
-    assert_eq!(observer.strong_count(), 1);
+    let callback = CallbackFixture::new(&state);
+    state.register_waker(callback.waker());
+    let probe = callback.into_registered_probe(&state);
 
     let error = state
         .finish_spawn(Err(std::io::Error::from_raw_os_error(i32::MAX)))
         .expect_err("injected worker spawn failure must remain an error");
     assert_eq!(error.raw_os_error(), Some(i32::MAX));
     assert!(state.is_completed());
-    assert_eq!(observer.strong_count(), 0);
+    CallbackFixture::assert_cleared(&state, &probe);
 }
 
 #[cfg(loom)]
