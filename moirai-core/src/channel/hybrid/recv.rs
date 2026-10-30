@@ -59,7 +59,7 @@ impl<T: Send> HybridReceiver<T> {
     /// Receive value with zero-copy
     ///
     /// # Errors
-    /// Returns [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed)
+    /// Returns [`ChannelError::Closed`]
     /// when the sender is gone and the ring is drained.
     pub fn recv(&self) -> Result<T> {
         // Fast path: try to receive without blocking
@@ -101,9 +101,9 @@ impl<T: Send> HybridReceiver<T> {
     /// Try to receive without blocking
     ///
     /// # Errors
-    /// Returns [`ChannelError::Empty`](crate::channel::error::ChannelError::Empty)
+    /// Returns [`ChannelError::Empty`]
     /// when no message is ready and
-    /// [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed) when
+    /// [`ChannelError::Closed`] when
     /// the sender is gone and the ring is drained.
     pub fn try_recv(&self) -> Result<T> {
         if let Some(value) = self.ring.try_consume() {
@@ -122,9 +122,9 @@ impl<T: Send> HybridReceiver<T> {
     /// Receive with timeout
     ///
     /// # Errors
-    /// Returns [`ChannelError::Empty`](crate::channel::error::ChannelError::Empty)
+    /// Returns [`ChannelError::Empty`]
     /// when `timeout` elapses without a message and
-    /// [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed) once
+    /// [`ChannelError::Closed`] once
     /// the sender is gone and the ring is drained.
     pub fn recv_timeout(&self, timeout: std::time::Duration) -> Result<T> {
         let start = std::time::Instant::now();
