@@ -4,7 +4,8 @@
 //! a slot before releasing `head`, and the consumer acquires `head` before
 //! reading that slot. The consumer then releases `tail`, which the producer
 //! acquires before reusing a slot. This model keeps those two release/acquire
-//! edges and exercises wrap-around with a capacity-two ring.
+//! edges, exercises wrap-around with a capacity-two ring, and checks that a
+//! close published after the final head never overtakes that value.
 //!
 //! The model uses three messages and a preemption bound of four. The message
 //! count forces one producer retry and one slot reuse; the bound is the finite
@@ -17,7 +18,7 @@
 
 use loom::cell::UnsafeCell;
 use loom::sync::Arc;
-use loom::sync::atomic::{AtomicUsize, Ordering};
+use loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use loom::thread;
 
 const CAPACITY: usize = 2;
@@ -28,6 +29,7 @@ struct Ring {
     slots: [UnsafeCell<usize>; CAPACITY],
     head: AtomicUsize,
     tail: AtomicUsize,
+    closed: AtomicBool,
 }
 
 impl Ring {
@@ -36,6 +38,7 @@ impl Ring {
             slots: [UnsafeCell::new(0), UnsafeCell::new(0)],
             head: AtomicUsize::new(0),
             tail: AtomicUsize::new(0),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -78,6 +81,28 @@ impl Ring {
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
         Some(value)
     }
+
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
+    fn try_recv_or_closed(&self) -> Receive {
+        if let Some(value) = self.try_recv() {
+            return Receive::Value(value);
+        }
+        if !self.closed.load(Ordering::Acquire) {
+            return Receive::Empty;
+        }
+
+        self.try_recv().map_or(Receive::Closed, Receive::Value)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Receive {
+    Value(usize),
+    Empty,
+    Closed,
 }
 
 #[test]
@@ -112,5 +137,38 @@ fn publication_and_reclamation_preserve_fifo_values() {
         producer.join().expect("invariant: producer completes");
         let values = consumer.join().expect("invariant: consumer completes");
         assert_eq!(values, [10, 20, 30]);
+    });
+}
+
+#[test]
+fn closure_cannot_overtake_the_final_publication() {
+    // Three preemptions cover consumer-before-publication, producer publication
+    // plus close, and the consumer's ordered retry after acquiring the close.
+    let mut builder = loom::model::Builder::new();
+    builder.preemption_bound = Some(3);
+    builder.check(|| {
+        let ring = Arc::new(Ring::new());
+        let producer_ring = Arc::clone(&ring);
+        let producer = thread::spawn(move || {
+            assert!(producer_ring.try_send(37));
+            producer_ring.close();
+        });
+
+        let consumer_ring = Arc::clone(&ring);
+        let consumer = thread::spawn(move || {
+            let mut values = Vec::new();
+            loop {
+                match consumer_ring.try_recv_or_closed() {
+                    Receive::Value(value) => values.push(value),
+                    Receive::Empty => thread::yield_now(),
+                    Receive::Closed => break,
+                }
+            }
+            values
+        });
+
+        producer.join().expect("invariant: producer completes");
+        let values = consumer.join().expect("invariant: consumer completes");
+        assert_eq!(values, [37]);
     });
 }
