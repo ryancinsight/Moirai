@@ -108,7 +108,8 @@ pub(super) fn abandon_in_flight<F: Future>(future: F, started: usize) {
 #[test]
 fn dropped_read_delivers_its_bytes_to_the_next_read() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("dropped-read.bin");
+    let _guard = super::TestEntry::create("dropped-read-holder");
+    let path = super::test_path("dropped-read.bin");
     std::fs::write(&path, b"abcdef").expect("source write must succeed");
     let mut file = block_on(File::open(&path)).expect("open must succeed");
     let hooks = pool().hooks();
@@ -136,13 +137,13 @@ fn dropped_read_delivers_its_bytes_to_the_next_read() {
     );
 
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn write_and_seek_after_a_dropped_read_start_at_the_undelivered_bytes() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("rewind.bin");
+    let _guard = super::TestEntry::create("rewind-holder");
+    let path = super::test_path("rewind.bin");
     std::fs::write(&path, b"abcdef").expect("source write must succeed");
     let mut file = block_on(File::open_with_options(
         &path,
@@ -179,13 +180,13 @@ fn write_and_seek_after_a_dropped_read_start_at_the_undelivered_bytes() {
         std::fs::read(&path).expect("read back must succeed"),
         b"XYcdef"
     );
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn dropped_write_still_lands_in_call_order() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("dropped-write.bin");
+    let _guard = super::TestEntry::create("dropped-write-holder");
+    let path = super::test_path("dropped-write.bin");
     let mut file = block_on(File::create(&path)).expect("create must succeed");
     let hooks = pool().hooks();
     let baseline = hooks.progress();
@@ -200,14 +201,14 @@ fn dropped_write_still_lands_in_call_order() {
         std::fs::read(&path).expect("read back must succeed"),
         b"first-second"
     );
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn poll_based_read_and_write_run_on_the_pool() {
     use crate::io::{AsyncRead, AsyncWrite};
 
-    let path = test_path("poll-based.bin");
+    let _guard = super::TestEntry::create("poll-based-holder");
+    let path = super::test_path("poll-based.bin");
     let mut file = block_on(File::open_with_options(
         &path,
         FileOpenOptions::read_write_truncate(),
@@ -231,13 +232,13 @@ fn poll_based_read_and_write_run_on_the_pool() {
     assert_eq!(&tail[..read], b"able");
 
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn write_queued_when_its_file_drops_still_lands() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("queued-write.bin");
+    let _guard = super::TestEntry::create("queued-write-holder");
+    let path = super::test_path("queued-write.bin");
     let mut file = block_on(File::create(&path)).expect("create must succeed");
     let hooks = pool().hooks();
     let baseline = hooks.progress();
@@ -280,5 +281,4 @@ fn write_queued_when_its_file_drops_still_lands() {
         b"kept",
         "a submitted write must land after its handle is dropped"
     );
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }

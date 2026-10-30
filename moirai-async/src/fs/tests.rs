@@ -12,11 +12,38 @@ fn test_path(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!(
+    let path = std::env::temp_dir().join(format!(
         "moirai_async_fs_{name}_{}_{}",
         std::process::id(),
         nonce
-    ))
+    ));
+    // Nonce-named yet created without `create_new`: pid reuse plus a stale
+    // entry from a crashed run can collide, so remove any leftover first —
+    // best-effort, since a passed run must not fail on a contended temp dir.
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir_all(&path);
+    path
+}
+
+/// RAII owner for a `test_path` entry: the file or tree is removed when the
+/// guard drops, so a test that fails or panics mid-body cannot leak it.
+struct TestEntry {
+    path: PathBuf,
+}
+
+impl TestEntry {
+    fn create(name: &str) -> Self {
+        Self {
+            path: test_path(name),
+        }
+    }
+}
+
+impl Drop for TestEntry {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }
 
 #[test]
@@ -47,7 +74,8 @@ fn test_file_stats() {
 
 #[test]
 fn test_file_write_read_append_and_stats_values() {
-    let path = test_path("roundtrip.txt");
+    let owned = TestEntry::create("roundtrip.txt");
+    let path = &owned.path;
     futures::executor::block_on(async {
         write_str(&path, "alpha")
             .await
@@ -81,12 +109,12 @@ fn test_file_write_read_append_and_stats_values() {
         assert_eq!(new_position, 6);
         assert_eq!(file.stats().seek_operations, 1);
     });
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn test_file_positioned_read_preserves_cursor_length_and_stream_stats() {
-    let path = test_path("positioned.bin");
+    let owned = TestEntry::create("positioned.bin");
+    let path = &owned.path;
     let expected = b"0123456789";
     std::fs::write(&path, expected).expect("positioned source write must succeed");
 
@@ -117,13 +145,12 @@ fn test_file_positioned_read_preserves_cursor_length_and_stream_stats() {
         assert_eq!(file.stats().bytes_read, 2);
         assert_eq!(file.stats().read_operations, 1);
     });
-
-    std::fs::remove_file(&path).expect("positioned file cleanup must succeed");
 }
 
 #[test]
 fn test_file_positioned_read_reports_short_source() {
-    let path = test_path("positioned-short.bin");
+    let owned = TestEntry::create("positioned-short.bin");
+    let path = &owned.path;
     std::fs::write(&path, b"0123456789").expect("short positioned source write must succeed");
 
     futures::executor::block_on(async {
@@ -136,13 +163,12 @@ fn test_file_positioned_read_reports_short_source() {
         assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
         assert_eq!(&output[..2], b"89");
     });
-
-    std::fs::remove_file(&path).expect("short positioned file cleanup must succeed");
 }
 
 #[test]
 fn test_file_positioned_read_validates_empty_and_overflow_ranges() {
-    let path = test_path("positioned-range.bin");
+    let owned = TestEntry::create("positioned-range.bin");
+    let path = &owned.path;
     std::fs::write(&path, b"").expect("positioned source write must succeed");
 
     futures::executor::block_on(async {
@@ -163,12 +189,11 @@ fn test_file_positioned_read_validates_empty_and_overflow_ranges() {
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
         assert_eq!(output, [0xA5]);
     });
-
-    std::fs::remove_file(&path).expect("positioned range file cleanup must succeed");
 }
 
 #[test]
 fn test_file_copy_and_directory_values() {
+    let _guard = TestEntry::create("dir-holder");
     let dir = test_path("dir");
     let source = dir.join("source.bin");
     let dest = dir.join("dest.bin");
@@ -207,6 +232,7 @@ fn test_file_copy_and_directory_values() {
 
 #[test]
 fn test_recursive_directory_values() {
+    let _guard = TestEntry::create("recursive-dir-holder");
     let root = test_path("recursive-dir");
     let leaf = root.join("a").join("b").join("c");
     let marker = leaf.join("marker.bin");
