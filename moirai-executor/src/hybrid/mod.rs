@@ -180,15 +180,19 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 
         self.scheduler
             .schedule::<C, _>(priority, locality_hint, move |worker_id| {
-                let Some(running) = lifecycle.start_unless_cancelled(worker_id) else {
-                    // Record before publishing the result so a joiner observes
-                    // the cancelled counter as soon as the handle resolves.
-                    metrics.get().record_task_cancelled();
-                    result_sender.send(Err(TaskError::Cancelled));
-                    return;
+                let running = match lifecycle.start_unless_cancelled(worker_id) {
+                    Ok(running) => running,
+                    Err(completion) => {
+                        completion.notify();
+                        // Record before publishing the result so a joiner observes
+                        // the cancelled counter as soon as the handle resolves.
+                        metrics.get().record_task_cancelled();
+                        result_sender.send(Err(TaskError::Cancelled));
+                        return;
+                    }
                 };
                 let result = catch_unwind(AssertUnwindSafe(func));
-                let execution_time = running.complete();
+                let execution_time = running.complete().notify();
                 send_task_result(result, result_sender, metrics.get(), execution_time);
             })?;
 

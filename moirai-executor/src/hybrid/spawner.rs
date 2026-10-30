@@ -85,19 +85,25 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
 
         self.scheduler
             .schedule::<BlockingTask, _>(Priority::Normal, None, move |worker_id| {
-                let Some(running) = lifecycle.start_unless_cancelled(worker_id) else {
-                    metrics.get().record_task_cancelled();
-                    return;
+                let running = match lifecycle.start_unless_cancelled(worker_id) {
+                    Ok(running) => running,
+                    Err(completion) => {
+                        completion.notify();
+                        metrics.get().record_task_cancelled();
+                        return;
+                    }
                 };
                 // Catch here (not only at the job level) so `complete()` runs and
                 // the executor-level completed/failed metric is recorded, matching
                 // `send_task_result`.
                 match catch_unwind(AssertUnwindSafe(func)) {
                     Ok(()) => {
-                        metrics.get().record_task_completed(running.complete());
+                        metrics
+                            .get()
+                            .record_task_completed(running.complete().notify());
                     }
                     Err(_) => {
-                        running.complete();
+                        running.complete().notify();
                         metrics.get().record_task_failed();
                     }
                 }

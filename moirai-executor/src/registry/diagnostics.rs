@@ -61,7 +61,7 @@ impl TaskRegistry {
     pub fn diagnostic_lifecycle_timestamp_publication() -> Duration {
         let state = TaskState::new();
         let started_after_ns = state.mark_started(0);
-        state.mark_completed_since(started_after_ns)
+        state.mark_completed_since(started_after_ns).notify()
     }
 
     /// Diagnostic-only task-state construction path for benchmark attribution.
@@ -89,7 +89,7 @@ impl TaskRegistry {
     #[inline(never)]
     pub fn diagnostic_mark_completed_since(&self, task_id: u64, started_after_ns: u64) -> Duration {
         self.with_state(task_id, |state| {
-            state.mark_completed_since(started_after_ns)
+            state.mark_completed_since(started_after_ns).notify()
         })
         .unwrap_or(Duration::ZERO)
     }
@@ -100,14 +100,14 @@ impl TaskRegistry {
         // SAFETY: this method completes and drops the token before returning,
         // so `self` and its block storage outlive the scheduled lease.
         let (_id, lifecycle) = unsafe { self.register_next_scheduled_task() };
-        lifecycle.start(0).complete()
+        lifecycle.start(0).complete().notify()
     }
 
     /// Diagnostic-only block-retaining token lifecycle for ownership-cost attribution.
     #[doc(hidden)]
     pub fn diagnostic_register_next_and_complete_with_retained_token(&self) -> Duration {
         let (_id, lifecycle) = self.register_next_task();
-        lifecycle.start(0).complete()
+        lifecycle.start(0).complete().notify()
     }
 
     /// Diagnostic-only production token lifecycle path with registry-local ID output.
@@ -116,6 +116,6 @@ impl TaskRegistry {
         // SAFETY: this method completes and drops the token before returning,
         // so `self` and its block storage outlive the scheduled lease.
         let (id, lifecycle) = unsafe { self.register_next_scheduled_task() };
-        (id, lifecycle.start(0).complete())
+        (id, lifecycle.start(0).complete().notify())
     }
 }

@@ -16,7 +16,7 @@ fn complete_tasks(registry: &TaskRegistry, count: usize) -> Vec<u64> {
     (0..count)
         .map(|_| {
             let (id, lifecycle) = registry.register_next_task();
-            lifecycle.start(0).complete();
+            lifecycle.start(0).complete().notify();
             id
         })
         .collect()
@@ -72,7 +72,7 @@ fn completion_tells_unknown_running_and_released_apart_in_one_read() {
     assert_eq!(registry.completion(released[TWO_BLOCKS - 2]), Some(true));
     assert_eq!(registry.completion(running_id), Some(false));
     assert_eq!(registry.completion(beyond), None);
-    running.complete();
+    running.complete().notify();
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn running_task_pins_its_block_and_only_its_block() {
         assert!(matches!(directory.lookup(1), BlockLookup::Retired));
     }
 
-    pinned.complete();
+    pinned.complete().notify();
     assert_eq!(registry.cleanup_completed(Duration::ZERO), 1);
     assert_eq!(registry.blocks.read().unwrap().span(), 0);
     assert!(registry.is_completed(pinned_id));
@@ -123,7 +123,7 @@ fn issued_id_without_registration_keeps_a_finished_block() {
         if position == 512 {
             unregistered = Some(id);
         } else {
-            registry.register_owned(id).start(0).complete();
+            registry.register_owned(id).start(0).complete().notify();
         }
     }
 
@@ -136,7 +136,8 @@ fn issued_id_without_registration_keeps_a_finished_block() {
     registry
         .register_owned(unregistered.unwrap())
         .start(0)
-        .complete();
+        .complete()
+        .notify();
     assert_eq!(registry.cleanup_completed(Duration::ZERO), 1);
 }
 
@@ -274,7 +275,7 @@ fn churn_around_pinned_blocks(
         if block < pinned_blocks && slot == usize::from(block == 0) {
             held.push((id, running));
         } else {
-            running.complete();
+            running.complete().notify();
         }
         if slot == TASK_STATE_BLOCK_SIZE - 1 {
             // The next created block joins the queue before its sweep step
@@ -319,7 +320,7 @@ fn pinned_blocks_do_not_stretch_the_sweep_lap() {
         assert_eq!(held.len(), pinned_blocks);
 
         for (_, running) in held {
-            running.complete();
+            running.complete().notify();
         }
         registry.cleanup_completed(Duration::ZERO);
         let directory = registry.blocks.read().unwrap();
@@ -378,7 +379,7 @@ fn cleanup_removes_retired_blocks_from_the_sweep_queue() {
         let directory = registry.blocks.read().unwrap();
         assert_eq!(directory.queued(), directory.resident());
     }
-    pinned.complete();
+    pinned.complete().notify();
     assert_eq!(registry.cleanup_completed(Duration::ZERO), 1);
     let directory = registry.blocks.read().unwrap();
     assert_eq!(directory.queued(), directory.resident());

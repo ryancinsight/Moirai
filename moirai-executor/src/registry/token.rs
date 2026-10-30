@@ -1,8 +1,25 @@
-use std::{fmt::Debug, ptr::NonNull, sync::Arc, time::Duration};
+use std::{fmt::Debug, ptr::NonNull, sync::Arc, task::Waker, time::Duration};
 
 use moirai_core::Priority;
 
 use super::state::{TaskState, TaskStateBlock};
+
+/// Terminal metadata is visible and its state lease is inactive before this
+/// receipt invokes arbitrary waiter code.
+#[must_use]
+pub(crate) struct TaskCompletion {
+    pub(super) elapsed: Duration,
+    pub(super) waker: Option<Waker>,
+}
+
+impl TaskCompletion {
+    pub(crate) fn notify(self) -> Duration {
+        if let Some(waker) = self.waker {
+            waker.wake();
+        }
+        self.elapsed
+    }
+}
 
 /// Storage policy that keeps a lifecycle token's task state valid.
 ///
@@ -119,7 +136,6 @@ pub(crate) struct TaskLifecycleToken<L: StateLease = OwnedStateLease> {
 pub(crate) struct RunningTaskToken<L: StateLease = OwnedStateLease> {
     lease: Option<L>,
     pub(super) started_after_ns: u64,
-    pub(super) completed: bool,
 }
 
 // The async task state moves these tokens between polling threads through a
@@ -192,29 +208,31 @@ impl<L: StateLease> TaskLifecycleToken<L> {
         self.state().cancel_requested()
     }
 
-    /// Honor a pending cancel request: mark the task cancelled + completed
-    /// (waking any registered waiter) without running its body.
+    /// Honor a pending cancel request and return its detached waiter.
     #[inline]
-    pub(crate) fn cancel(mut self) {
+    pub(crate) fn cancel(mut self) -> TaskCompletion {
         let lease = self
             .lease
             .take()
             .expect("invariant: lifecycle token retains its state lease");
-        lease.state().mark_cancelled();
+        let completion = lease.state().mark_cancelled();
         lease.retire();
+        completion
     }
 
     /// Start the task unless it was cancelled while queued.
     ///
-    /// Returns `None` after marking the task cancelled (the body must not run);
+    /// Returns the detached waiter after cancellation (the body must not run),
     /// otherwise transfers completion authority like [`Self::start`].
     #[inline]
-    pub(crate) fn start_unless_cancelled(self, worker_id: usize) -> Option<RunningTaskToken<L>> {
+    pub(crate) fn start_unless_cancelled(
+        self,
+        worker_id: usize,
+    ) -> Result<RunningTaskToken<L>, TaskCompletion> {
         if self.cancel_requested() {
-            self.cancel();
-            None
+            Err(self.cancel())
         } else {
-            Some(self.start(worker_id))
+            Ok(self.start(worker_id))
         }
     }
 
@@ -225,7 +243,6 @@ impl<L: StateLease> TaskLifecycleToken<L> {
         RunningTaskToken {
             lease: self.lease.take(),
             started_after_ns,
-            completed: false,
         }
     }
 }
@@ -239,43 +256,36 @@ impl<L: StateLease> Drop for TaskLifecycleToken<L> {
             // task is recorded the same way. Publish that terminal state before
             // retiring the lease so block retirement cannot reclaim the slot
             // during publication.
-            lease.state().mark_cancelled();
+            let completion = lease.state().mark_cancelled();
             lease.retire();
+            completion.notify();
         }
     }
 }
 
 impl<L: StateLease> RunningTaskToken<L> {
-    /// Abandon a started task whose body will not finish: record it cancelled
-    /// and completed (waking any registered waiter), as its handle reports.
+    /// Abandon a started task and return its detached waiter.
     #[inline]
-    pub(crate) fn cancel(mut self) {
-        self.abandon();
-    }
-
-    /// Mark the task as completed exactly once.
-    #[inline]
-    pub(crate) fn complete(mut self) -> Duration {
-        let execution_time = self
+    pub(crate) fn cancel(mut self) -> TaskCompletion {
+        let lease = self
             .lease
-            .as_ref()
-            .expect("invariant: running token retains its state lease")
-            .state()
-            .mark_completed_since(self.started_after_ns);
-        self.completed = true;
-        execution_time
+            .take()
+            .expect("invariant: running token retains its state lease");
+        let completion = lease.state().mark_cancelled();
+        lease.retire();
+        completion
     }
 
-    /// Record a task that never reported completion as cancelled.
-    fn abandon(&mut self) {
-        if !self.completed {
-            self.lease
-                .as_ref()
-                .expect("invariant: running token retains its state lease")
-                .state()
-                .mark_cancelled();
-            self.completed = true;
-        }
+    /// Mark the task completed and return its detached waiter.
+    #[inline]
+    pub(crate) fn complete(mut self) -> TaskCompletion {
+        let lease = self
+            .lease
+            .take()
+            .expect("invariant: running token retains its state lease");
+        let completion = lease.state().mark_completed_since(self.started_after_ns);
+        lease.retire();
+        completion
     }
 }
 
@@ -284,9 +294,10 @@ impl<L: StateLease> Drop for RunningTaskToken<L> {
         // Every path that finishes the body calls `complete`; reaching Drop
         // without it means the task was discarded mid-run, and its result
         // sender drops with it.
-        self.abandon();
         if let Some(lease) = self.lease.take() {
+            let completion = lease.state().mark_cancelled();
             lease.retire();
+            completion.notify();
         }
     }
 }

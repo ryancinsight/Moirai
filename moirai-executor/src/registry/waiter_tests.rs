@@ -98,7 +98,7 @@ unsafe fn drop_callback(data: *const ()) {
         && probe.drop_reentry_armed.swap(false, Ordering::AcqRel)
     {
         assert!(!probe.state.waker.is_locked());
-        probe.state.mark_completed();
+        probe.state.mark_completed().notify();
     }
 }
 
@@ -124,7 +124,7 @@ fn completion_wakes_two_waiters_on_one_task() {
     assert!(registry.register_waker(id, &second_waker));
     assert_eq!(first.wakes() + second.wakes(), 0, "nothing completed yet");
 
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     assert_eq!(first.wakes(), 1, "the first waiter was overwritten");
     assert_eq!(second.wakes(), 1);
@@ -143,7 +143,7 @@ fn completion_wakes_every_distinct_waiter_once() {
             assert!(registry.register_waker(id, waker));
         }
     }
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     for (index, (target, _)) in waiters.iter().enumerate() {
         assert_eq!(target.wakes(), 1, "waiter {index}");
@@ -164,7 +164,7 @@ fn one_waker_registered_repeatedly_is_held_and_woken_once() {
         3,
         "the test's handle, the waker, and exactly one registry entry"
     );
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     assert_eq!(target.wakes(), 1);
     assert_eq!(
@@ -182,7 +182,7 @@ fn waiters_registered_after_completion_are_woken_and_not_retained() {
     let (early_second, early_second_waker) = counting_waker();
     registry.register_waker(id, &early_waker);
     registry.register_waker(id, &early_second_waker);
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     let (late, late_waker) = counting_waker();
     let (late_second, late_second_waker) = counting_waker();
@@ -236,7 +236,7 @@ fn completion_clamps_to_recorded_start_offset() {
         .started_after_ns
         .store(future_start, Ordering::Release);
 
-    let elapsed = state.mark_completed_since(future_start);
+    let elapsed = state.mark_completed_since(future_start).notify();
     let snapshot = state.snapshot(7);
 
     assert_eq!(elapsed, Duration::ZERO);
@@ -251,7 +251,7 @@ fn raw_waker_clone_reenters_registration_before_lock() {
 
     state.register_waker(&waker);
     let started = state.mark_started(3);
-    let elapsed = state.mark_completed_since(started);
+    let elapsed = state.mark_completed_since(started).notify();
     let snapshot = state.snapshot(41);
 
     assert_eq!(probe.clone_calls.load(Ordering::Relaxed), 1);
@@ -272,7 +272,7 @@ fn raw_waker_clone_panic_does_not_strand_slot_lock() {
     assert_eq!(probe.clone_calls.load(Ordering::Relaxed), 1);
     assert!(!state.waker.is_locked());
     state.register_waker(Waker::noop());
-    state.mark_completed();
+    state.mark_completed().notify();
     assert!(state.is_completed());
 }
 
@@ -316,7 +316,7 @@ fn waiters_on_separate_threads_are_all_woken_by_completion() {
         .collect();
 
     registered.wait();
-    lifecycle.start(0).complete();
+    lifecycle.start(0).complete().notify();
 
     for (index, (target, thread)) in waiters.into_iter().enumerate() {
         assert!(
@@ -352,7 +352,7 @@ fn completion_racing_registrations_never_strands_a_waiter() {
             .unzip();
 
         start.wait();
-        lifecycle.start(0).complete();
+        lifecycle.start(0).complete().notify();
 
         // Join every thread before asserting: a recheck on one thread may take
         // another waiter's waker and wake it before that waiter's thread

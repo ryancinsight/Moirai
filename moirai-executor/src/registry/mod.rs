@@ -21,5 +21,6 @@ pub(crate) use registry::CancelOutcome;
 pub use registry::TaskRegistry;
 pub use retention::RetentionPolicy;
 pub(crate) use token::{
-    OwnedStateLease, RunningTaskToken, SchedulerStateLease, StateLease, TaskLifecycleToken,
+    OwnedStateLease, RunningTaskToken, SchedulerStateLease, StateLease, TaskCompletion,
+    TaskLifecycleToken,
 };
