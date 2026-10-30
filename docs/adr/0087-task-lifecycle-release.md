@@ -2,6 +2,13 @@
 
 Status: Accepted
 
+Revision 2026-10-30: establish the 0.12.0 compatibility boundary with the
+required `StateWord` method removal while leaving the pending publisher's cohort
+empty. Remaining task-lifecycle changes, consumer preparation, release gates,
+tagging, and publication remain separate prerequisites.
+
+Workspace version: 0.12.0
+
 Revision 2026-10-29: install the pending publisher with an empty release cohort
 before any task-lifecycle source or version change lands. Activation remains a
 separate, full-cohort change after the exact release candidate passes every
@@ -11,9 +18,9 @@ release gate.
 
 The default-branch workflow invokes the version-change publisher on every push
 and daily schedule. Without an explicit cohort, that publisher selects every
-workspace manifest version missing from crates.io. This makes a version bump an
-immediate publication trigger even while the 0.12.0 task-lifecycle composition
-and its release evidence remain under review.
+workspace manifest version missing from crates.io. The empty cohort keeps the
+first 0.12.0 public boundary from becoming a publication trigger while the
+remaining task-lifecycle composition and its release evidence stay incomplete.
 
 The pinned shared workflow accepts an exact package/version JSON object. Its
 pinned planning action treats an empty object as a zero-package plan before it
@@ -38,9 +45,10 @@ activation follows the version change and the exact candidate's full native,
 SemVer, documentation, feature, supply-chain, package, reproducibility, and
 strict QUIC gates. Historical or scoped results do not satisfy that condition.
 
-This decision delivers only the unarmed workflow state. It does not deliver the
-task-lifecycle contracts, change a manifest version, authorize an upload, or
-create a source or registry tag.
+The workflow remains unarmed. The manifest version records the required public
+trait method removal, but this boundary does not deliver the broader
+task-lifecycle contracts, authorize an upload, or create a source or registry
+tag.
 
 ## Alternatives
 
@@ -55,8 +63,8 @@ current pinned interface already provides the empty-cohort contract.
 Task-lifecycle slices and release prerequisites can land without automatic
 publication. Push and schedule runs still execute the real pinned plan, but its
 zero count prevents any credential request or external mutation. Final release
-activation must name every publishable workspace package at version 0.12.0 and
-remains reviewable as a single bounded configuration change.
+activation must name all 19 publishable workspace packages at version 0.12.0
+and remains reviewable as a single bounded configuration change.
 
 ## Overturning evidence
 

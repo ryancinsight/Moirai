@@ -374,7 +374,11 @@ impl<T, W: Waiter, S: StateWord> Default for ResultCell<T, W, S> {
 
 impl<T, W: Waiter, S: StateWord> Drop for ResultCell<T, W, S> {
     fn drop(&mut self) {
-        match *self.state.get_mut() {
+        // Drop has exclusive ownership after safe ownership hand-off. Arc's
+        // final release/acquire edge makes prior owner writes visible; this
+        // relaxed load only classifies initialized storage and does not acquire
+        // a result for concurrent consumption.
+        match self.state.load(Ordering::Relaxed) {
             RESULT_READY => {
                 // Safety: READY means the result cell is initialized and no
                 // consumer took it, because drop has exclusive access.

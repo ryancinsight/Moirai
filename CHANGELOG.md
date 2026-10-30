@@ -5,6 +5,15 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - Unreleased
+
+### Changed
+
+- [breaking] Remove the required `StateWord::get_mut` method. Result-cell
+  destruction classifies the final state through the existing atomic load; all
+  concurrent publication and consumption orderings remain unchanged. See the
+  [migration guide](docs/migrations/task-results.md).
+
 ## [0.11.3] - Unreleased
 
 ### Changed
