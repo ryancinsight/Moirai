@@ -14,7 +14,6 @@ const ACTIVE_MASK: usize = CLOSED - 1;
 pub(in crate::hybrid) struct Admission {
     state: AtomicUsize,
 }
-
 impl Admission {
     pub(in crate::hybrid) fn new() -> Self {
         Self {
@@ -31,9 +30,7 @@ impl Admission {
         &self,
         operation: impl FnOnce() -> ExecutorResult<T>,
     ) -> ExecutorResult<T> {
-        let mut call = self.admit(operation)?;
-        let operation = call.take();
-        operation()
+        self.admit(operation)?.run(|operation| operation())
     }
 
     pub(in crate::hybrid) fn admit<T>(&self, input: T) -> ExecutorResult<Call<'_, T>> {
@@ -83,7 +80,6 @@ impl Admission {
         }
     }
 }
-
 pub(in crate::hybrid) struct Call<'admission, T> {
     // Rust drops fields in declaration order and continues with later fields
     // while unwinding a preceding field destructor. Input cleanup therefore
@@ -93,15 +89,17 @@ pub(in crate::hybrid) struct Call<'admission, T> {
 }
 
 impl<T> Call<'_, T> {
-    pub(in crate::hybrid) fn take(&mut self) -> T {
+    pub(in crate::hybrid) fn run<R>(mut self, operation: impl FnOnce(T) -> R) -> R {
         debug_assert_ne!(
             self.permit.admission.state.load(Ordering::Relaxed) & ACTIVE_MASK,
             0,
             "invariant: an admitted call retains one active permit"
         );
-        self.input
+        let input = self
+            .input
             .take()
-            .expect("invariant: admitted input is taken once")
+            .expect("invariant: admitted input is taken once");
+        operation(input)
     }
 }
 

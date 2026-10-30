@@ -128,9 +128,9 @@ impl HybridExecutor<ThreadScheduler> {
         C: WorkClass,
         F: FnOnce(&SchedulerScope<'scope, C>) -> ExecutorResult<()>,
     {
-        let mut call = self.admission.admit(body)?;
-        let body = call.take();
-        self.scheduler.scope::<C, _>(Priority::Normal, None, body)
+        self.admission
+            .admit(body)?
+            .run(|body| self.scheduler.scope::<C, _>(Priority::Normal, None, body))
     }
 }
 
@@ -180,34 +180,34 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         C: WorkClass,
         R: Send + 'static,
     {
-        let mut call = self.admission.admit(func)?;
-        let func = call.take();
-        let (task_id, lifecycle) = self.register_scheduled_task(priority)?;
+        self.admission.admit(func)?.run(|func| {
+            let (task_id, lifecycle) = self.register_scheduled_task(priority)?;
 
-        let (handle, result_sender) = TaskHandle::new_pending(task_id);
-        let metrics = MetricsRef::new(&self.metrics);
+            let (handle, result_sender) = TaskHandle::new_pending(task_id);
+            let metrics = MetricsRef::new(&self.metrics);
 
-        self.scheduler
-            .schedule::<C, _>(priority, locality_hint, move |worker_id| {
-                let running = match lifecycle.start_unless_cancelled(worker_id) {
-                    Ok(running) => running,
-                    Err(receipt) => {
-                        cancel_task_result(func, Some(result_sender), metrics.get(), receipt);
-                        return;
-                    }
-                };
-                let result = catch_unwind(AssertUnwindSafe(func));
-                let receipt = running.complete();
-                send_task_result(
-                    TaskEnd::Completed(result),
-                    Some(result_sender),
-                    metrics.get(),
-                    receipt,
-                );
-            })?;
+            self.scheduler
+                .schedule::<C, _>(priority, locality_hint, move |worker_id| {
+                    let running = match lifecycle.start_unless_cancelled(worker_id) {
+                        Ok(running) => running,
+                        Err(receipt) => {
+                            cancel_task_result(func, Some(result_sender), metrics.get(), receipt);
+                            return;
+                        }
+                    };
+                    let result = catch_unwind(AssertUnwindSafe(func));
+                    let receipt = running.complete();
+                    send_task_result(
+                        TaskEnd::Completed(result),
+                        Some(result_sender),
+                        metrics.get(),
+                        receipt,
+                    );
+                })?;
 
-        self.metrics.record_task_spawned();
-        Ok(handle)
+            self.metrics.record_task_spawned();
+            Ok(handle)
+        })
     }
 
     /// Run indexed work in worker-sized chunks on the unified scheduler.
@@ -219,10 +219,10 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         C: WorkClass,
         F: Fn(usize) + Send + Sync + 'scope,
     {
-        let mut call = self.admission.admit(task)?;
-        let task = call.take();
-        self.scheduler
-            .for_each_indexed::<C, _>(Priority::Normal, None, count, task)
+        self.admission.admit(task)?.run(|task| {
+            self.scheduler
+                .for_each_indexed::<C, _>(Priority::Normal, None, count, task)
+        })
     }
 
     /// Run indexed map/reduce in worker-sized chunks on the unified scheduler.
@@ -239,16 +239,18 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         Map: Fn(usize) -> T + Send + Sync + 'scope,
         Reduce: Fn(T, T) -> T + Send + Sync + 'scope,
     {
-        let mut call = self.admission.admit((identity, map, reduce))?;
-        let (identity, map, reduce) = call.take();
-        self.scheduler.map_reduce_indexed::<C, _, _, _>(
-            Priority::Normal,
-            None,
-            count,
-            identity,
-            map,
-            reduce,
-        )
+        self.admission
+            .admit((identity, map, reduce))?
+            .run(|(identity, map, reduce)| {
+                self.scheduler.map_reduce_indexed::<C, _, _, _>(
+                    Priority::Normal,
+                    None,
+                    count,
+                    identity,
+                    map,
+                    reduce,
+                )
+            })
     }
 
     /// Get the number of active workers.
