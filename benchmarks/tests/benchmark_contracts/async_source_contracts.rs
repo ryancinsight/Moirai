@@ -79,27 +79,37 @@ fn timer_wheel_cancellation_is_real_and_lazy() {
 
 #[test]
 fn pal_timer_future_waits_until_deadline() {
-    let source = format!(
-        "{}\n{}",
-        read_benchmark("../moirai-pal/src/timer.rs"),
-        read_benchmark("../moirai-pal/src/timer/tests.rs")
-    );
+    let timer = read_benchmark("../moirai-pal/src/timer.rs");
+    let timer_tests = read_benchmark("../moirai-pal/src/timer/tests.rs");
     let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
 
     for required in [
-        "struct TimerState",
-        "completed: AtomicBool",
-        "sleeper_started: AtomicBool",
-        "waker: Mutex<Option<std::task::Waker>>",
-        "fn spawn_sleeper",
-        "std::thread::sleep(deadline.duration_since(now))",
+        "pub struct Timer",
+        "deadline: Instant",
+        "pub fn new(duration: Duration) -> Self",
+        "pub fn deadline(&self) -> Instant",
+        "impl Future for Timer",
+        "type Output = io::Result<()>",
         "Poll::Pending",
-        "pal_timer_is_pending_before_deadline_and_wakes",
-        "pal_timer_zero_duration_completes_immediately",
+        "pub fn sleep(duration: Duration) -> Timer",
     ] {
         assert!(
-            source.contains(required),
-            "PAL timer future must retain real deadline marker {required}"
+            timer.contains(required),
+            "PAL timer future must retain deadline contract {required}"
+        );
+    }
+
+    for required in [
+        "pal_timer_is_pending_before_deadline_and_wakes",
+        "Duration::from_millis(20)",
+        "recv_timeout(Duration::from_secs(1))",
+        "Poll::Ready(Ok(()))",
+        "pal_timer_zero_duration_completes_immediately",
+        "sleep(Duration::ZERO)",
+    ] {
+        assert!(
+            timer_tests.contains(required),
+            "PAL timer tests must retain deadline behavior {required}"
         );
     }
 
@@ -115,7 +125,7 @@ fn pal_timer_future_waits_until_deadline() {
         "For now, yield once",
     ] {
         assert!(
-            !source.contains(prohibited),
+            !timer.contains(prohibited) && !timer_tests.contains(prohibited),
             "PAL timer future must not reintroduce placeholder marker {prohibited}"
         );
     }
