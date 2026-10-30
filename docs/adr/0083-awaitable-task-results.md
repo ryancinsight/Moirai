@@ -18,6 +18,8 @@ either a thread or the current task waker. Re-polling replaces the waker, and
 switching from a pending poll to blocking `join` replaces it with the thread.
 The consumer checks readiness again after registering, closing the concurrent
 completion window. No second result allocation or completion protocol is added.
+Dropping an awaited handle removes its registered waiter without cancelling the
+producer. A producer that already owns notification may finish that callback.
 
 ## Alternatives
 
@@ -28,15 +30,18 @@ by spawn method and require a public return-type migration. Blocking inside
 ## Consequences
 
 Existing blocking callers keep their signatures. Async callers await handles
-instead of blocking workers. Dropping a handle still detaches result collection;
-it does not request task cancellation. The producer owns result publication. After a borrowed await consumes the result,
+instead of blocking workers. Dropping a handle detaches result collection and
+releases a registered waiter; it does not request task cancellation. The
+producer owns result publication. After a borrowed await consumes the result,
 `is_finished` remains true; polling again or calling `join` returns `None`.
 
 ## Verification
 
 Co-located handle tests cover ready and detached results, wakeup, replacement,
 sender cancellation, dropped consumers, and poll-to-join handoff. The tests
-exercise the production `ResultCell`; they do not prove all interleavings.
+exercise the production `ResultCell`; Loom bounds the producer/removal race and
+removal followed by check-register-recheck to four preemptions. Caller-owned
+destructors remain outside that finite-progress claim.
 The implementation is delivered through
 [PR 646](https://github.com/ryancinsight/Moirai/pull/646).
 

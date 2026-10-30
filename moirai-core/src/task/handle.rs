@@ -175,6 +175,14 @@ impl<T> TaskResultSlot<T> {
         unsafe { self.cell.register(&TaskWaiter::Waker(waker.clone())) };
     }
 
+    /// # Safety
+    ///
+    /// The caller is the slot's only consumer.
+    unsafe fn take_waiter(&self) -> Option<TaskWaiter> {
+        // SAFETY: forwarded from this method's contract.
+        unsafe { self.cell.take_waiter() }
+    }
+
     #[cfg(feature = "result-diagnostics")]
     fn has_registered_waiter(&self) -> bool {
         self.cell.has_registered_waiter()
@@ -370,6 +378,23 @@ impl<T> core::future::Future for TaskHandle<T> {
         } else {
             Poll::Pending
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Drop for TaskHandle<T> {
+    fn drop(&mut self) {
+        let Some(slot) = self.result_slot.take() else {
+            return;
+        };
+        // SAFETY: dropping the unique handle serializes the consumer side.
+        let waiter = unsafe { slot.take_waiter() };
+        // Consumer removal releases the atomic claim before destroying
+        // caller-owned values. Their Rust destructors may block or unwind, so
+        // only the library's ownership operation is bounded. Retain `slot`
+        // across destruction because the waiter may complete this same cell.
+        drop(waiter);
+        drop(slot);
     }
 }
 

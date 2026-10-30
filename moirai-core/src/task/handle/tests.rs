@@ -2,7 +2,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::task::Wake;
 
 use super::{TaskHandle, TaskId, TaskResultSender};
@@ -114,8 +114,136 @@ fn dropping_pending_handle_leaves_sender_completion_safe() {
     drop(handle);
     sender.send(Ok(DropCount(Arc::clone(&drop_count))));
 
-    assert_eq!(wake_count.count.load(Ordering::Relaxed), 1);
+    assert_eq!(wake_count.count.load(Ordering::Relaxed), 0);
     assert_eq!(drop_count.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn dropping_an_awaited_handle_releases_its_waiter() {
+    let (mut handle, sender) = TaskHandle::<usize>::new_pending(TaskId::new(91));
+    let (waker, count) = counting_waker();
+    assert_eq!(poll_handle(&mut handle, &waker), Poll::Pending);
+    drop(waker);
+    drop(handle);
+    assert_eq!(Arc::strong_count(&count), 1);
+    sender.send(Ok(37));
+    assert_eq!(count.count.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn sender_drop_wake_panic_preserves_cancelled_result() {
+    struct PanicWake(Arc<AtomicUsize>);
+    impl Wake for PanicWake {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            panic!("sender drop wake");
+        }
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let waker = Waker::from(Arc::new(PanicWake(Arc::clone(&calls))));
+    let (mut handle, sender) = TaskHandle::<usize>::new_pending(TaskId::new(92));
+    assert_eq!(poll_handle(&mut handle, &waker), Poll::Pending);
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(sender)))
+        .expect_err("wake callback must panic");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"sender drop wake"));
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(
+        poll_handle(&mut handle, Waker::noop()),
+        Poll::Ready(Some(Err(TaskError::Cancelled)))
+    );
+    assert!(handle.is_finished());
+    assert_eq!(poll_handle(&mut handle, Waker::noop()), Poll::Ready(None));
+}
+
+#[test]
+fn panicking_raw_waker_drop_does_not_strand_the_slot() {
+    struct PanicOnDrop {
+        panic_drops: Arc<AtomicUsize>,
+        wake_calls: Arc<AtomicUsize>,
+    }
+    impl Wake for PanicOnDrop {
+        fn wake(self: Arc<Self>) {
+            self.wake_calls.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            self.panic_drops.fetch_add(1, Ordering::Relaxed);
+            panic!("raw waker drop");
+        }
+    }
+
+    let panic_drops = Arc::new(AtomicUsize::new(0));
+    let wake_calls = Arc::new(AtomicUsize::new(0));
+    let owner = Arc::new(PanicOnDrop {
+        panic_drops: Arc::clone(&panic_drops),
+        wake_calls: Arc::clone(&wake_calls),
+    });
+    let waker = Waker::from(Arc::clone(&owner));
+    let (mut handle, sender) = TaskHandle::<DropCount>::new_pending(TaskId::new(93));
+    assert!(matches!(poll_handle(&mut handle, &waker), Poll::Pending));
+    drop(owner);
+    drop(waker);
+
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(handle)))
+        .expect_err("raw waker drop must panic");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"raw waker drop"));
+    assert_eq!(panic_drops.load(Ordering::Relaxed), 1);
+    assert_eq!(wake_calls.load(Ordering::Relaxed), 0);
+    let result_drops = Arc::new(AtomicUsize::new(0));
+    sender.send(Ok(DropCount(Arc::clone(&result_drops))));
+    assert_eq!(result_drops.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn producer_owned_wake_may_finish_after_handle_drop() {
+    struct GatedWake {
+        calls: Arc<AtomicUsize>,
+        entered: mpsc::SyncSender<()>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Wake for GatedWake {
+        fn wake(self: Arc<Self>) {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            self.entered
+                .send(())
+                .expect("invariant: test receives the wake entry");
+            self.release
+                .lock()
+                .expect("invariant: release mutex remains available")
+                .recv()
+                .expect("invariant: test releases the callback");
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let result_drops = Arc::new(AtomicUsize::new(0));
+    let (entered_tx, entered_rx) = mpsc::sync_channel(0);
+    let (release_tx, release_rx) = mpsc::sync_channel(0);
+    let waker = Waker::from(Arc::new(GatedWake {
+        calls: Arc::clone(&calls),
+        entered: entered_tx,
+        release: Mutex::new(release_rx),
+    }));
+    let (mut handle, sender) = TaskHandle::<DropCount>::new_pending(TaskId::new(94));
+    assert!(matches!(poll_handle(&mut handle, &waker), Poll::Pending));
+    let producer_drops = Arc::clone(&result_drops);
+    let producer = std::thread::spawn(move || {
+        sender.send(Ok(DropCount(producer_drops)));
+    });
+
+    entered_rx
+        .recv()
+        .expect("invariant: producer enters the wake callback");
+    drop(handle);
+    release_tx
+        .send(())
+        .expect("invariant: callback remains available for release");
+    producer.join().expect("invariant: producer completes");
+    drop(waker);
+
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(result_drops.load(Ordering::Relaxed), 1);
 }
 
 struct CancelOnDrop {
