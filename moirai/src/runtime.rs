@@ -311,7 +311,7 @@ impl Moirai {
     /// Shutdown the runtime gracefully.
     ///
     /// Cancels pending async work at poll boundaries and joins the workers.
-    /// Running synchronous and blocking closures finish before this returns.
+    /// This runtime's workers and execution context only request shutdown.
     pub fn shutdown(&self) {
         self.executor.shutdown();
     }
@@ -320,7 +320,7 @@ impl Moirai {
     ///
     /// Pending async tasks are cancelled at their next poll boundary. The
     /// caller stops waiting after the timeout; running synchronous and blocking
-    /// closures continue until they return. Dropping the runtime joins them.
+    /// closures continue until they return. Drop requests shutdown without waiting.
     pub fn shutdown_timeout(&self, timeout: Duration) {
         self.executor.shutdown_timeout(timeout);
     }

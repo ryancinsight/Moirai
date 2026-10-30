@@ -111,8 +111,8 @@ the task failed or was cancelled, and `None` when the handle was detached or
 its result was already consumed by polling. Dropping a handle detaches result
 collection; it does not cancel the task. Cancellation and completion waits are
 explicit through `TaskManager`; a wait timeout leaves the task running.
-`shutdown_timeout` bounds the caller's wait while shutdown continues and is
-joined when the runtime is dropped.
+`shutdown_timeout` bounds the caller's wait on the shared drain. Dropping the
+runtime requests shutdown without joining workers or running callbacks.
 
 Default features: `async`, `iter`, `parallel`, `local`, `mnemosyne-memory`,
 `melinoe`. Optional: `distributed`, `network`, `metrics`, `gpu`,

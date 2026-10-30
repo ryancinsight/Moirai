@@ -1,6 +1,6 @@
 # ADR 0090: Shared shutdown ownership
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -15,7 +15,7 @@ retirement precedes result publication, callbacks, or library-owned cleanup of
 a captured callback panic. A callback may request shutdown while it still owns
 the settlement obligation being awaited.
 
-## Recommended decision
+## Decision
 
 Create one shutdown worker inside fallible executor construction. It retains
 the scheduler, registry, task ownership, and metrics until settlement finishes.
@@ -99,7 +99,7 @@ shutdown from native workers, external inline settlement, callbacks, and an
 unrelated executor. Reuse construction rollback tests and production-cell Loom
 models; applicable Miri cases must select the new test paths explicitly.
 
-These are required executable oracles, not claims that they currently pass.
+These are the executable oracles for the accepted design.
 
 ## Overturning evidence
 

@@ -40,16 +40,16 @@ pub trait ExecutorControl: Send + Sync + 'static {
     /// Stop admission and settle async work at poll boundaries.
     ///
     /// Running synchronous and blocking closures continue until they return.
-    /// External callers join the worker threads. A call from a worker initiates
-    /// shutdown without trying to join itself.
+    /// External callers wait for shared shutdown completion. Executor workers
+    /// and inline callbacks request shutdown without waiting on owned work.
     fn shutdown(&self);
 
     /// Bound the caller's wait for shutdown.
     ///
     /// Async cancellation occurs at poll boundaries. When the caller's timeout
     /// expires, running closures and their threads continue draining in the
-    /// background. They are not forcibly terminated; executor destruction joins
-    /// them. A non-yielding async poll cannot be safely interrupted either.
+    /// background. They are not forcibly terminated; executor destruction only
+    /// requests that drain. A non-yielding async poll cannot be interrupted.
     fn shutdown_timeout(&self, timeout: core::time::Duration);
 
     /// Check if the executor is shutting down.

@@ -37,7 +37,7 @@ pub(crate) mod spawner;
 mod tests;
 
 use result::{TaskEnd, cancel_task_result, send_task_result};
-use shutdown::Admission;
+use shutdown::{Admission, Shutdown};
 
 #[derive(Clone, Copy)]
 struct MetricsRef {
@@ -79,6 +79,7 @@ pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
     metrics: Arc<ExecutorMetrics>,
     admission: Arc<Admission>,
     async_tasks: Arc<async_state::AsyncTasks>,
+    shutdown: Shutdown,
 }
 
 impl HybridExecutor<ThreadScheduler> {
@@ -102,14 +103,25 @@ impl HybridExecutor<ThreadScheduler> {
         let metrics = Arc::new(ExecutorMetrics::new());
         scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)));
         metrics.update_worker_counts(0, scheduler.worker_count(), scheduler.worker_count());
+        let admission = Arc::new(Admission::new());
+        let async_tasks = Arc::new(async_state::AsyncTasks::default());
+        let shutdown = Shutdown::new(
+            format!("{}-shutdown", config.thread_name_prefix),
+            &scheduler,
+            &async_tasks,
+            &task_registry,
+            &metrics,
+            &admission,
+        )?;
 
         Ok(Self {
             config,
             scheduler,
             task_registry,
             metrics,
-            admission: Arc::new(Admission::new()),
-            async_tasks: Arc::new(async_state::AsyncTasks::default()),
+            admission,
+            async_tasks,
+            shutdown,
         })
     }
 
@@ -142,9 +154,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 
     /// Shutdown the executor gracefully.
     pub fn shutdown(&mut self) -> ExecutorResult<()> {
-        self.admission.close();
-        self.async_tasks.shutdown(&self.task_registry);
-        self.scheduler.shutdown();
+        self.request_shutdown();
         Ok(())
     }
 
@@ -318,6 +328,6 @@ impl<S: WorkScheduler> HybridExecutor<S> {
 
 impl<S: WorkScheduler> Drop for HybridExecutor<S> {
     fn drop(&mut self) {
-        let _ = Self::shutdown(self);
+        self.admission.close();
     }
 }

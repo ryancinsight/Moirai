@@ -95,4 +95,4 @@
 | [0087](0087-task-lifecycle-release.md) | Task lifecycle release boundary | Accepted |
 | [0088](0088-core-runtime-capabilities.md) | Core runtime capabilities without the standard library | Accepted |
 | [0089](0089-owned-completion-waiters.md) | Owned task-completion waiters | Accepted |
-| [0090](0090-shared-shutdown-ownership.md) | Shared shutdown ownership | Proposed |
+| [0090](0090-shared-shutdown-ownership.md) | Shared shutdown ownership | Accepted |

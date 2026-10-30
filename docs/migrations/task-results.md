@@ -68,9 +68,9 @@ There is no default because a false fallback can make worker-initiated shutdown
 self-join.
 
 `shutdown()` cancels pending async work and joins the worker drain.
-`shutdown_timeout(duration)` bounds only the caller's wait; the drain continues
-and runtime destruction joins it. Neither call preempts a running synchronous
-or blocking closure.
+`shutdown_timeout(duration)` bounds only the caller's wait; the shared drain
+continues. Runtime destruction requests that drain without joining it. Neither
+call preempts a running synchronous or blocking closure.
 
 Async result-publication callback panics no longer unwind through an external
 inline wake. The result remains readable, `publication_panics` records the
@@ -80,6 +80,8 @@ table before that disposal was not a complete settlement oracle. This changes
 only the async runtime callback boundary: synchronous `send_task_result`
 continues to resume its callback panic while the native scheduler's active
 owner contains the escaped cleanup.
+
+`ExecutorMetrics` literals include `publication_panics: AtomicU64::new(0)`.
 
 [ADR 0085](../adr/0085-result-state-storage.md) records the storage decision.
 

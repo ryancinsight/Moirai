@@ -58,8 +58,8 @@ their next poll boundary, and joins the workers. Running synchronous and
 blocking closures are not preempted and finish before the call returns.
 
 `shutdown_timeout(duration)` performs the same shutdown but bounds how long the
-caller waits. If the deadline expires, the drain continues in a helper thread;
-dropping the runtime later joins that drain. The timeout does not make
+caller waits. If the deadline expires, the shared drain continues. Dropping the
+runtime requests shutdown without joining it. The timeout does not make
 non-yielding work preemptible.
 
 ## Performance Characteristics

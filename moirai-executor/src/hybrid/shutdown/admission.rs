@@ -4,6 +4,7 @@
 use loom::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(not(loom))]
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{sync::OnceLock, thread::Thread};
 
 use moirai_core::error::{ExecutorError, ExecutorResult};
 
@@ -15,11 +16,13 @@ const ACTIVE_MASK: usize = CLOSED - 1;
 /// Linearizes external executor calls against shutdown.
 pub(in crate::hybrid) struct Admission {
     state: AtomicUsize,
+    worker: OnceLock<Thread>,
 }
 impl Admission {
     pub(in crate::hybrid) fn new() -> Self {
         Self {
             state: AtomicUsize::new(0),
+            worker: OnceLock::new(),
         }
     }
 
@@ -64,21 +67,41 @@ impl Admission {
 
     pub(in crate::hybrid) fn close(&self) {
         self.state.fetch_or(CLOSED, Ordering::AcqRel);
+        self.wake_worker();
     }
 
     pub(in crate::hybrid) fn is_closed(&self) -> bool {
         self.state.load(Ordering::Acquire) & CLOSED != 0
     }
 
-    #[cfg(test)]
     pub(in crate::hybrid) fn active_calls(&self) -> usize {
         self.state.load(Ordering::Acquire) & ACTIVE_MASK
+    }
+
+    pub(in crate::hybrid) fn install_worker(&self, worker: Thread) {
+        assert!(
+            self.worker.set(worker).is_ok(),
+            "invariant: shutdown worker is installed once"
+        );
+    }
+
+    pub(in crate::hybrid) fn wake_worker(&self) {
+        if let Some(worker) = self.worker.get() {
+            worker.unpark();
+        }
+    }
+
+    pub(in crate::hybrid) fn is_shutdown_worker(&self) -> bool {
+        self.worker
+            .get()
+            .is_some_and(|worker| worker.id() == std::thread::current().id())
     }
 
     #[cfg(test)]
     pub(in crate::hybrid) fn at_capacity() -> Self {
         Self {
             state: AtomicUsize::new(ACTIVE_MASK),
+            worker: OnceLock::new(),
         }
     }
 }
@@ -161,7 +184,10 @@ struct Permit<'admission> {
 
 impl Drop for Permit<'_> {
     fn drop(&mut self) {
-        self.admission.state.fetch_sub(1, Ordering::Release);
+        let previous = self.admission.state.fetch_sub(1, Ordering::Release);
+        if previous == CLOSED | 1 {
+            self.admission.wake_worker();
+        }
     }
 }
 

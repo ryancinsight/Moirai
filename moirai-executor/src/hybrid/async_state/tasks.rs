@@ -34,15 +34,19 @@ impl AsyncTasks {
         Ok(())
     }
 
-    pub(super) fn remove(&self, id: u64) {
+    pub(super) fn remove(&self, id: u64) -> bool {
         // Drop arbitrary waker state after releasing the table lock.
-        let removed = self
-            .entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .tasks
-            .remove(&id);
+        let (removed, drained) = {
+            let mut entries = self
+                .entries
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let removed = entries.tasks.remove(&id);
+            let drained = entries.closed && entries.tasks.is_empty();
+            (removed, drained)
+        };
         drop(removed);
+        drained
     }
 
     pub(crate) fn cancel(&self, id: u64) -> ExecutorResult<()> {
@@ -83,6 +87,14 @@ impl AsyncTasks {
             crate::schedule::job::run_caught(|| wake.wake());
         }
     }
+
+    pub(in crate::hybrid) fn is_empty(&self) -> bool {
+        self.entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .tasks
+            .is_empty()
+    }
 }
 
 pub(super) struct Registration {
@@ -100,8 +112,10 @@ pub(super) fn with_registration_context<R>(
 
 impl Registration {
     pub(super) fn remove(&self) {
-        if let Some(tasks) = self.tasks.upgrade() {
-            tasks.remove(self.id);
+        if let Some(tasks) = self.tasks.upgrade()
+            && tasks.remove(self.id)
+        {
+            self.admission.wake_worker();
         }
     }
 }
