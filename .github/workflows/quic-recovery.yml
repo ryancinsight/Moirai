@@ -58,8 +58,8 @@ jobs:
         with:
           tool: nextest@0.9.140
           checksum: true
-      - name: Fetch the locked sources for provenance verification
-        run: cargo fetch --locked --target x86_64-unknown-linux-gnu
+      - name: Fetch all locked target sources for offline provenance
+        run: cargo fetch --locked
       - name: Verify the original domain and archived numerical evidence
         run: python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'
       - name: Build the original seeded-netem tool
