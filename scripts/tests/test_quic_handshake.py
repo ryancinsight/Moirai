@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import itertools
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -12,6 +13,7 @@ from quic_profiles import verify
 from quic_observation.audit import state_pair
 
 ROOT = Path(__file__).resolve().parents[2]
+HISTORY = Path(os.environ.get('QUIC_HISTORY_REPOSITORY', ROOT))
 DIRECTORY = ROOT/'moirai-quic/measurements/recovery/2026-10-14/state'
 
 
@@ -30,7 +32,7 @@ class HandshakeRecoveryEvidence(unittest.TestCase):
         shard = json.loads(gzip.decompress(next(DIRECTORY.glob('03dcc4a3-matrix-*.json.gz')).read_bytes()))
         provenance = shard['engine_observation']
         verify_provenance(provenance, ROOT)
-        observer_patch, _ = provenance_inputs(provenance, ROOT, ROOT)
+        observer_patch, _ = provenance_inputs(provenance, ROOT, HISTORY)
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             source, _ = registry_source(ROOT, directory/'registry')

@@ -3,7 +3,7 @@ index 5155740b..a11fe79f 100644
 --- a/src/connection/mod.rs
 +++ b/src/connection/mod.rs
 @@ -61,0 +62 @@ use packet_crypto::{PrevCrypto, ZeroRttCrypto};
-+mod observation;
++pub(crate) mod observation;
 @@ -386,0 +388 @@ impl Connection {
 +        self.observe_recovery("driver");
 @@ -1470,0 +1473,5 @@ impl Connection {
@@ -22,7 +22,7 @@ new file mode 100644
 index 00000000..bc28f25e
 --- /dev/null
 +++ b/src/connection/observation.rs
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,114 @@
 +//! Read-only diagnostic instrumentation; never published as a recovery fork.
 +//! Tracing changes work and allocation, so its timings do not characterize the
 +//! pristine engine's performance.
@@ -89,6 +89,54 @@ index 00000000..bc28f25e
 +            "engine recovery state");
 +    }
 +}
++#[cfg(test)]
++pub(crate) use capture::trace_event;
++
++#[cfg(test)]
++mod capture {
++    use std::{io::{self, Write}, sync::{Arc, Mutex}};
++    use tracing_subscriber::{filter::filter_fn, fmt::MakeWriter, prelude::*};
++
++    #[derive(Clone, Default)]
++    struct Buffer(Arc<Mutex<Vec<u8>>>);
++
++    struct BufferWriter(Buffer);
++
++    impl Write for BufferWriter {
++        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
++            self.0.0.lock()
++                .expect("invariant: trace capture mutex is not poisoned")
++                .extend_from_slice(bytes);
++            Ok(bytes.len())
++        }
++
++        fn flush(&mut self) -> io::Result<()> {
++            Ok(())
++        }
++    }
++
++    impl<'a> MakeWriter<'a> for Buffer {
++        type Writer = BufferWriter;
++
++        fn make_writer(&'a self) -> Self::Writer {
++            BufferWriter(self.clone())
++        }
++    }
++
++    pub(crate) fn trace_event(action: impl FnOnce()) -> String {
++        let output = Buffer::default();
++        let layer = tracing_subscriber::fmt::layer().without_time().with_level(false)
++            .with_target(false).with_ansi(false).with_writer(output.clone())
++            .with_filter(filter_fn(|metadata| metadata.target() == "quinn_proto::observation"));
++        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), action);
++        let bytes = output.0.lock()
++            .expect("invariant: trace capture mutex is not poisoned").clone();
++        let event = String::from_utf8(bytes)
++            .expect("invariant: tracing formatter emits UTF-8");
++        assert_eq!(event.lines().count(), 1, "production callback must emit exactly one event");
++        event
++    }
++}
 diff --git a/src/connection/packet_builder.rs b/src/connection/packet_builder.rs
 index d67c85a2..685ac6a8 100644
 --- a/src/connection/packet_builder.rs
@@ -115,4 +163,286 @@ index 7a5908d1..17f3cb4a 100644
 +        }).collect();
 +        rows.sort_unstable_by_key(|row| row[0]);
 +        ([self.max_data, self.data_sent, self.buffered_data, self.send_window], rows)
++    }
+diff --git a/src/congestion/cubic.rs b/src/congestion/cubic.rs
+--- a/src/congestion/cubic.rs
++++ b/src/congestion/cubic.rs
+@@ -74,0 +75,7 @@
++struct CallbackTrace {
++    state_before: [u64; 6],
++    recovery_before: (bool, u64, bool),
++    now: Instant,
++    sent: Instant,
++}
++
+@@ -90,0 +98,62 @@
++
++    fn trace_state(&self) -> [u64; 6] {
++        [
++            self.window,
++            self.ssthresh,
++            self.current_mtu,
++            self.cubic_state.k.to_bits(),
++            self.cubic_state.w_max.to_bits(),
++            self.cubic_state.cwnd_inc,
++        ]
++    }
++
++    fn trace_nanos(duration: Duration) -> u64 {
++        u64::try_from(duration.as_nanos()).expect(
++            "invariant: a 300-second diagnostic is below the 18446744073-second u64 nanosecond ceiling",
++        )
++    }
++
++    fn trace_recovery(&self, now: Instant, sent: Instant) -> (bool, u64, bool) {
++        self.recovery_start_time.map_or((false, 0, false), |start| {
++            (
++                true,
++                Self::trace_nanos(now.saturating_duration_since(start)),
++                sent > start,
++            )
++        })
++    }
++
++    fn trace_before(&self, now: Instant, sent: Instant) -> Option<CallbackTrace> {
++        tracing::enabled!(target: "quinn_proto::observation", tracing::Level::TRACE).then(|| {
++            CallbackTrace {
++                state_before: self.trace_state(),
++                recovery_before: self.trace_recovery(now, sent),
++                now,
++                sent,
++            }
++        })
++    }
++
++    fn trace_ack(
++        &self,
++        trace: CallbackTrace,
++        outcome: &'static str,
++        bytes: u64,
++        app_limited: bool,
++        rtt_ns: u64,
++    ) {
++        let recovery_after = self.trace_recovery(trace.now, trace.sent);
++        tracing::trace!(target: "quinn_proto::observation",
++            callback = "ack", outcome, bytes, app_limited, rtt_ns,
++            sent_age_ns = Self::trace_nanos(trace.now.saturating_duration_since(trace.sent)),
++            persistent = false, lost_bytes = 0_u64,
++            recovery_active_before = trace.recovery_before.0,
++            recovery_age_ns_before = trace.recovery_before.1,
++            sent_after_recovery_before = trace.recovery_before.2,
++            recovery_active_after = recovery_after.0,
++            recovery_age_ns_after = recovery_after.1,
++            sent_after_recovery_after = recovery_after.2,
++            state_before = ?trace.state_before,
++            state_after = ?self.trace_state(),
++            "engine cubic callback");
++    }
+@@ -101,0 +171 @@
++        let trace = self.trace_before(now, sent);
+@@ -107,0 +178,14 @@
++            if let Some(trace) = trace {
++                let outcome = if app_limited {
++                    "app_limited"
++                } else {
++                    "recovery"
++                };
++                self.trace_ack(
++                    trace,
++                    outcome,
++                    bytes,
++                    app_limited,
++                    Self::trace_nanos(rtt.get()),
++                );
++            }
+@@ -110,0 +195,5 @@
++        let outcome = if self.window < self.ssthresh {
++            "slow_start"
++        } else {
++            "avoidance"
++        };
+@@ -163,0 +253,9 @@
++        }
++        if let Some(trace) = trace {
++            self.trace_ack(
++                trace,
++                outcome,
++                bytes,
++                app_limited,
++                Self::trace_nanos(rtt.get()),
++            );
+@@ -279,0 +378,174 @@
++    use crate::connection::observation::trace_event;
++
++    fn event_fields(event: &str) -> std::collections::BTreeMap<&str, &str> {
++        let mut remaining = event
++            .trim_end()
++            .strip_prefix("engine cubic callback ")
++            .expect("invariant: callback message prefix is exact");
++        let mut fields = std::collections::BTreeMap::new();
++        while !remaining.is_empty() {
++            let (key, value) = remaining
++                .split_once('=')
++                .expect("invariant: callback field has a value");
++            let end = match value.as_bytes().first() {
++                Some(b'\"') => value[1..].find('\"').map_or(value.len(), |index| index + 2),
++                Some(b'[') => value.find(']').map_or(value.len(), |index| index + 1),
++                _ => value.find(' ').unwrap_or(value.len()),
++            };
++            let (value, rest) = value.split_at(end);
++            assert_eq!(fields.insert(key, value), None, "duplicate callback field");
++            remaining = rest.trim_start();
++        }
++        fields
++    }
++
++    fn assert_fields(event: &str, expected: &[(&str, String)]) {
++        let actual = event_fields(event);
++        assert_eq!(actual.len(), expected.len());
++        for (key, value) in expected {
++            assert_eq!(actual.get(key).copied(), Some(value.as_str()), "{key}");
++        }
++    }
++
++    fn state(cubic: &Cubic) -> [u64; 6] {
++        [
++            cubic.window,
++            cubic.ssthresh,
++            cubic.current_mtu,
++            cubic.cubic_state.k.to_bits(),
++            cubic.cubic_state.w_max.to_bits(),
++            cubic.cubic_state.cwnd_inc,
++        ]
++    }
++
++    fn recovery(cubic: &Cubic, now: Instant, sent: Instant) -> (bool, u64, bool) {
++        cubic
++            .recovery_start_time
++            .map_or((false, 0, false), |start| {
++                (
++                    true,
++                    u64::try_from(now.saturating_duration_since(start).as_nanos())
++                        .expect("invariant: test durations fit u64 nanoseconds"),
++                    sent > start,
++                )
++            })
++    }
++
++    fn ack(
++        cubic: &mut Cubic,
++        rtt: &RttEstimator,
++        now: Instant,
++        sent: Instant,
++        bytes: u64,
++        app_limited: bool,
++    ) {
++        let before = state(cubic);
++        let epoch_before = recovery(cubic, now, sent);
++        let outcome = if app_limited {
++            "app_limited"
++        } else if epoch_before.0 && !epoch_before.2 {
++            "recovery"
++        } else if before[0] < before[1] {
++            "slow_start"
++        } else {
++            "avoidance"
++        };
++        let event = trace_event(|| cubic.on_ack(now, sent, bytes, app_limited, rtt));
++        let expected = [
++            ("callback", "\"ack\"".into()),
++            ("outcome", format!("\"{outcome}\"")),
++            ("bytes", bytes.to_string()),
++            ("app_limited", app_limited.to_string()),
++            ("rtt_ns", rtt.get().as_nanos().to_string()),
++            ("sent_age_ns", now.saturating_duration_since(sent).as_nanos().to_string()),
++            ("persistent", false.to_string()),
++            ("lost_bytes", 0_u64.to_string()),
++            ("recovery_active_before", epoch_before.0.to_string()),
++            ("recovery_age_ns_before", epoch_before.1.to_string()),
++            ("sent_after_recovery_before", epoch_before.2.to_string()),
++            ("recovery_active_after", recovery(cubic, now, sent).0.to_string()),
++            ("recovery_age_ns_after", recovery(cubic, now, sent).1.to_string()),
++            ("sent_after_recovery_after", recovery(cubic, now, sent).2.to_string()),
++            ("state_before", format!("{before:?}")),
++            ("state_after", format!("{:?}", state(cubic))),
++        ];
++        assert_fields(&event, &expected);
++    }
++
++    #[test]
++    #[should_panic(expected = "bytes")]
++    fn callback_fields_reject_numeric_prefix_matches() {
++        assert_fields("engine cubic callback bytes=12000", &[("bytes", "1200".into())]);
++    }
++
++    fn cubic(now: Instant) -> Cubic {
++        Cubic::new(
++            Arc::new(CubicConfig::default()),
++            now,
++            BASE_DATAGRAM_SIZE as u16,
++        )
++    }
++
++    #[test]
++    fn callback_ack_guards_and_slow_start_are_observed() {
++        let now = Instant::now();
++        let rtt = RttEstimator::new(Duration::from_millis(100));
++        let mut value = cubic(now);
++        value.recovery_start_time = Some(now);
++        let unchanged = state(&value);
++        ack(&mut value, &rtt, now, now, 1_200, true);
++        assert_eq!(state(&value), unchanged);
++        for sent in [now - Duration::from_millis(1), now] {
++            ack(
++                &mut value,
++                &rtt,
++                now + Duration::from_millis(2),
++                sent,
++                1_200,
++                false,
++            );
++            assert_eq!(state(&value), unchanged);
++        }
++        value.recovery_start_time = None;
++        ack(&mut value, &rtt, now, now, 1_200, false);
++        assert_eq!(value.window, unchanged[0] + 1_200);
++        assert_eq!(value.recovery_start_time, None);
++    }
++
++    #[test]
++    fn callback_ack_avoidance_boundaries_are_observed() {
++        let now = Instant::now();
++        let rtt = RttEstimator::new(Duration::from_millis(100));
++        let mut initialized = cubic(now);
++        (initialized.window, initialized.ssthresh) = (12_000, 12_000);
++        ack(&mut initialized, &rtt, now, now, 1_200, false);
++        assert_eq!(
++            state(&initialized),
++            [
++                12_000,
++                12_000,
++                1_200,
++                0.0_f64.to_bits(),
++                12_000.0_f64.to_bits(),
++                0
++            ]
++        );
++        assert_eq!(initialized.recovery_start_time, Some(now));
++        for (increment, expected) in [(1_199, (12_000, 1_199)), (1_200, (13_200, 0))] {
++            let mut retained = cubic(now);
++            (retained.window, retained.ssthresh) = (12_000, 11_999);
++            retained.recovery_start_time = Some(now);
++            retained.cubic_state.w_max = 12_000.0;
++            retained.cubic_state.cwnd_inc = increment;
++            ack(
++                &mut retained,
++                &rtt,
++                now + Duration::from_millis(2),
++                now + Duration::from_millis(1),
++                1_200,
++                false,
++            );
++            assert_eq!((retained.window, retained.cubic_state.cwnd_inc), expected);
++            assert_eq!(retained.recovery_start_time, Some(now));
++        }
 +    }

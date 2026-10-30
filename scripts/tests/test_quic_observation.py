@@ -37,6 +37,11 @@ def git_tree(repository, entries):
     ).decode().strip()
 
 
+def source_identity(root):
+    return (Path(os.environ.get('QUIC_HISTORY_REPOSITORY', root)),
+            os.environ.get('QUIC_SOURCE_TREE', 'HEAD'))
+
+
 class ObservationProvenance(unittest.TestCase):
     def test_archived_source_preserves_confined_links_and_rejects_graph_escapes(self):
         from quic_observation.prepare import archived_source, validate_archive_links
@@ -113,10 +118,12 @@ class ObservationProvenance(unittest.TestCase):
         import json
         from quic_observation.prepare import prepare
         root = Path(__file__).resolve().parents[2]
+        history, revision = source_identity(root)
         tracked = 'moirai-quic/examples/quic_load.rs'
-        expected = subprocess.check_output(['git', 'show', f'HEAD:{tracked}'], cwd=root)
+        expected = subprocess.check_output(
+            ['git', 'show', f'{revision}:{tracked}'], cwd=history)
         tree = subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD^{tree}'], cwd=root, text=True).strip()
+            ['git', 'rev-parse', f'{revision}^{{tree}}'], cwd=history, text=True).strip()
         with tempfile.TemporaryDirectory() as temporary:
             temporary = Path(temporary)
             mutable = temporary/'mutable-caller'
@@ -132,7 +139,7 @@ class ObservationProvenance(unittest.TestCase):
             os.environ.update(config)
             output = temporary/'prepared'
             try:
-                prepare(mutable, output, root, 'HEAD')
+                prepare(mutable, output, history, revision)
             finally:
                 for key, value in prior.items():
                     if value is None:
@@ -225,27 +232,45 @@ class ObservationProvenance(unittest.TestCase):
             self.assertEqual(len(checksum), 64)
             original = (source/'src/connection/mod.rs').read_bytes()
             report = patch_source(source, Path(temporary)/'engine', root)
+            history, revision = source_identity(root)
+            tree = subprocess.check_output(
+                ['git', 'rev-parse', f'{revision}^{{tree}}'], cwd=history, text=True).strip()
+            from quic_observation.prepare import diagnostic_lock, digest, verify_provenance
+            original_lock = (root/'Cargo.lock').read_text()
+            report.update({'registry_checksum': checksum,
+                           'canonical_lock_sha256': digest(original_lock.encode()),
+                           'diagnostic_lock_sha256': digest(diagnostic_lock(original_lock).encode()),
+                           'source_tree': tree, 'source_gitlinks': []})
             self.assertEqual(set(report['changed_files']), {
                 'src/connection/mod.rs', 'src/connection/observation.rs',
-                'src/connection/packet_builder.rs', 'src/connection/streams/state.rs'})
+                'src/connection/packet_builder.rs', 'src/connection/streams/state.rs',
+                'src/congestion/cubic.rs'})
             self.assertEqual(report['pristine_mod_sha256'], hashlib.sha256(original).hexdigest())
             self.assertNotEqual(report['observed_mod_sha256'], report['pristine_mod_sha256'])
             malformed = {**report, 'changed_files': [*report['changed_files'], 'src/lib.rs']}
-            from quic_observation.prepare import verify_provenance
             with self.assertRaisesRegex(ValueError, 'unrecognized patch inventory'):
                 verify_provenance(malformed, root)
+            omitted = {**report, 'changed_files': report['changed_files'][:-1]}
+            with self.assertRaisesRegex(ValueError, 'authenticated patch inventory'):
+                verify_provenance(omitted, root, history)
             self.assertEqual((source/'src/connection/mod.rs').read_bytes(), original)
 
     def test_prepared_lock_bytes_match_provenance(self):
         import json
         from quic_observation.prepare import digest, prepare
         root = Path(__file__).resolve().parents[2]
+        history, revision = source_identity(root)
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)/'prepared'
-            prepare(root, output)
+            prepare(root, output, history, revision)
             provenance = json.loads((output/'provenance.json').read_text())
             self.assertEqual(digest((output/'workspace/Cargo.lock').read_bytes()),
                              provenance['diagnostic_lock_sha256'])
+            cargo = Path(os.environ.get('CARGO_HOME', Path.home()/'.cargo'))
+            archive = next((cargo/'registry/cache').glob('*/quinn-proto-0.11.19.crate'))
+            with tarfile.open(archive) as contents:
+                expected = contents.extractfile('quinn-proto-0.11.19/Cargo.lock').read()
+            self.assertEqual((output/'engine/Cargo.lock').read_bytes(), expected)
 
     def test_registry_extra_file_is_not_a_diagnostic_build_input(self):
         root = Path(__file__).resolve().parents[2]

@@ -17,7 +17,8 @@ import tomllib
 ENGINE = 'quinn-proto'
 VERSION = '0.11.19'
 ALLOWED = {'src/connection/mod.rs', 'src/connection/observation.rs',
-           'src/connection/packet_builder.rs', 'src/connection/streams/state.rs'}
+           'src/connection/packet_builder.rs', 'src/connection/streams/state.rs',
+           'src/congestion/cubic.rs'}
 GIT = ['git', '--no-replace-objects']
 
 
@@ -73,14 +74,18 @@ def registry_source(root, destination):
     return destination, package['checksum']
 
 
+def patch_inventory(raw):
+    return {line.removeprefix('+++ b/') for line in raw.decode().splitlines()
+            if line.startswith('+++ b/')}
+
+
 def patch_source(source, destination, root, patch_raw=None, allowed=None):
     patch = root/'scripts/quic_observation/engine.patch'
     raw = patch.read_bytes() if patch_raw is None else patch_raw
     text = raw.decode()
     if any(line.startswith('-') and not line.startswith('--- ') for line in text.splitlines()):
         raise ValueError('instrumentation cannot remove or replace an engine statement')
-    changed = {line.removeprefix('+++ b/') for line in text.splitlines()
-               if line.startswith('+++ b/')}
+    changed = patch_inventory(raw)
     if changed != (ALLOWED if allowed is None else allowed):
         raise ValueError('unexpected instrumentation file inventory')
     shutil.copytree(source, destination)
@@ -282,9 +287,10 @@ def archived_source(history_repository, revision, destination):
 
 
 def verify_provenance(report, root, history_repository=None):
-    history_repository = root if history_repository is None else history_repository
+    if history_repository is None:
+        history_repository = Path(os.environ.get('QUIC_HISTORY_REPOSITORY', root))
     reported_files = set(report.get('changed_files', ()))
-    if reported_files != ALLOWED:
+    if not reported_files or not reported_files <= ALLOWED:
         raise ValueError('diagnostic report has an unrecognized patch inventory')
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
@@ -295,6 +301,8 @@ def verify_provenance(report, root, history_repository=None):
                 history_repository, report['source_tree'], source_root)
         source, checksum = registry_source(source_root, temporary/'registry')
         raw, original = provenance_inputs(report, source_root, history_repository)
+        if patch_inventory(raw) != reported_files:
+            raise ValueError('diagnostic report differs from its authenticated patch inventory')
         expected = patch_source(source, Path(temporary)/'engine', source_root, raw,
                                 reported_files)
     expected.update({'registry_checksum': checksum,
