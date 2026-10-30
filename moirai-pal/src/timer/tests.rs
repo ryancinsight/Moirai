@@ -1,68 +1,148 @@
 use std::{
     future::Future,
+    mem::ManuallyDrop,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use futures::task::{ArcWake, waker};
 
-#[cfg(loom)]
-use super::TIMER_CANCELLED;
-use super::{SleeperEvent, TimerState, sleep};
+use super::{TimerState, sleep};
 
-const SLEEPER_DEADLINE: Duration = Duration::from_secs(60);
-const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
-
-fn event_deadline() -> Instant {
-    Instant::now()
-        .checked_add(EVENT_TIMEOUT)
-        .expect("invariant: five seconds fits in the platform instant range")
+#[derive(Debug, PartialEq, Eq)]
+struct CallbackCounts {
+    clones: usize,
+    wakes: usize,
+    drops: usize,
 }
 
-fn receive_event_before(
-    receiver: &std::sync::mpsc::Receiver<SleeperEvent>,
-    deadline: Instant,
-) -> SleeperEvent {
-    let remaining = deadline
-        .checked_duration_since(Instant::now())
-        .expect("sleeper event must arrive before the test deadline");
-    receiver
-        .recv_timeout(remaining)
-        .expect("sleeper must publish the expected event")
+enum CallbackKind {
+    Clone,
+    Wake,
+    Drop,
 }
 
-fn receive_until(
-    receiver: &std::sync::mpsc::Receiver<SleeperEvent>,
-    expected: SleeperEvent,
-    deadline: Instant,
-) {
-    loop {
-        let event = receive_event_before(receiver, deadline);
-        if event == expected {
+struct CallbackProbe {
+    state: Arc<TimerState>,
+    clones: AtomicUsize,
+    wakes: AtomicUsize,
+    drops: AtomicUsize,
+    panic_on_clone: AtomicBool,
+    panic_on_wake: AtomicBool,
+    panic_on_drop: AtomicBool,
+}
+
+impl CallbackProbe {
+    fn new(state: Arc<TimerState>) -> Self {
+        Self {
+            state,
+            clones: AtomicUsize::new(0),
+            wakes: AtomicUsize::new(0),
+            drops: AtomicUsize::new(0),
+            panic_on_clone: AtomicBool::new(false),
+            panic_on_wake: AtomicBool::new(false),
+            panic_on_drop: AtomicBool::new(false),
+        }
+    }
+
+    fn record(&self, kind: CallbackKind) {
+        if std::thread::panicking() {
             return;
         }
-        assert_eq!(
-            event,
-            SleeperEvent::Waiting,
-            "only a genuine spurious wake may precede the expected event"
+        let registry = self
+            .state
+            .waker
+            .try_lock()
+            .expect("waker callback must run outside the registry lock");
+        drop(registry);
+        let (count, panics, name) = match kind {
+            CallbackKind::Clone => (&self.clones, &self.panic_on_clone, "clone"),
+            CallbackKind::Wake => (&self.wakes, &self.panic_on_wake, "wake"),
+            CallbackKind::Drop => (&self.drops, &self.panic_on_drop, "drop"),
+        };
+        count.fetch_add(1, Ordering::Relaxed);
+        assert!(
+            !panics.load(Ordering::Relaxed),
+            "injected {name} callback panic"
         );
+    }
+
+    fn counts(&self) -> CallbackCounts {
+        CallbackCounts {
+            clones: self.clones.load(Ordering::Relaxed),
+            wakes: self.wakes.load(Ordering::Relaxed),
+            drops: self.drops.load(Ordering::Relaxed),
+        }
     }
 }
 
-fn observe_sleeper(state: &TimerState) -> std::sync::mpsc::Receiver<SleeperEvent> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(8);
-    state
-        .observe_sleeper_with(sender)
-        .expect("invariant: each timer test installs one sleeper observer");
-    receiver
+static CALLBACK_WAKER: std::task::RawWakerVTable = std::task::RawWakerVTable::new(
+    clone_callback,
+    wake_callback,
+    wake_by_ref_callback,
+    drop_callback,
+);
+
+unsafe fn clone_callback(data: *const ()) -> std::task::RawWaker {
+    // SAFETY: `data` owns one `Arc<CallbackProbe>` under `CALLBACK_WAKER`.
+    let probe = ManuallyDrop::new(unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) });
+    probe.record(CallbackKind::Clone);
+    let clone = Arc::clone(&probe);
+    std::task::RawWaker::new(Arc::into_raw(clone).cast(), &CALLBACK_WAKER)
 }
 
-fn wait_until_parked(receiver: &std::sync::mpsc::Receiver<SleeperEvent>, deadline: Instant) {
-    receive_until(receiver, SleeperEvent::Waiting, deadline);
+unsafe fn wake_callback(data: *const ()) {
+    // SAFETY: wake consumes the `Arc<CallbackProbe>` owned by this raw waker.
+    let probe = unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) };
+    probe.record(CallbackKind::Wake);
+}
+
+unsafe fn wake_by_ref_callback(data: *const ()) {
+    // SAFETY: wake-by-reference borrows the raw waker's owned Arc.
+    let probe = ManuallyDrop::new(unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) });
+    probe.record(CallbackKind::Wake);
+}
+
+unsafe fn drop_callback(data: *const ()) {
+    // SAFETY: drop consumes the `Arc<CallbackProbe>` owned by this raw waker.
+    let probe = unsafe { Arc::from_raw(data.cast::<CallbackProbe>()) };
+    probe.record(CallbackKind::Drop);
+}
+
+fn callback_waker(probe: &Arc<CallbackProbe>) -> std::task::Waker {
+    let raw = std::task::RawWaker::new(Arc::into_raw(Arc::clone(probe)).cast(), &CALLBACK_WAKER);
+    // SAFETY: `CALLBACK_WAKER` preserves the Arc ownership represented by `raw`.
+    unsafe { std::task::Waker::from_raw(raw) }
+}
+
+fn registered_waker_count(state: &TimerState) -> usize {
+    usize::from(
+        state
+            .waker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_some(),
+    )
+}
+
+fn registered_waker_matches(state: &TimerState, expected: &std::task::Waker) -> bool {
+    state
+        .waker
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        .is_some_and(|stored| stored.will_wake(expected))
+}
+
+#[cfg(not(loom))]
+fn expect_callback_panic(callback: impl FnOnce()) {
+    let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) else {
+        panic!("injected callback must panic");
+    };
 }
 
 struct WakeFlag {
@@ -88,65 +168,6 @@ impl ArcWake for WakeFlag {
                 "timer wake observer must remain connected"
             );
         }
-    }
-}
-
-fn tracked_waker() -> (
-    std::sync::Weak<WakeFlag>,
-    std::task::Waker,
-    std::sync::mpsc::Receiver<()>,
-) {
-    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
-    let flag = Arc::new(WakeFlag::new(wake_tx));
-    let observer = Arc::downgrade(&flag);
-    (observer, waker(flag), wake_rx)
-}
-
-#[cfg(not(loom))]
-static CLONE_PANICS: AtomicBool = AtomicBool::new(false);
-#[cfg(not(loom))]
-static DROP_PANICS: AtomicBool = AtomicBool::new(false);
-#[cfg(not(loom))]
-static WAKE_PANICS: AtomicBool = AtomicBool::new(false);
-
-#[cfg(not(loom))]
-static PANICKING_WAKER: std::task::RawWakerVTable = std::task::RawWakerVTable::new(
-    clone_or_panic,
-    wake_or_panic,
-    wake_by_ref_or_panic,
-    drop_or_panic,
-);
-
-#[cfg(not(loom))]
-fn clone_or_panic(data: *const ()) -> std::task::RawWaker {
-    assert!(
-        !CLONE_PANICS.load(Ordering::Relaxed),
-        "injected clone panic"
-    );
-    std::task::RawWaker::new(data, &PANICKING_WAKER)
-}
-
-#[cfg(not(loom))]
-fn wake_or_panic(_: *const ()) {
-    assert!(!WAKE_PANICS.load(Ordering::Relaxed), "injected wake panic");
-}
-
-#[cfg(not(loom))]
-fn wake_by_ref_or_panic(data: *const ()) {
-    wake_or_panic(data);
-}
-
-#[cfg(not(loom))]
-fn drop_or_panic(_: *const ()) {
-    assert!(!DROP_PANICS.load(Ordering::Relaxed), "injected drop panic");
-}
-
-#[cfg(not(loom))]
-fn panicking_waker() -> std::task::Waker {
-    // SAFETY: every vtable function ignores the data pointer, and clone returns
-    // the same stateless vtable, so the null pointer is never dereferenced.
-    unsafe {
-        std::task::Waker::from_raw(std::task::RawWaker::new(std::ptr::null(), &PANICKING_WAKER))
     }
 }
 
@@ -198,214 +219,166 @@ fn pal_timer_extreme_duration_does_not_panic() {
     assert!(timer.deadline() > std::time::Instant::now());
 }
 
-#[test]
-fn pal_timer_cancellation_before_wait_exits_without_parking() {
-    let timer = sleep(SLEEPER_DEADLINE);
-    let deadline = timer.deadline;
-    let state = Arc::clone(&timer.state);
-    let events = observe_sleeper(&state);
-    let (observer, task_waker, _wake_events) = tracked_waker();
-
-    state.register_waker(&task_waker);
-    drop(task_waker);
-    assert_eq!(observer.strong_count(), 1);
-    drop(timer);
-    assert_eq!(observer.strong_count(), 1);
-
-    state
-        .spawn_sleeper(deadline)
-        .expect("real sleeper must spawn after pre-cancellation");
-    assert_eq!(
-        receive_event_before(&events, event_deadline()),
-        SleeperEvent::Exited
-    );
-    assert_eq!(observer.strong_count(), 0);
-}
-
-#[test]
-fn pal_timer_drop_during_wait_exits_and_releases_waker() {
-    let (observer, task_waker, _wake_events) = tracked_waker();
-    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
-    let state = Arc::clone(&timer.state);
-    let events = observe_sleeper(&state);
-    let deadline = event_deadline();
-
-    {
-        let mut context = Context::from_waker(&task_waker);
-        assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
-    }
-    wait_until_parked(&events, deadline);
-    drop(task_waker);
-    assert_eq!(observer.strong_count(), 1);
-
-    let registry = state
-        .waker
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let (dropped_tx, dropped_rx) = std::sync::mpsc::sync_channel(0);
-    let dropper = std::thread::spawn(move || {
-        drop(timer);
-        dropped_tx
-            .send(())
-            .expect("drop observer must remain connected");
-    });
-    dropped_rx
-        .recv_timeout(EVENT_TIMEOUT)
-        .expect("timer drop must not wait for the waker registry");
-    drop(registry);
-    dropper.join().expect("timer drop thread must exit");
-    receive_until(&events, SleeperEvent::Exited, deadline);
-    assert_eq!(observer.strong_count(), 0);
-}
-
-#[test]
-fn pal_timer_spurious_notification_reparks_the_sleeper() {
-    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
-    let state = Arc::clone(&timer.state);
-    let events = observe_sleeper(&state);
-    let mut context = Context::from_waker(std::task::Waker::noop());
-    let deadline = event_deadline();
-
-    assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
-    wait_until_parked(&events, deadline);
-    state
-        .sleeper_thread
-        .get()
-        .expect("sleeper publishes its thread before waiting")
-        .unpark();
-
-    wait_until_parked(&events, deadline);
-    assert!(!state.is_completed());
-
-    drop(timer);
-    receive_until(&events, SleeperEvent::Exited, deadline);
-}
-
-#[test]
-fn pal_timer_borrowed_ready_exits_and_releases_waker() {
-    let (observer, task_waker, _wake_events) = tracked_waker();
-    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
-    let state = Arc::clone(&timer.state);
-    let events = observe_sleeper(&state);
-    let deadline = event_deadline();
-
-    {
-        let mut context = Context::from_waker(&task_waker);
-        assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
-    }
-    wait_until_parked(&events, deadline);
-    drop(task_waker);
-    assert_eq!(observer.strong_count(), 1);
-
-    timer.as_mut().get_mut().deadline = Instant::now();
-    let mut context = Context::from_waker(std::task::Waker::noop());
-    assert!(matches!(
-        timer.as_mut().poll(&mut context),
-        Poll::Ready(Ok(()))
-    ));
-    receive_until(&events, SleeperEvent::Exited, deadline);
-    assert_eq!(observer.strong_count(), 0);
-}
-
 #[cfg(not(loom))]
 #[test]
 fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
-    let state = TimerState::new();
-    let faulty = panicking_waker();
+    let state = Arc::new(TimerState::new());
+    let retained_probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
+    let retained = callback_waker(&retained_probe);
 
-    CLONE_PANICS.store(true, Ordering::Relaxed);
-    let clone_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        state.register_waker(&faulty);
-    }));
-    CLONE_PANICS.store(false, Ordering::Relaxed);
-    let Err(_) = clone_panic else {
-        panic!("clone callback must panic");
-    };
-    assert!(!state.waker.is_poisoned());
+    state.register_waker(&retained);
+    state.register_waker(&retained);
+    assert_eq!(
+        retained_probe.counts(),
+        CallbackCounts {
+            clones: 2,
+            wakes: 0,
+            drops: 1,
+        }
+    );
+    assert_eq!(registered_waker_count(&state), 1);
+    assert!(registered_waker_matches(&state, &retained));
 
-    state.register_waker(&faulty);
-    DROP_PANICS.store(true, Ordering::Relaxed);
-    let drop_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        state.register_waker(std::task::Waker::noop());
-    }));
-    DROP_PANICS.store(false, Ordering::Relaxed);
-    let Err(_) = drop_panic else {
-        panic!("drop callback must panic");
-    };
+    let rejected_probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
+    let rejected = callback_waker(&rejected_probe);
+    rejected_probe.panic_on_clone.store(true, Ordering::Relaxed);
+    expect_callback_panic(|| state.register_waker(&rejected));
+    rejected_probe
+        .panic_on_clone
+        .store(false, Ordering::Relaxed);
     assert!(!state.waker.is_poisoned());
+    assert_eq!(registered_waker_count(&state), 1);
+    assert!(registered_waker_matches(&state, &retained));
+    assert!(!registered_waker_matches(&state, &rejected));
+    assert_eq!(
+        rejected_probe.counts(),
+        CallbackCounts {
+            clones: 1,
+            wakes: 0,
+            drops: 0,
+        }
+    );
 
-    state.register_waker(&faulty);
-    WAKE_PANICS.store(true, Ordering::Relaxed);
-    let wake_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        state.complete();
-    }));
-    WAKE_PANICS.store(false, Ordering::Relaxed);
-    let Err(_) = wake_panic else {
-        panic!("wake callback must panic");
-    };
+    let replacement_probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
+    let replacement = callback_waker(&replacement_probe);
+    retained_probe.panic_on_drop.store(true, Ordering::Relaxed);
+    expect_callback_panic(|| state.register_waker(&replacement));
+    retained_probe.panic_on_drop.store(false, Ordering::Relaxed);
     assert!(!state.waker.is_poisoned());
+    assert_eq!(registered_waker_count(&state), 1);
+    assert!(registered_waker_matches(&state, &replacement));
+    assert!(!registered_waker_matches(&state, &retained));
+    assert_eq!(
+        retained_probe.counts(),
+        CallbackCounts {
+            clones: 2,
+            wakes: 0,
+            drops: 2,
+        }
+    );
+    assert_eq!(
+        replacement_probe.counts(),
+        CallbackCounts {
+            clones: 1,
+            wakes: 0,
+            drops: 0,
+        }
+    );
+
+    state.complete();
+    assert!(state.is_completed());
+    assert_eq!(registered_waker_count(&state), 0);
+    assert_eq!(
+        replacement_probe.counts(),
+        CallbackCounts {
+            clones: 1,
+            wakes: 1,
+            drops: 0,
+        }
+    );
+    drop(retained);
+    drop(rejected);
+    drop(replacement);
+    assert_eq!(
+        retained_probe.counts(),
+        CallbackCounts {
+            clones: 2,
+            wakes: 0,
+            drops: 3,
+        }
+    );
+    assert_eq!(
+        rejected_probe.counts(),
+        CallbackCounts {
+            clones: 1,
+            wakes: 0,
+            drops: 1,
+        }
+    );
+    assert_eq!(
+        replacement_probe.counts(),
+        CallbackCounts {
+            clones: 1,
+            wakes: 1,
+            drops: 1,
+        }
+    );
+
+    let wake_state = Arc::new(TimerState::new());
+    let wake_probe = Arc::new(CallbackProbe::new(Arc::clone(&wake_state)));
+    let wake = callback_waker(&wake_probe);
+    wake_state.register_waker(&wake);
+    wake_probe.panic_on_wake.store(true, Ordering::Relaxed);
+    expect_callback_panic(|| wake_state.complete());
+    wake_probe.panic_on_wake.store(false, Ordering::Relaxed);
+    assert!(!wake_state.waker.is_poisoned());
+    assert!(wake_state.is_completed());
+    assert_eq!(registered_waker_count(&wake_state), 0);
+    assert_eq!(
+        wake_probe.counts(),
+        CallbackCounts {
+            clones: 1,
+            wakes: 1,
+            drops: 0,
+        }
+    );
+
+    drop(wake);
+    let completed_counts = wake_probe.counts();
+    assert_eq!(
+        completed_counts,
+        CallbackCounts {
+            clones: 1,
+            wakes: 1,
+            drops: 1,
+        }
+    );
+    wake_state.complete();
+    assert!(wake_state.is_completed());
+    assert_eq!(registered_waker_count(&wake_state), 0);
+    assert_eq!(wake_probe.counts(), completed_counts);
 }
 
-#[cfg(loom)]
 #[test]
-fn loom_timer_cancellation_publication_has_no_lost_wakeup() {
-    let mut model = loom::model::Builder::new();
-    model.preemption_bound = Some(4);
-    model.check(|| {
-        let state = Arc::new(TimerState::new());
-        state.register_waker(std::task::Waker::noop());
-        let worker_state = Arc::clone(&state);
-        let deadline = Instant::now()
-            .checked_add(SLEEPER_DEADLINE)
-            .expect("invariant: one minute fits in the platform instant range");
-        let worker = loom::thread::spawn(move || worker_state.run_sleeper(deadline));
+fn pal_timer_spawn_failure_preserves_error_and_releases_the_waker() {
+    let state = Arc::new(TimerState::new());
+    let probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
+    let task_waker = callback_waker(&probe);
 
-        state.cancel();
-        worker
-            .join()
-            .expect("timer worker must observe cancellation");
+    state.register_waker(&task_waker);
+    drop(task_waker);
+    assert_eq!(Arc::strong_count(&probe), 2);
 
-        assert_eq!(
-            super::lifecycle(state.status.load(loom::sync::atomic::Ordering::Acquire)),
-            TIMER_CANCELLED
-        );
-        assert!(
-            state
-                .waker
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .is_none()
-        );
-    });
+    let error = state
+        .finish_spawn(Err(std::io::Error::from_raw_os_error(i32::MAX)))
+        .expect_err("injected worker spawn failure must remain an error");
+
+    assert_eq!(error.raw_os_error(), Some(i32::MAX));
+    assert!(state.is_completed());
+    assert_eq!(registered_waker_count(&state), 0);
+    assert_eq!(Arc::strong_count(&probe), 1);
+    assert_eq!(probe.counts().drops, 2);
 }
 
-#[cfg(loom)]
-#[test]
-fn loom_timer_completion_and_registration_release_the_waker() {
-    let mut model = loom::model::Builder::new();
-    model.preemption_bound = Some(4);
-    model.check(|| {
-        let state = Arc::new(TimerState::new());
-        let registering = Arc::clone(&state);
-        let completing = Arc::clone(&state);
-        let register = loom::thread::spawn(move || {
-            registering.register_waker(std::task::Waker::noop());
-            if registering.is_completed() {
-                registering.clear_waker();
-            }
-        });
-        let complete = loom::thread::spawn(move || completing.complete());
-
-        register.join().expect("registration must finish");
-        complete.join().expect("completion must finish");
-
-        assert!(state.is_completed());
-        assert!(
-            state
-                .waker
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .is_none()
-        );
-    });
-}
+#[path = "tests/cancellation.rs"]
+mod cancellation;

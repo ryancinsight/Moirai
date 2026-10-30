@@ -32,8 +32,7 @@ const TIMER_SLEEPER_PUBLISHED: u8 = 4;
 
 /// Platform-agnostic one-shot timer future.
 ///
-/// Dropping a pending timer cancels its sleeper and releases its registered
-/// waker.
+/// Dropping a pending timer cancels its sleeper and releases its waker.
 pub struct Timer {
     deadline: Instant,
     state: Arc<TimerState>,
@@ -108,8 +107,6 @@ impl TimerState {
         let Some(observer) = self.sleeper_events.get() else {
             return;
         };
-        // The observer must never block the worker. Disconnect means test
-        // teardown; saturation fails rather than losing a transition.
         if let Err(undelivered) = observer.try_send(event) {
             assert!(
                 matches!(undelivered, std::sync::mpsc::TrySendError::Disconnected(_)),
@@ -219,6 +216,16 @@ impl TimerState {
         self.publish_sleeper_event(SleeperEvent::Exited);
     }
 
+    fn finish_spawn(&self, worker: io::Result<thread::JoinHandle<()>>) -> io::Result<()> {
+        match worker {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                self.finish_poll();
+                Err(error)
+            }
+        }
+    }
+
     fn spawn_sleeper(self: &Arc<Self>, deadline: Instant) -> io::Result<()> {
         if self
             .sleeper_started
@@ -229,16 +236,10 @@ impl TimerState {
         }
 
         let state = Arc::clone(self);
-        match thread::Builder::new()
+        let worker = thread::Builder::new()
             .name("moirai-pal-timer".to_owned())
-            .spawn(move || state.run_sleeper(deadline))
-        {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                self.finish_poll();
-                Err(error)
-            }
-        }
+            .spawn(move || state.run_sleeper(deadline));
+        self.finish_spawn(worker)
     }
 }
 
@@ -246,13 +247,10 @@ fn lifecycle(status: u8) -> u8 {
     status & TIMER_LIFECYCLE_MASK
 }
 
-#[cfg(not(loom))]
-fn park_timeout(duration: Duration) {
-    thread::park_timeout(duration);
-}
-
-#[cfg(loom)]
-fn park_timeout(_: Duration) {
+fn park_timeout(_duration: Duration) {
+    #[cfg(not(loom))]
+    thread::park_timeout(_duration);
+    #[cfg(loom)]
     thread::park();
 }
 
