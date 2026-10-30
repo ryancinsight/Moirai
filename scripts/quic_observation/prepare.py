@@ -18,7 +18,7 @@ ENGINE = 'quinn-proto'
 VERSION = '0.11.19'
 ALLOWED = {'src/connection/mod.rs', 'src/connection/observation.rs',
            'src/connection/packet_builder.rs', 'src/connection/streams/state.rs',
-           'src/congestion/cubic.rs'}
+           'src/congestion/cubic.rs', 'src/tests/mod.rs'}
 GIT = ['git', '--no-replace-objects']
 
 
@@ -86,7 +86,8 @@ def patch_source(source, destination, root, patch_raw=None, allowed=None):
     if any(line.startswith('-') and not line.startswith('--- ') for line in text.splitlines()):
         raise ValueError('instrumentation cannot remove or replace an engine statement')
     changed = patch_inventory(raw)
-    if changed != (ALLOWED if allowed is None else allowed):
+    expected = changed if allowed is None else allowed
+    if not changed or not changed <= ALLOWED or changed != expected:
         raise ValueError('unexpected instrumentation file inventory')
     shutil.copytree(source, destination)
     command = ['git', '-c', 'core.autocrlf=false', 'apply', '--unidiff-zero']

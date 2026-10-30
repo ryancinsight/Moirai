@@ -244,7 +244,7 @@ class ObservationProvenance(unittest.TestCase):
             self.assertEqual(set(report['changed_files']), {
                 'src/connection/mod.rs', 'src/connection/observation.rs',
                 'src/connection/packet_builder.rs', 'src/connection/streams/state.rs',
-                'src/congestion/cubic.rs'})
+                'src/congestion/cubic.rs', 'src/tests/mod.rs'})
             self.assertEqual(report['pristine_mod_sha256'], hashlib.sha256(original).hexdigest())
             self.assertNotEqual(report['observed_mod_sha256'], report['pristine_mod_sha256'])
             malformed = {**report, 'changed_files': [*report['changed_files'], 'src/lib.rs']}
