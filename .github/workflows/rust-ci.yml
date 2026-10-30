@@ -74,7 +74,7 @@ jobs:
       contents: read
   semver:
     name: SemVer gate
-    uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@d0eb478f0737df1c45ab5f346f735b8b61fa2cc7
+    uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@0227830912a12dbae0ff62b3f16575899fc9087e
     with:
       # Compare every candidate with the published contract. The manifest
       # version determines which API changes that comparison permits.
@@ -83,7 +83,7 @@ jobs:
       # the workspace gate still compiles and tests moirai-async-macros.
       package: moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-quic,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime,moirai-webview
       rust-toolchain: 1.97.0
-      atlas-ref: d0eb478f0737df1c45ab5f346f735b8b61fa2cc7
+      atlas-ref: 0227830912a12dbae0ff62b3f16575899fc9087e
     permissions:
       contents: read
 
