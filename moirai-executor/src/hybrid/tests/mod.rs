@@ -8,6 +8,7 @@ mod construction;
 mod fixtures;
 mod future_destruction;
 mod priority;
+mod settlement_ownership;
 mod shutdown;
 mod shutdown_callbacks;
 mod shutdown_deadlines;

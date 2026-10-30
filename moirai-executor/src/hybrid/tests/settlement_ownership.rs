@@ -1,0 +1,248 @@
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    },
+    task::{Context, Poll, Wake, Waker},
+    time::Duration,
+};
+
+use moirai_core::{
+    Priority,
+    error::{ExecutorError, TaskError},
+    executor::{ExecutorConfig, ExecutorControl, TaskManager, TaskSpawner},
+    task::TaskHandle,
+};
+
+use super::{super::HybridExecutor, fixtures::gate_single_worker};
+use crate::SyncTask;
+
+const EVENT_DEADLINE: Duration = Duration::from_secs(5);
+
+enum Destruction {
+    Complete,
+    Panic,
+}
+
+struct InlineCompletion {
+    ready: Arc<AtomicBool>,
+    waker: Arc<Mutex<Option<Waker>>>,
+    parked: Option<mpsc::SyncSender<()>>,
+    drops: Arc<AtomicUsize>,
+    destruction: Destruction,
+}
+
+impl Future for InlineCompletion {
+    type Output = usize;
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.ready.load(Ordering::Acquire) {
+            return Poll::Ready(1789);
+        }
+        *self.waker.lock().unwrap() = Some(context.waker().clone());
+        if let Some(parked) = self.parked.take() {
+            parked.send(()).expect("park observer remains connected");
+        }
+        Poll::Pending
+    }
+}
+
+impl Drop for InlineCompletion {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::AcqRel);
+        if matches!(self.destruction, Destruction::Panic) {
+            panic!("inline future destructor panic");
+        }
+    }
+}
+
+enum CallbackExit {
+    Release(Mutex<mpsc::Receiver<()>>),
+    Panic,
+}
+
+struct SettlementCallback {
+    handle: Mutex<Option<TaskHandle<usize>>>,
+    observed: mpsc::SyncSender<Option<Result<usize, TaskError>>>,
+    entered: mpsc::SyncSender<()>,
+    exit: CallbackExit,
+}
+
+impl Wake for SettlementCallback {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        let result = self
+            .handle
+            .lock()
+            .unwrap()
+            .take()
+            .expect("settlement callback owns the result handle")
+            .join();
+        self.observed
+            .send(result)
+            .expect("result observer remains connected");
+        self.entered
+            .send(())
+            .expect("callback observer remains connected");
+        match &self.exit {
+            CallbackExit::Release(release) => release
+                .lock()
+                .unwrap()
+                .recv()
+                .expect("callback release remains connected"),
+            CallbackExit::Panic => panic!("settlement callback panic"),
+        }
+    }
+}
+
+struct SettlementFixture {
+    worker_release: mpsc::Sender<()>,
+    worker_gate: TaskHandle<()>,
+    executor: HybridExecutor,
+    handle: TaskHandle<usize>,
+    task_waker: Waker,
+    ready: Arc<AtomicBool>,
+    drops: Arc<AtomicUsize>,
+}
+
+fn native_inline_fixture(destruction: Destruction) -> SettlementFixture {
+    let executor = HybridExecutor::new(ExecutorConfig {
+        worker_threads: 1,
+        max_global_queue_size: 8,
+        ..ExecutorConfig::default()
+    })
+    .unwrap();
+    let ready = Arc::new(AtomicBool::new(false));
+    let waker = Arc::new(Mutex::new(None));
+    let drops = Arc::new(AtomicUsize::new(0));
+    let (parked_sender, parked) = mpsc::sync_channel(1);
+    let handle = executor
+        .spawn_async(InlineCompletion {
+            ready: Arc::clone(&ready),
+            waker: Arc::clone(&waker),
+            parked: Some(parked_sender),
+            drops: Arc::clone(&drops),
+            destruction,
+        })
+        .unwrap();
+    parked
+        .recv_timeout(EVENT_DEADLINE)
+        .expect("future parks before the event deadline");
+    let task_waker = waker
+        .lock()
+        .unwrap()
+        .take()
+        .expect("future publishes its task waker");
+    let (worker_release, worker_gate) = gate_single_worker::<SyncTask>(&executor);
+    for _ in 0..4096 {
+        let admitted = executor
+            .scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, None, |_| {});
+        if let Err(error) = admitted {
+            assert!(matches!(error, ExecutorError::ResourceExhausted(_)));
+            return SettlementFixture {
+                worker_release,
+                worker_gate,
+                executor,
+                handle,
+                task_waker,
+                ready,
+                drops,
+            };
+        }
+    }
+    panic!("the bounded native injector must reject before 4096 admissions");
+}
+
+#[test]
+fn external_inline_callback_keeps_settlement_owner_until_release() {
+    let fixture = native_inline_fixture(Destruction::Complete);
+    let id = fixture.handle.id();
+    let (observed_sender, observed) = mpsc::sync_channel(1);
+    let (entered_sender, entered) = mpsc::sync_channel(1);
+    let (release_sender, release_receiver) = mpsc::sync_channel(0);
+    let callback = Waker::from(Arc::new(SettlementCallback {
+        handle: Mutex::new(Some(fixture.handle)),
+        observed: observed_sender,
+        entered: entered_sender,
+        exit: CallbackExit::Release(Mutex::new(release_receiver)),
+    }));
+    let mut context = Context::from_waker(&callback);
+    let mut wait = std::pin::pin!(fixture.executor.wait_for_task(id, None));
+    assert!(wait.as_mut().poll(&mut context).is_pending());
+
+    fixture.ready.store(true, Ordering::Release);
+    let stale_waker = fixture.task_waker.clone();
+    let waking = std::thread::spawn(move || fixture.task_waker.wake());
+    assert_eq!(
+        observed.recv_timeout(EVENT_DEADLINE).unwrap(),
+        Some(Ok(1789))
+    );
+    entered.recv_timeout(EVENT_DEADLINE).unwrap();
+    assert!(
+        fixture
+            .executor
+            .async_tasks
+            .close_and_snapshot()
+            .contains_key(&id.0)
+    );
+    release_sender.send(()).unwrap();
+    waking.join().unwrap();
+    stale_waker.wake_by_ref();
+    assert!(fixture.executor.async_tasks.close_and_snapshot().is_empty());
+    assert_eq!(fixture.drops.load(Ordering::Acquire), 1);
+    fixture.worker_release.send(()).unwrap();
+    assert_eq!(fixture.worker_gate.join(), Some(Ok(())));
+    ExecutorControl::shutdown(&fixture.executor);
+}
+
+#[test]
+fn panicking_inline_callback_retires_after_error_publication() {
+    let fixture = native_inline_fixture(Destruction::Panic);
+    let id = fixture.handle.id();
+    let (observed_sender, observed) = mpsc::sync_channel(1);
+    let (entered_sender, entered) = mpsc::sync_channel(1);
+    let callback = Waker::from(Arc::new(SettlementCallback {
+        handle: Mutex::new(Some(fixture.handle)),
+        observed: observed_sender,
+        entered: entered_sender,
+        exit: CallbackExit::Panic,
+    }));
+    let mut context = Context::from_waker(&callback);
+    let mut wait = std::pin::pin!(fixture.executor.wait_for_task(id, None));
+    assert!(wait.as_mut().poll(&mut context).is_pending());
+
+    fixture.ready.store(true, Ordering::Release);
+    let waking = std::thread::spawn(move || fixture.task_waker.wake());
+    assert_eq!(
+        observed.recv_timeout(EVENT_DEADLINE).unwrap(),
+        Some(Err(TaskError::Panicked))
+    );
+    entered.recv_timeout(EVENT_DEADLINE).unwrap();
+    let panic = waking
+        .join()
+        .expect_err("callback panic resumes after retirement");
+    assert_eq!(
+        panic.downcast_ref::<&str>(),
+        Some(&"settlement callback panic")
+    );
+    assert!(fixture.executor.async_tasks.close_and_snapshot().is_empty());
+    assert_eq!(fixture.drops.load(Ordering::Acquire), 1);
+    assert_eq!(
+        fixture
+            .executor
+            .metrics()
+            .publication_panics
+            .load(Ordering::Acquire),
+        1
+    );
+    fixture.worker_release.send(()).unwrap();
+    assert_eq!(fixture.worker_gate.join(), Some(Ok(())));
+    ExecutorControl::shutdown(&fixture.executor);
+}

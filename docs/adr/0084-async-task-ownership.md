@@ -12,8 +12,9 @@ tokens serialize future access through the existing polling phase.
 ## Decision
 
 Keep a live-future waker table in the hybrid executor. The table retains tasks
-between polls; each task holds only a weak table reference. Completion removes
-the entry. No additional cancellation flag or erased callback is introduced.
+between polls; each task holds only a weak table reference. Settlement removes
+the entry after future destruction, publication, callbacks, and caught-payload
+cleanup. No additional cancellation flag or erased callback is introduced.
 
 Cancellation publishes the registry flag before waking the task. Only the poll
 owner reads the lifecycle cell and drops the future, at a poll boundary. A poll
@@ -24,7 +25,8 @@ preempted.
 Shutdown closes table admission and snapshots live entries under the table mutex.
 It releases that mutex before publishing cancellation and waking tasks, then
 joins scheduler workers. Each concurrent shutdown caller can settle the same
-live tasks; only completion removes their entries. Spawn racing closure either
+live tasks; settlement alone removes entries after callbacks and cleanup. Spawn
+racing closure either
 registers before closure or receives `ShuttingDown`. Rejected scheduler admission
 retains its exclusive queued epoch until it unregisters and drops its unpolled
 future. The initial created phase prevents cancellation wakes from scheduling
@@ -39,8 +41,9 @@ to the default nonblocking-destructor preference. Non-yielding work remains
 nonpreemptible, so only the explicit timed call has a caller deadline.
 
 Future destruction stays under the poll or rejected-admission owner. A destructor
-panic reports `TaskError::Panicked` after settling state, tracking, lifecycle,
-metrics, and the result sender. Lifecycle publication returns an explicit
+panic reports `TaskError::Panicked` while tracking remains owned through state,
+metrics, result and lifecycle publication, callbacks, and caught-payload cleanup.
+Lifecycle publication returns an explicit
 notification receipt; completion-owned callbacks run after result publication.
 A concurrently registered waiter may observe the published lifecycle timestamp
 while result publication is still in progress; registration runs on that

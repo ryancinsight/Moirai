@@ -87,10 +87,15 @@ where
     fn store_completed(&self) -> Option<PanicPayload> {
         let future_drop_panic = self.drop_future();
         self.state.store(ASYNC_COMPLETED, Ordering::Release);
+        future_drop_panic
+    }
+
+    /// Retire executor ownership after every settlement callback and cleanup.
+    fn finish_settlement(&self, callback_panic: Option<PanicPayload>) {
         if let Some(registration) = self.registration.get() {
             registration.remove();
         }
-        future_drop_panic
+        resume_callback(callback_panic);
     }
 
     fn finish_result(
@@ -113,16 +118,18 @@ where
             let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(result);
             drop_after_settlement(panic_payload);
-            resume_callback(callback_panic);
+            self.finish_settlement(callback_panic);
         } else {
             match result {
                 Ok(output) => {
                     self.metrics.record_task_completed(execution_time);
-                    resume_callback(self.finish_result(Ok(output), completion));
+                    let callback_panic = self.finish_result(Ok(output), completion);
+                    self.finish_settlement(callback_panic);
                 }
                 Err(error) => {
                     self.metrics.record_task_failed();
-                    resume_callback(self.finish_result(Err(error), completion));
+                    let callback_panic = self.finish_result(Err(error), completion);
+                    self.finish_settlement(callback_panic);
                 }
             }
         }
@@ -143,7 +150,7 @@ where
         if let Some(future_drop_panic) = future_drop_panic {
             drop_after_settlement(future_drop_panic);
         }
-        resume_callback(callback_panic);
+        self.finish_settlement(callback_panic);
     }
 
     /// Complete the task as cancelled: its future is dropped unfinished, the
@@ -159,13 +166,14 @@ where
             self.metrics.record_task_failed();
             let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(panic_payload);
-            resume_callback(callback_panic);
+            self.finish_settlement(callback_panic);
         } else {
             let completion = self.cancel_lifecycle();
             // Record before publishing the result so a joiner observes the
             // cancelled counter as soon as the handle resolves.
             self.metrics.record_task_cancelled();
-            resume_callback(self.finish_result(Err(TaskError::Cancelled), completion));
+            let callback_panic = self.finish_result(Err(TaskError::Cancelled), completion);
+            self.finish_settlement(callback_panic);
         }
     }
 
@@ -179,11 +187,12 @@ where
             let completion = self.complete_lifecycle();
             let callback_panic = self.finish_result(Err(TaskError::Panicked), completion);
             drop_after_settlement(panic_payload);
-            resume_callback(callback_panic);
+            self.finish_settlement(callback_panic);
             Err(TaskError::Panicked)
         } else {
             let completion = self.cancel_lifecycle();
-            resume_callback(self.finish_result(Err(TaskError::Cancelled), completion));
+            let callback_panic = self.finish_result(Err(TaskError::Cancelled), completion);
+            self.finish_settlement(callback_panic);
             Ok(())
         }
     }
