@@ -51,6 +51,13 @@ longer implements `Clone`, `PartialEq`, or `Eq` because a preserved
 `std::io::Error` implements none of those contracts. Match its variants and
 fields directly; shared owners may clone their existing `Arc<ExecutorError>`.
 
+`ExecutorError` also no longer implements `UnwindSafe` or `RefUnwindSafe`
+because its retained `std::io::Error` sources may contain custom payloads that
+do not implement those auto traits. Consumers that capture the error across
+`catch_unwind` or require either trait bound must review that boundary and, when
+necessary, move error handling outside it. Do not apply blanket
+`AssertUnwindSafe` or restore traits the stored source does not provide.
+
 `TaskRegistry::register_waker(id, &waker)` now returns `Option<TaskWaiter>`.
 Retain the token while waiting and call `token.update(&waker)` on subsequent
 polls. `None` means the task is unknown or completion already closed its waiter

@@ -88,10 +88,9 @@ credentials never enter source, evidence, or logs.
 The release does not claim Tokio feature, performance, or platform parity.
 Non-yielding work remains nonpreemptible, task-wait expiry does not cancel the
 underlying task, and thread-per-pending-timer scaling remains a limitation.
-[ADR 0090](0090-shared-shutdown-ownership.md) proposes shared teardown ownership
-and request-only destruction. Its admission, reentrancy, settlement, and caller
-deadline oracles must pass before release; the preserved synchronous-destructor
-behavior does not satisfy that production boundary.
+[ADR 0090](0090-shared-shutdown-ownership.md) is Accepted and implements shared
+teardown ownership and request-only destruction. Its admission, reentrancy,
+settlement, and caller deadline oracles must pass before release.
 
 ## Overturning evidence
 
