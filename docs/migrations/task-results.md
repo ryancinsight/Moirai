@@ -60,6 +60,13 @@ Independent tokens remain independent even when they use the same waker.
 `wait_for_task` owns this token internally and releases it and its timer before
 any terminal result. See [ADR 0089](../adr/0089-owned-completion-waiters.md).
 
+`SchedulerControl` adds the required `is_current_worker(&self) -> bool` method.
+External scheduler implementations must return `true` only from compute or
+blocking workers owned by that scheduler. Clones share scheduler identity;
+another scheduler returns `false` even when its local worker number matches.
+There is no default because a false fallback can make worker-initiated shutdown
+self-join.
+
 `shutdown()` cancels pending async work and joins the worker drain.
 `shutdown_timeout(duration)` bounds only the caller's wait; the drain continues
 and runtime destruction joins it. Neither call preempts a running synchronous

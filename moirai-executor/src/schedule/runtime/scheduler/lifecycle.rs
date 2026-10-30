@@ -30,11 +30,15 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             barrier.wait();
         }
 
-        if current_thread_belongs_to(&self.inner) {
+        if self.is_current_worker() {
             return;
         }
 
         self.join_shutdown();
+    }
+
+    pub(crate) fn is_current_worker(&self) -> bool {
+        current_thread_belongs_to(&self.inner)
     }
 
     fn request_shutdown(&self) {

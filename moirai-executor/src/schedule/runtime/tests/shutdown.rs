@@ -1,6 +1,64 @@
 //! Shutdown ordering: handle drops, cross-class joins, and drain-to-quiescence.
 
 use super::*;
+use crate::schedule::{SchedulerControl, WorkClass};
+
+fn assert_scheduler_membership<C: WorkClass>(thread_name: &str) {
+    let scheduler = ThreadScheduler::new(1, thread_name).unwrap();
+    let same_scheduler = scheduler.clone();
+    let same_scheduler_clone = scheduler.clone();
+    let other_thread_name = format!("{thread_name}-other");
+    let other_scheduler = ThreadScheduler::new(1, &other_thread_name).unwrap();
+    let other_scheduler_query = other_scheduler.clone();
+
+    assert!(!SchedulerControl::is_current_worker(&scheduler));
+    assert!(!SchedulerControl::is_current_worker(&same_scheduler));
+    assert!(!SchedulerControl::is_current_worker(&other_scheduler));
+
+    let (other_started_sender, other_started_receiver) = mpsc::sync_channel(0);
+    let (other_release_sender, other_release_receiver) = mpsc::sync_channel(0);
+    other_scheduler
+        .schedule::<C, _>(Priority::Normal, Some(0), move |worker_id| {
+            other_started_sender.send(worker_id).unwrap();
+            other_release_receiver.recv().unwrap();
+        })
+        .unwrap();
+    let other_worker_id = other_started_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("the other scheduler worker must start before the deadline");
+
+    let (observed_sender, observed_receiver) = mpsc::sync_channel(1);
+    scheduler
+        .schedule::<C, _>(Priority::Normal, Some(0), move |worker_id| {
+            observed_sender
+                .send((
+                    worker_id,
+                    SchedulerControl::is_current_worker(&same_scheduler),
+                    SchedulerControl::is_current_worker(&same_scheduler_clone),
+                    SchedulerControl::is_current_worker(&other_scheduler_query),
+                ))
+                .unwrap();
+        })
+        .unwrap();
+    let (worker_id, same, clone, other) = observed_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("the membership query must complete before the deadline");
+
+    assert_eq!(worker_id, other_worker_id);
+    assert!(same);
+    assert!(clone);
+    assert!(!other);
+
+    other_release_sender.send(()).unwrap();
+    scheduler.shutdown();
+    other_scheduler.shutdown();
+}
+
+#[test]
+fn scheduler_membership_is_identity_specific() {
+    assert_scheduler_membership::<SyncTask>("membership-compute");
+    assert_scheduler_membership::<BlockingTask>("membership-blocking");
+}
 
 #[test]
 fn final_external_handle_drop_requests_without_join_and_drains_accepted_jobs() {
