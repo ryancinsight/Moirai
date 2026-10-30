@@ -188,6 +188,87 @@ def retained_buckets(state, sample, previous, previous_elapsed, history, group, 
         require(state[observations] >= previous[observations], f'{label} count decreases')
 
 
+def state_bucket_values(point_value):
+    fields = point_value['fields']
+    timers = {row[0]: row[1] for row in fields['timers']}
+    return (fields['flight_bytes'], fields['window_bytes'],
+            fields['connection_max_data'] - fields['connection_data_sent'],
+            timers.get(6))
+
+
+def state_bucket(bucket, sample, old):
+    expected = {'second', 'observations', 'first', 'last', 'min_flight_bytes',
+                'max_flight_bytes', 'min_window_bytes', 'max_window_bytes',
+                'min_connection_credit', 'max_connection_credit',
+                'max_pacing_remaining_ns', 'pacing_armed_observations'}
+    require(set(bucket) == expected, 'engine bucket differs')
+    require(within_bits(bucket['second'], 128), 'invalid engine bucket second')
+    first, last = bucket['first'], bucket['last']
+    point(first); point(last)
+    require(first['elapsed_ns'] <= last['elapsed_ns'] <= sample['elapsed_ns'],
+            'invalid bucket time')
+    require(first['elapsed_ns']//10**9 == last['elapsed_ns']//10**9 == bucket['second'],
+            'engine bucket crosses observation interval')
+    count = bucket['observations']
+    require(within_bits(count, 64) and 0 < count <= sample['engine']['observed_states'],
+            'invalid bucket count')
+    require(count != 1 or first == last, 'engine singleton endpoints differ')
+    retained = (first,) if count == 1 else (first, last)
+    endpoints = [state_bucket_values(value) for value in retained]
+    names = ('flight_bytes', 'window_bytes', 'connection_credit')
+    for index, name in enumerate(names):
+        values = [value[index] for value in endpoints]
+        lower, upper = bucket['min_'+name], bucket['max_'+name]
+        require(within_bits(lower, 64) and within_bits(upper, 64) and
+                lower <= min(values) <= max(values) <= upper,
+                'engine bucket extrema exclude a retained point')
+        if count <= 2:
+            require((lower, upper) == (min(values), max(values)),
+                    'engine endpoint extrema differ')
+    armed = bucket['pacing_armed_observations']
+    maximum = bucket['max_pacing_remaining_ns']
+    require(within_bits(armed, 64) and within_bits(maximum, 64) and
+            armed <= count and (armed != 0 or maximum == 0),
+            'invalid pacing observation aggregate')
+    endpoint_delays = [value[3] for value in endpoints]
+    retained_armed = sum(value is not None for value in endpoint_delays)
+    retained_maximum = max((value or 0 for value in endpoint_delays), default=0)
+    require(retained_armed <= armed and retained_maximum <= maximum,
+            'engine pacing aggregate excludes a retained point')
+    if count <= 2:
+        require(armed == retained_armed and maximum == retained_maximum,
+                'engine endpoint pacing aggregate differs')
+    require(armed <= retained_armed + count - len(endpoints) and
+            (armed > retained_armed or maximum == retained_maximum),
+            'engine pacing aggregate contradicts retained endpoints')
+    if old is None:
+        return
+    require(old['first'] == first and old['observations'] <= count and
+            old['last']['elapsed_ns'] <= last['elapsed_ns'],
+            'engine bucket history changes')
+    delta = count - old['observations']
+    if delta == 0:
+        require(old == bucket, 'engine bucket changes without an observation')
+        return
+    for name in names:
+        require(bucket['min_'+name] <= old['min_'+name] and
+                bucket['max_'+name] >= old['max_'+name],
+                'engine bucket extrema contract')
+    require(old['max_pacing_remaining_ns'] <= maximum and
+            0 <= armed - old['pacing_armed_observations'] <= delta,
+            'engine pacing aggregate contract')
+    if delta == 1:
+        latest = state_bucket_values(last)
+        for index, name in enumerate(names):
+            require(bucket['min_'+name] == min(old['min_'+name], latest[index]) and
+                    bucket['max_'+name] == max(old['max_'+name], latest[index]),
+                    'engine single-observation extrema differ')
+        delay = latest[3]
+        require(armed == old['pacing_armed_observations'] + (delay is not None) and
+                maximum == max(old['max_pacing_remaining_ns'], delay or 0),
+                'engine single-observation pacing aggregate differs')
+
+
 def state_trace(text):
     samples = []
     buckets = {}
@@ -195,6 +276,8 @@ def state_trace(text):
     previous_elapsed = None
     callback_buckets = {}
     blocker_buckets = {}
+    full_bucket_keys = []
+    final_full_snapshot = False
     for line in (text or '').splitlines():
         if 'protocol recovery observation' not in line:
             continue
@@ -207,7 +290,7 @@ def state_trace(text):
         if previous_elapsed is not None:
             require(sample['elapsed_ns'] >= previous_elapsed,
                     'protocol capture time decreases')
-        require(type(state['observed_states']) is int and state['observed_states'] > 0,
+        require(within_bits(state['observed_states'], 64) and state['observed_states'] > 0,
                 'no actual engine states')
         for key in ('handshake', 'events', 'ptos'):
             entries = state[key]
@@ -220,26 +303,25 @@ def state_trace(text):
                 require(entry['elapsed_ns'] <= sample['elapsed_ns'], 'engine event exceeds observation')
         if previous:
             require(state['observed_states'] >= previous['observed_states'], 'engine count decreases')
+        current_bucket_keys = []
         for bucket in state['buckets']:
-            first, last = bucket['first'], bucket['last']
-            point(first); point(last)
-            require(first['elapsed_ns'] <= last['elapsed_ns'] <= sample['elapsed_ns'], 'invalid bucket time')
-            require(first['elapsed_ns']//10**9 == last['elapsed_ns']//10**9 == bucket['second'],
-                    'engine bucket crosses observation interval')
-            require(0 < bucket['observations'] <= state['observed_states'], 'invalid bucket count')
-            for field, source in (('flight_bytes', 'flight_bytes'), ('window_bytes', 'window_bytes'),
-                                  ('connection_credit', None)):
-                values = [(p['fields'][source] if source else p['fields']['connection_max_data'] -
-                           p['fields']['connection_data_sent']) for p in (first, last)]
-                require(0 <= bucket['min_'+field] <= min(values) <= max(values) <= bucket['max_'+field],
-                        'engine bucket extrema exclude a retained point')
-            require(0 <= bucket['pacing_armed_observations'] <= bucket['observations'],
-                    'invalid pacing observation count')
-            old = buckets.get(bucket['second'])
-            if old:
-                require(old['first'] == first and old['observations'] <= bucket['observations'] and
-                        old['last']['elapsed_ns'] <= last['elapsed_ns'], 'engine bucket history changes')
-            buckets[bucket['second']] = bucket
+            key = bucket.get('second')
+            require(key not in current_bucket_keys, 'duplicate engine bucket')
+            current_bucket_keys.append(key)
+            state_bucket(bucket, sample, buckets.get(key))
+            buckets[key] = bucket
+        final_full_snapshot = sample.get('observation') != 'sample'
+        if final_full_snapshot:
+            require(current_bucket_keys == sorted(current_bucket_keys),
+                    'engine bucket insertion order changes')
+            require(current_bucket_keys[:len(full_bucket_keys)] == full_bucket_keys,
+                    'engine bucket insertion order changes')
+            require(sum(bucket['observations'] for bucket in state['buckets']) ==
+                    state['observed_states'], 'engine count differs from full bucket history')
+            full_bucket_keys = current_bucket_keys
+        else:
+            require(len(state['buckets']) <= 1,
+                    'sample retains more than its latest bucket')
         for group, prefix, label, identity in (
                 ('callbacks', 'callback', 'CUBIC callback', ('callback', 'outcome')),
                 ('blockers', 'blocker', 'blocker', ('kind',))):
@@ -255,6 +337,9 @@ def state_trace(text):
         samples.append(sample)
     require(bool(samples), 'engine state capture is absent')
     require(bool(previous['handshake']), 'engine handshake capture is absent')
+    require(final_full_snapshot and
+            sum(bucket['observations'] for bucket in previous['buckets']) ==
+            previous['observed_states'], 'final engine capture is not a full snapshot')
     ordered = sorted([*previous['handshake'], *previous['ptos'],
                       *[p for b in buckets.values() for p in (b['first'], b['last'])]],
                      key=lambda p: p['elapsed_ns'])
@@ -269,7 +354,9 @@ def state_trace(text):
             numbers = sent[event['fields']['space']]
             require(all(sum(lo <= pn <= hi for pn in numbers) == hi - lo + 1
                         for lo, hi in event['fields']['ranges']), 'ACK refers to unobserved packet')
-    result = {**previous, 'buckets': [buckets[k] for k in sorted(buckets)],
+    require({bucket['second'] for bucket in previous['buckets']} == set(buckets),
+            'final engine capture omits sampled history')
+    result = {**previous, 'buckets': previous['buckets'],
               'last_protocol_observation': samples[-1]['observation']}
     if 'callbacks' in previous:
         result['callbacks'] = list(callback_buckets.values())
