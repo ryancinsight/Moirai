@@ -9,7 +9,7 @@ index 5155740b..a11fe79f 100644
 @@ -618,0 +619,4 @@ impl Connection {
 +                        trace!(target: "quinn_proto::observation",
 +                            flight_bytes = self.path.in_flight.bytes, bytes_to_send,
-+                            congestion_window_bytes = self.path.congestion.window(),
++                            window_bytes = self.path.congestion.window(),
 +                            "engine congestion blocked");
 @@ -633,0 +640,8 @@ impl Connection {
 +                        trace!(target: "quinn_proto::observation",
@@ -297,14 +297,14 @@ diff --git a/src/tests/mod.rs b/src/tests/mod.rs
 +            buffer.clear();
 +        }
 +        assert_eq!(connection.bytes_in_flight(), 10_800);
-+        let event = trace_event_with_field("congestion_window_bytes", || {
++        let event = trace_event_with_field("window_bytes", || {
 +            assert_matches!(connection.poll_transmit(now, 1, &mut buffer), None);
 +        });
 +        (event, packets)
 +    };
 +    assert_eq!(
 +        event.trim_end(),
-+        "engine congestion blocked flight_bytes=10800 bytes_to_send=1200 congestion_window_bytes=12000"
++        "engine congestion blocked flight_bytes=10800 bytes_to_send=1200 window_bytes=12000"
 +    );
 +
 +    pair.client.outbound.extend(packets);

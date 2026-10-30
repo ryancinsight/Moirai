@@ -314,9 +314,9 @@ mod tests {
         );
         tracing::trace!(
             target: super::TARGET,
-            flight_bytes = 12_u64,
+            flight_bytes = 10_800_u64,
             bytes_to_send = 1_200_u64,
-            window_bytes = 24_000_u64,
+            window_bytes = 12_000_u64,
             "engine congestion blocked"
         );
         tracing::trace!(
@@ -363,6 +363,14 @@ mod tests {
         );
         assert_eq!(engine["blocker_observations"], 2);
         assert_eq!(engine["blockers"][0]["kind"], "engine congestion blocked");
+        assert_eq!(
+            engine["blockers"][0]["first"]["fields"],
+            json!({
+                "flight_bytes": 10_800,
+                "bytes_to_send": 1_200,
+                "window_bytes": 12_000,
+            })
+        );
         assert_eq!(engine["blockers"][1]["kind"], "engine pacing blocked");
         assert_eq!(
             engine["blockers"][1]["first"]["fields"]["delay_ns"],
