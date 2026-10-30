@@ -38,6 +38,23 @@ MESSAGES = 128
 REPETITIONS = 3
 SEED = 20261013
 
+
+def admitted_cases(shaped):
+    """Return the declared profile, stream and frame-size domain in stable order."""
+    return [(profile, streams, size) for profile in PROFILES
+            if shaped or profile == PROFILES[0]
+            for streams in STREAMS for size in FRAME_BYTES]
+
+
+def admitted_case(selector, cases):
+    """Select exactly one declared PROFILE:STREAMS:FRAME_BYTES tuple."""
+    selected = [(profile, streams, size) for profile, streams, size in cases
+                if selector == f"{profile.name}:{streams}:{size}"]
+    if len(selected) != 1:
+        raise ValueError("case must identify one member of the declared profile/stream/frame domain")
+    return selected[0]
+
+
 def classify_failures(runs):
     """Return every failed process-pair record without special cases."""
     return [record for record in runs if "error" in record]
@@ -238,13 +255,12 @@ def main():
     parser.add_argument("--policy", choices=["cubic", "newreno", "bbr-experimental"], default="cubic")
     parser.add_argument("--case", default="", help="Diagnostic PROFILE:STREAMS:FRAME_BYTES; default verifies the full matrix")
     arguments = parser.parse_args()
-    cases = [(profile, streams, size) for profile in PROFILES if arguments.network == "netem" or profile == PROFILES[0]
-             for streams in STREAMS for size in FRAME_BYTES]
+    cases = admitted_cases(arguments.network == "netem")
     if arguments.case:
-        cases = [(profile, streams, size) for profile, streams, size in cases
-                 if arguments.case == f"{profile.name}:{streams}:{size}"]
-        if len(cases) != 1:
-            parser.error("case must identify one member of the declared profile/stream/frame domain")
+        try:
+            cases = [admitted_case(arguments.case, cases)]
+        except ValueError as error:
+            parser.error(str(error))
     network = Network(arguments.network == "netem", arguments.tc)
     report = {"schema": 1, "status": "running", "network": arguments.network, "runner": platform.platform(),
               "revision": execute(["git", "rev-parse", "HEAD"]).strip(),

@@ -7,10 +7,11 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from quic_profiles import FRAME_BYTES, MESSAGES, PROFILES, REPETITIONS, STREAMS, verify
-from quic_recovery import POLICIES, matrix_cases
+from quic_recovery import POLICIES, main, matrix_cases
 from quic_recovery_audit import audit, fraction, progress, queue_evidence, sampled_fairness
 from fractions import Fraction
 
@@ -86,6 +87,29 @@ class RecoveryContract(unittest.TestCase):
                 self.assertEqual(len(cases), 108)
                 self.assertEqual(set(cases), expected)
                 self.assertEqual(sum(s * MESSAGES * b for _, s, b, _ in cases), 2_247_598_080)
+
+    def test_exact_cubic_case_selects_one_original_case_per_repetition(self):
+        from quic_profiles import admitted_case, admitted_cases
+        selected = admitted_case('delay-10ms-loss-1pct:16:65560', admitted_cases(True))
+        cases = [case for repetition in range(REPETITIONS)
+                 for case in matrix_cases(repetition, selected)]
+        self.assertEqual(len(cases), 3)
+        self.assertEqual(
+            [(profile.name, streams, size, policy) for profile, streams, size, policy in cases],
+            [('delay-10ms-loss-1pct', 16, 65_560, 'cubic')] * REPETITIONS)
+
+    def test_invalid_case_routes_fail_before_network_construction(self):
+        for suite, case in [('matrix', 'delay-10ms-loss-1pct:16:65559'),
+                            ('fairness', 'delay-10ms-loss-1pct:16:65560')]:
+            arguments = ['quic_recovery.py', '--binary', 'missing', '--tc', 'tc',
+                         '--output', 'unused.json', '--suite', suite, '--repetition', '0',
+                         '--case', case]
+            with self.subTest(suite=suite), mock.patch.object(sys, 'argv', arguments), \
+                    mock.patch('quic_recovery.Network') as network, \
+                    self.assertRaises(SystemExit) as error:
+                main()
+            self.assertEqual(error.exception.code, 2)
+            network.assert_not_called()
 
     def test_real_archive_rates_percentiles_and_corruption_rejection(self):
         root = Path(__file__).resolve().parents[2]

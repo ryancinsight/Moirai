@@ -1,6 +1,16 @@
 name: QUIC recovery comparison
 
 on:
+  workflow_dispatch:
+    inputs:
+      reference:
+        description: Optional commit or ref to diagnose
+        required: false
+        type: string
+      case:
+        description: Optional admitted matrix case; runs Cubic at all three existing repetitions
+        required: false
+        type: string
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
     paths:
@@ -14,15 +24,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: quic-recovery-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   compare:
     name: Recovery ${{ matrix.suite }} repetition ${{ matrix.repetition }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        suite: [matrix, fairness]
+        suite: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.case != '' && '["matrix"]' || '["matrix","fairness"]') }}
         repetition: [0, 1, 2]
     env:
       CARGO_INCREMENTAL: '0'
@@ -31,12 +46,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ inputs.reference || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.97.0
+          components: clippy
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9
+        with:
+          tool: nextest@0.9.140
+          checksum: true
       - name: Fetch the locked sources for provenance verification
         run: cargo fetch --locked --target x86_64-unknown-linux-gnu
       - name: Verify the original domain and archived numerical evidence
@@ -51,13 +72,21 @@ jobs:
       - name: Build the authenticated byte-verifying probe
         run: |
           python3 scripts/quic_observation/prepare.py --output "$RUNNER_TEMP/quic-observation"
-          cargo --config "$RUNNER_TEMP/quic-observation/config.toml" build --locked --release --manifest-path "$RUNNER_TEMP/quic-observation/workspace/Cargo.toml" -p moirai-quic --example quic_load
-      - name: Verify aggregation of actual recovery trace events
-        run: cargo test --locked -p moirai-quic --example quic_load recovery::tests
+          mkdir -p "$RUNNER_TEMP/quic-observation/workspace/.cargo"
+          cp "$RUNNER_TEMP/quic-observation/config.toml" "$RUNNER_TEMP/quic-observation/workspace/.cargo/config.toml"
+          cargo clippy --config "$RUNNER_TEMP/quic-observation/config.toml" --locked --release --manifest-path "$RUNNER_TEMP/quic-observation/workspace/Cargo.toml" -p moirai-quic --example quic_load --example quic_load_tokio -- -D warnings
+          cargo build --config "$RUNNER_TEMP/quic-observation/config.toml" --locked --release --manifest-path "$RUNNER_TEMP/quic-observation/workspace/Cargo.toml" -p moirai-quic --example quic_load --example quic_load_tokio
+      - name: Verify both probes aggregate actual recovery events
+        run: |
+          cargo nextest run --config "$RUNNER_TEMP/quic-observation/config.toml" --locked \
+            --manifest-path "$RUNNER_TEMP/quic-observation/workspace/Cargo.toml" \
+            -p moirai-quic --all-targets \
+            -E 'binary(quic_load) | binary(quic_load_tokio)'
       - name: Compare all stock policies with unchanged deadlines and workloads
         env:
           SUITE: ${{ matrix.suite }}
           REPETITION: ${{ matrix.repetition }}
+          CASE: ${{ inputs.case }}
           MOIRAI_QUIC_RECOVERY_TRACE: '1'
           MOIRAI_QUIC_ENGINE_OBSERVATION: ${{ runner.temp }}/quic-observation/provenance.json
         run: >-
@@ -65,6 +94,7 @@ jobs:
           --binary target/release/examples/quic_load
           --tc "$RUNNER_TEMP/quic-iproute2/tc/tc"
           --suite "$SUITE" --repetition "$REPETITION"
+          --case "$CASE"
           --output "output/quic-recovery/$SUITE-$REPETITION.json"
       - name: Preserve complete results, failures and queue samples
         if: always()
