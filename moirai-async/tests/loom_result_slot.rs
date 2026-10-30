@@ -2,9 +2,12 @@
 //! protocol (`moirai-utils/src/result_cell.rs`, run on the async side through
 //! the thin `AsyncResultSlot` adapter).
 //!
-//! The production slot backs its `result`/`waiter` payload with
-//! `UnsafeCell<MaybeUninit<_>>`; this file models the *state protocol* — the
-//! six-state `AtomicU8` and the exact `Acquire`/`Release`/`Relaxed` orderings of
+//! The production slot stores its result in `UnsafeCell<MaybeUninit<T>>` and its
+//! waiter in `UnsafeCell<Option<W>>`. This model represents those payloads as an
+//! `Option<u32>` and an occupancy boolean so loom can track their accesses; it
+//! proves the *state protocol*, not the production storage representation or
+//! `Option` destruction. The model covers the six-state `AtomicU8` and the exact
+//! `Acquire`/`Release`/`Relaxed` orderings of
 //! `complete`, `try_take_ready`, and `register_waker` — over loom-tracked cells,
 //! plus the `check -> register -> re-check` sequence that `AsyncHandle::poll`
 //! wraps them in. loom enumerates every producer/consumer interleaving and checks
@@ -135,47 +138,43 @@ impl Slot {
     /// Mirror of `AsyncResultSlot::register_waker`.
     fn register_waker(&self) {
         loop {
-            match self.state.load(Ordering::Acquire) {
-                PENDING => {
-                    self.waiter.with_mut(|p| unsafe { *p = true });
-                    if self
-                        .state
-                        .compare_exchange(PENDING, WAITING, Ordering::Release, Ordering::Acquire)
-                        .is_ok()
-                    {
-                        return;
-                    }
-                    // Publish failed: no producer observed this write, so drop it.
-                    self.waiter.with_mut(|p| unsafe { *p = false });
-                }
-                WAITING => {
-                    if self
-                        .state
-                        .compare_exchange(
-                            WAITING,
-                            UPDATING_WAKER,
-                            Ordering::Acquire,
-                            Ordering::Acquire,
-                        )
-                        .is_ok()
-                    {
-                        // UPDATING_WAKER excludes the producer: swap the stale
-                        // waker for the fresh one.
-                        self.waiter.with_mut(|p| unsafe {
-                            *p = false; // drop stale
-                            *p = true; // write fresh
-                        });
-                        self.state.store(WAITING, Ordering::Release);
-                        return;
-                    }
-                }
+            let observed = match self.state.load(Ordering::Acquire) {
+                PENDING => PENDING,
+                WAITING => WAITING,
                 // WRITING (producer writing) or UPDATING_WAKER (unreachable with a
                 // single consumer): yield so loom advances the producer instead of
                 // enumerating unbounded spin iterations.
-                WRITING | UPDATING_WAKER => thread::yield_now(),
+                WRITING | UPDATING_WAKER => {
+                    thread::yield_now();
+                    continue;
+                }
                 // READY / TAKEN: the result is already available; do not register.
                 _ => return,
+            };
+
+            if self
+                .state
+                .compare_exchange(
+                    observed,
+                    UPDATING_WAKER,
+                    Ordering::Acquire,
+                    Ordering::Acquire,
+                )
+                .is_err()
+            {
+                continue;
             }
+
+            // UPDATING_WAKER excludes the producer while one install handles
+            // both an empty and an occupied waiter slot.
+            let replaced = self.waiter.with_mut(|p| unsafe {
+                let previous = *p;
+                *p = true;
+                previous
+            });
+            assert_eq!(replaced, observed == WAITING);
+            self.state.store(WAITING, Ordering::Release);
+            return;
         }
     }
 }
@@ -237,7 +236,7 @@ fn complete_races_first_poll() {
 
 /// `complete` races a consumer that polls twice, so the second poll re-registers
 /// through `WAITING -> UPDATING_WAKER -> WAITING` against the producer — exercising
-/// the waiter-swap-under-lock and the producer's spin past `UPDATING_WAKER`.
+/// the waiter-install-under-claim and the producer's spin past `UPDATING_WAKER`.
 #[test]
 fn complete_races_reregistering_poll() {
     loom::model(|| {
