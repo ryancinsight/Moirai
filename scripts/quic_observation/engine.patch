@@ -6,7 +6,12 @@ index 5155740b..a11fe79f 100644
 +pub(crate) mod observation;
 @@ -386,0 +388 @@ impl Connection {
 +        self.observe_recovery("driver");
-@@ -633,0 +636,8 @@ impl Connection {
+@@ -618,0 +619,4 @@ impl Connection {
++                        trace!(target: "quinn_proto::observation",
++                            flight_bytes = self.path.in_flight.bytes, bytes_to_send,
++                            congestion_window_bytes = self.path.congestion.window(),
++                            "engine congestion blocked");
+@@ -633,0 +640,8 @@ impl Connection {
 +                        trace!(target: "quinn_proto::observation",
 +                            flight_bytes = self.path.in_flight.bytes, bytes_to_send,
 +                            window_bytes = self.path.congestion.window(),
@@ -15,15 +20,15 @@ index 5155740b..a11fe79f 100644
 +                            delay_ns = u64::try_from(delay.saturating_duration_since(now).as_nanos())
 +                                .expect("invariant: bounded diagnostic delay fits u64 nanoseconds"),
 +                            "engine pacing blocked");
-@@ -1470,0 +1481,5 @@ impl Connection {
+@@ -1470,0 +1485,5 @@ impl Connection {
 +        if space != SpaceId::Data {
 +            trace!(target: "quinn_proto::observation", ?space,
 +                ranges = ?ack.iter().map(|r| [*r.start(), *r.end()]).collect::<Vec<_>>(),
 +                "engine ack received");
 +        }
-@@ -1669,0 +1685 @@ impl Connection {
+@@ -1669,0 +1689 @@ impl Connection {
 +        self.observe_recovery("pto");
-@@ -2113,0 +2130,2 @@ impl Connection {
+@@ -2113,0 +2134,2 @@ impl Connection {
 +        trace!(target: "quinn_proto::observation", ?space,
 +            offset = crypto.offset, len = crypto.data.len(), "engine crypto received");
 diff --git a/src/connection/observation.rs b/src/connection/observation.rs
@@ -169,7 +174,7 @@ diff --git a/src/tests/mod.rs b/src/tests/mod.rs
 @@ -34,0 +35,2 @@
 +#[cfg(quic_observation)]
 +use crate::connection::observation::trace_event_with_field;
-@@ -38,0 +41,70 @@
+@@ -38,0 +41,148 @@
 +
 +#[cfg(quic_observation)]
 +#[test]
@@ -238,6 +243,84 @@ diff --git a/src/tests/mod.rs b/src/tests/mod.rs
 +    let resumed = connection
 +        .poll_transmit(deadline, 1, &mut buffer)
 +        .expect("invariant: native pacing deadline replenishes the token bucket");
++    assert_eq!((resumed.size, buffer.len()), (usize::from(MTU), usize::from(MTU)));
++}
++
++#[cfg(quic_observation)]
++#[test]
++fn pair_congestion_block_reports_native_guard_and_resumes_after_ack() {
++    const MTU: u16 = 1_200;
++    const WINDOW: u64 = 12_000;
++
++    let mut cubic = crate::congestion::CubicConfig::default();
++    cubic.initial_window(WINDOW);
++    let mut transport = TransportConfig::default();
++    transport
++        .initial_mtu(MTU)
++        .min_mtu(MTU)
++        .mtu_discovery_config(None)
++        .pad_to_mtu(true)
++        .congestion_controller_factory(Arc::new(cubic));
++    let mut client = client_config();
++    client.transport_config(Arc::new(transport));
++    let mut endpoint = EndpointConfig::default();
++    endpoint
++        .max_udp_payload_size(MTU)
++        .expect("invariant: QUIC minimum datagram size is valid");
++    let mut pair = Pair::new(Arc::new(endpoint), server_config());
++    pair.mtu = usize::from(MTU);
++    let (handle, _) = pair.connect_with(client);
++    let now = pair.time;
++    let (event, packets) = {
++        let connection = pair.client_conn_mut(handle);
++        assert_eq!(connection.bytes_in_flight(), 0);
++        connection.path_changed(now);
++        assert_eq!(connection.stats().path.cwnd, WINDOW);
++        let stream = connection
++            .streams()
++            .open(Dir::Uni)
++            .expect("invariant: connected peer permits a unidirectional stream");
++        assert_eq!(
++            connection
++                .send_stream(stream)
++                .write(&vec![41; usize::from(MTU) * 16]),
++            Ok(usize::from(MTU) * 16)
++        );
++        let mut packets = Vec::with_capacity(9);
++        let mut buffer = Vec::with_capacity(usize::from(MTU));
++        for _ in 0..9 {
++            let transmit = connection
++                .poll_transmit(now, 1, &mut buffer)
++                .expect("invariant: available congestion credit sends one datagram");
++            assert_eq!((transmit.size, buffer.len()), (usize::from(MTU), usize::from(MTU)));
++            packets.push((transmit, Bytes::copy_from_slice(&buffer)));
++            buffer.clear();
++        }
++        assert_eq!(connection.bytes_in_flight(), 10_800);
++        let event = trace_event_with_field("congestion_window_bytes", || {
++            assert_matches!(connection.poll_transmit(now, 1, &mut buffer), None);
++        });
++        (event, packets)
++    };
++    assert_eq!(
++        event.trim_end(),
++        "engine congestion blocked flight_bytes=10800 bytes_to_send=1200 congestion_window_bytes=12000"
++    );
++
++    pair.client.outbound.extend(packets);
++    pair.drive_client();
++    pair.drive_server();
++    assert_eq!(pair.client.inbound.len(), 1);
++    let now = pair.time;
++    let remote = pair.server.addr;
++    pair.client.drive_incoming(now, remote);
++    assert_eq!(pair.client.outbound.len(), 0);
++    pair.client.drive_outgoing(now);
++    let (resumed, buffer) = pair
++        .client
++        .outbound
++        .front()
++        .expect("invariant: a real peer ACK releases congestion credit");
 +    assert_eq!((resumed.size, buffer.len()), (usize::from(MTU), usize::from(MTU)));
 +}
 diff --git a/src/connection/packet_builder.rs b/src/connection/packet_builder.rs
