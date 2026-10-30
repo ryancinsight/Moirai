@@ -261,6 +261,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             admission_caller_runs: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
             shutdown: CacheAligned::new(std::sync::atomic::AtomicBool::new(false)),
             shutdown_join_state: std::sync::atomic::AtomicU8::new(0),
+            shutdown_joiner: OnceLock::new(),
             join_waiters: CacheAligned::new(AtomicUsize::new(0)),
             wait_lock: std::sync::Mutex::new(()),
             wait_signal: std::sync::Condvar::new(),
@@ -271,6 +272,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             blocking_lane_prefix: thread_name_prefix.into(),
             #[cfg(test)]
             shutdown_started_barrier: OnceLock::new(),
+            #[cfg(test)]
+            shutdown_wait_registration: OnceLock::new(),
             lifetime_owner: OnceLock::new(),
         });
         let scheduler = Self { inner };

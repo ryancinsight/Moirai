@@ -8,7 +8,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use super::super::job::ScheduledJob;
+use super::super::job::{ScheduledJob, run_caught};
 use super::super::queue::WorkerQueueOwner;
 
 use super::idle_hooks::run_idle_hooks;
@@ -35,7 +35,12 @@ pub(super) fn join_other_threads(handles: &mut Vec<JoinHandle<()>>) {
     let current = thread::current().id();
     while let Some(handle) = handles.pop() {
         if handle.thread().id() != current {
-            let _ = handle.join();
+            match handle.join() {
+                Ok(()) => {}
+                Err(payload) => {
+                    run_caught(move || drop(payload));
+                }
+            }
         }
     }
 }
