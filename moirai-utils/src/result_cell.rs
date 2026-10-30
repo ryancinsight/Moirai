@@ -58,8 +58,8 @@
 //!    observes `IDLE`. If the producer instead observes `REGISTERING`, it marks
 //!    the pending wake and leaves the slot to the consumer. Both roles restore
 //!    `IDLE` before waking or dropping a waiter, because those operations may
-//!    re-enter the cell. A separate atomic presence flag mirrors the slot only
-//!    for safe diagnostics; it grants no access to the waiter.
+//!    re-enter the cell. A separate atomic presence flag supports non-replacing
+//!    registration and diagnostics; it grants no access to the waiter.
 //! 3. **No lost wakeup.** [`complete`](ResultCell::complete) publishes `READY`
 //!    before it attempts waiter notification. Registration that races with
 //!    completion may observe `READY` or `WAKING` and install nothing. Liveness
@@ -284,6 +284,10 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
             self.state.load(Ordering::Acquire),
             RESULT_READY | RESULT_TAKEN
         ) {
+            return;
+        }
+
+        if !W::REPLACE_ON_REPEAT && self.waiter_present.load(Ordering::Relaxed) {
             return;
         }
 

@@ -83,10 +83,11 @@ jobs:
       dispatch-package: ${{ inputs.package }}
       dispatch-version: ${{ inputs.version }}
 
-  # Version-change publishing (ADR 0068): a merged manifest version bump or the
-  # daily schedule publishes whatever the registry lacks. Only this job holds
-  # the tag-creating and OIDC permissions; the release and dispatch jobs above
-  # skip on push and schedule events.
+  # Automatic publishing is intentionally unarmed: pushes and schedules pass
+  # an empty cohort, so the publisher plans zero packages before authentication.
+  # A later explicitly authorized release change may activate the complete
+  # workspace cohort after its release gates pass. Only this job holds the
+  # tag-creating and OIDC permissions; release and dispatch skip these events.
   publish-pending:
     needs: release-preflight
     if: github.event_name == 'push' || github.event_name == 'schedule'
@@ -96,3 +97,4 @@ jobs:
       id-token: write # OIDC trusted publishing; no stored registry token.
     with:
       rust-toolchain: "1.97.0"
+      cohort-json: '{}'

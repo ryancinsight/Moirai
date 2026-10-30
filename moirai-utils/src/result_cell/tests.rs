@@ -1,8 +1,7 @@
-#[cfg(feature = "std")]
 use super::Waiter;
 use super::{RESULT_PENDING, RESULT_READY, ResultCell, StateWord};
 use std::sync::{
-    Arc, Condvar, Mutex,
+    Arc, Condvar, Mutex, Weak,
     atomic::{AtomicU8, AtomicUsize, Ordering},
 };
 use std::task::{Wake, Waker};
@@ -285,4 +284,211 @@ fn the_packed_default_does_not_pad_each_cell() {
         PACKED < crate::cache::DESTRUCTIVE_INTERFERENCE_SIZE,
         "the packed cell grew past a cache line"
     );
+}
+
+struct CloneFailureWaiter<const REPLACE: bool = true> {
+    clones: Arc<AtomicUsize>,
+    wakes: Arc<AtomicUsize>,
+}
+
+impl<const REPLACE: bool> Clone for CloneFailureWaiter<REPLACE> {
+    fn clone(&self) -> Self {
+        match self.clones.fetch_add(1, Ordering::SeqCst) {
+            1 => panic!("replacement clone"),
+            _ => Self {
+                clones: Arc::clone(&self.clones),
+                wakes: Arc::clone(&self.wakes),
+            },
+        }
+    }
+}
+
+impl<const REPLACE: bool> Waiter for CloneFailureWaiter<REPLACE> {
+    const REPLACE_ON_REPEAT: bool = REPLACE;
+
+    fn wake(self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn replacement_clone_panic_preserves_the_published_waiter() {
+    let waiter = CloneFailureWaiter {
+        clones: Arc::new(AtomicUsize::new(0)),
+        wakes: Arc::new(AtomicUsize::new(0)),
+    };
+    let cell = ResultCell::<usize, CloneFailureWaiter>::new();
+
+    // SAFETY: this thread is the cell's only consumer.
+    unsafe { cell.register(&waiter) };
+    let panic = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: the first registration returned; this is the only consumer.
+        unsafe { cell.register(&waiter) };
+    })) {
+        Err(panic) => panic,
+        Ok(()) => panic!("replacement clone unexpectedly succeeded"),
+    };
+
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"replacement clone"));
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_PENDING);
+    assert_eq!(
+        cell.waiter_state.load(Ordering::Acquire),
+        super::WAITER_IDLE
+    );
+    assert!(cell.has_registered_waiter());
+    cell.complete(71);
+    assert_eq!(cell.try_take_ready(), Some(71));
+    assert_eq!(waiter.clones.load(Ordering::SeqCst), 2);
+    assert_eq!(waiter.wakes.load(Ordering::SeqCst), 1);
+}
+
+#[derive(Clone)]
+struct ReentrantDropWaiter {
+    completion: Option<ReentrantCompletion>,
+    wakes: Arc<AtomicUsize>,
+}
+
+#[derive(Clone)]
+struct ReentrantCompletion {
+    cell: Weak<ResultCell<usize, ReentrantDropWaiter>>,
+    calls: Arc<AtomicUsize>,
+    value: usize,
+}
+
+impl Waiter for ReentrantDropWaiter {
+    const REPLACE_ON_REPEAT: bool = true;
+
+    fn wake(self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl Drop for ReentrantDropWaiter {
+    fn drop(&mut self) {
+        let Some(completion) = self.completion.take() else {
+            return;
+        };
+        completion.calls.fetch_add(1, Ordering::SeqCst);
+        let cell = completion
+            .cell
+            .upgrade()
+            .expect("invariant: the reentrant completion test retains the result cell");
+        cell.complete(completion.value);
+    }
+}
+
+#[test]
+fn replaced_waiter_drop_may_complete_the_same_cell() {
+    let cell = Arc::new(ResultCell::<usize, ReentrantDropWaiter>::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let old_wakes = Arc::new(AtomicUsize::new(0));
+    let new_wakes = Arc::new(AtomicUsize::new(0));
+    let mut old = ReentrantDropWaiter {
+        completion: Some(ReentrantCompletion {
+            cell: Arc::downgrade(&cell),
+            calls: Arc::clone(&calls),
+            value: 73,
+        }),
+        wakes: Arc::clone(&old_wakes),
+    };
+
+    // SAFETY: this thread is the cell's only consumer.
+    unsafe { cell.register(&old) };
+    old.completion = None;
+    let replacement = ReentrantDropWaiter {
+        completion: None,
+        wakes: Arc::clone(&new_wakes),
+    };
+    // SAFETY: the first registration returned; this is the only consumer.
+    unsafe { cell.register(&replacement) };
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_READY);
+    assert_eq!(cell.try_take_ready(), Some(73));
+    assert_eq!(old_wakes.load(Ordering::SeqCst), 0);
+    assert_eq!(new_wakes.load(Ordering::SeqCst), 1);
+}
+
+#[derive(Clone)]
+struct PanicDropWaiter {
+    panic_on_drop: bool,
+    panic_drops: Arc<AtomicUsize>,
+    wakes: Arc<AtomicUsize>,
+}
+
+impl Waiter for PanicDropWaiter {
+    const REPLACE_ON_REPEAT: bool = true;
+
+    fn wake(self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl Drop for PanicDropWaiter {
+    fn drop(&mut self) {
+        if self.panic_on_drop {
+            self.panic_drops.fetch_add(1, Ordering::SeqCst);
+            panic!("replaced waiter drop");
+        }
+    }
+}
+
+#[test]
+fn replacement_survives_replaced_waiter_drop_panic() {
+    let panic_drops = Arc::new(AtomicUsize::new(0));
+    let old_wakes = Arc::new(AtomicUsize::new(0));
+    let new_wakes = Arc::new(AtomicUsize::new(0));
+    let cell = ResultCell::<usize, PanicDropWaiter>::new();
+    let mut old = PanicDropWaiter {
+        panic_on_drop: true,
+        panic_drops: Arc::clone(&panic_drops),
+        wakes: Arc::clone(&old_wakes),
+    };
+
+    // SAFETY: this thread is the cell's only consumer.
+    unsafe { cell.register(&old) };
+    old.panic_on_drop = false;
+    let replacement = PanicDropWaiter {
+        panic_on_drop: false,
+        panic_drops: Arc::clone(&panic_drops),
+        wakes: Arc::clone(&new_wakes),
+    };
+    let panic = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: the first registration returned; this is the only consumer.
+        unsafe { cell.register(&replacement) };
+    })) {
+        Err(panic) => panic,
+        Ok(()) => panic!("replaced waiter drop unexpectedly succeeded"),
+    };
+
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"replaced waiter drop"));
+    assert_eq!(panic_drops.load(Ordering::SeqCst), 1);
+    assert_eq!(cell.state.load(Ordering::Acquire), RESULT_PENDING);
+    assert_eq!(
+        cell.waiter_state.load(Ordering::Acquire),
+        super::WAITER_IDLE
+    );
+    assert!(cell.has_registered_waiter());
+    cell.complete(79);
+    assert_eq!(cell.try_take_ready(), Some(79));
+    assert_eq!(old_wakes.load(Ordering::SeqCst), 0);
+    assert_eq!(new_wakes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn non_replacing_waiter_keeps_its_registered_owner() {
+    let cell = ResultCell::<usize, CloneFailureWaiter<false>>::new();
+    let waiter = CloneFailureWaiter {
+        clones: Arc::new(AtomicUsize::new(0)),
+        wakes: Arc::new(AtomicUsize::new(0)),
+    };
+    // SAFETY: this thread is the cell's only serialized consumer.
+    unsafe { cell.register(&waiter) };
+    // SAFETY: the previous registration returned on this same consumer.
+    unsafe { cell.register(&waiter) };
+    assert_eq!(waiter.clones.load(Ordering::SeqCst), 1);
+    assert!(cell.has_registered_waiter());
+    cell.complete(83);
+    assert_eq!(cell.try_take_ready(), Some(83));
+    assert_eq!(waiter.wakes.load(Ordering::SeqCst), 1);
 }

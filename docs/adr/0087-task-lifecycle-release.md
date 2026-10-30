@@ -2,96 +2,94 @@
 
 Status: Accepted
 
-Revision 2026-10-29: automatic publication requires the complete successful
-main-branch verification workflow at the identical commit, in addition to
-release preflight. A pending or failed run rejects publication; the existing
-scheduled release can collect a later successful result without polling.
-
-Revision 2026-10-29: align the unpublished QUIC and WebView packages with the
-workspace version and release tag. Their standalone manifest numbers do not
-have a prior independent release decision; both registry names remain absent.
-
-Workspace version: 0.12.0
-
-Revision 2026-10-29: preflight fixes its cohort from every publishable workspace
-package before classifying registry availability. An interrupted upload changes
-the pending subset, never the checked artifact set or its expected hashes.
-
-Revision 2026-10-29: preflight selects Cargo workspace members explicitly and
-rejects empty, duplicate-name or mixed-version publication units before reading
-the registry. The one workspace version remains fixed through partial uploads.
+Revision 2026-10-30: preserve the unarmed automatic publisher while integrating
+the lifecycle candidate. Compatible private repairs land before the public
+0.12 boundary; activation remains a separate reviewed full-cohort change.
 
 ## Context
 
-Awaitable task results, owned cancellation, bounded shutdown calls and autonomous
-wait deadlines change the runtime as one dependency-ordered unit. ADRs 0083-0086
-specify these contracts. Replacing the unsafe `StateWord` method and adding a
-field to the exhaustive `ExecutorMetrics` struct break external implementations
-and literals. Cargo's pre-1.0 compatibility boundary therefore requires 0.12.0.
+Awaitable task results, owned cancellation, shutdown ownership, and autonomous
+wait deadlines form the runtime release scope. ADRs 0083-0086 and 0089 describe
+their contracts. Owned completion registration, fallible timer construction,
+and the owned I/O error source change public contracts. Cargo's pre-1.0
+compatibility boundary therefore requires 0.12.0.
 
-The main-branch publisher runs when manifest versions change. Separate bumped
-merges could publish only part of this runtime. The user authorizes the version
-change and registry release subject to full release gates.
-[PR 650](https://github.com/ryancinsight/Moirai/pull/650) preserves the composition
-and its reviewed source branches while verification and release prerequisites
-are completed.
+The user authorizes that version change and registry release subject to full
+release gates. PR 650 preserves the complete candidate while compatible repairs
+and release prerequisites are integrated. The preserved composition does not
+itself certify a release or justify merging unrelated changes.
+
+The default-branch publisher runs on every push and daily schedule. Without an
+explicit cohort it selects every workspace version missing from crates.io.
+PR 654 installs its existing empty-cohort interface before lifecycle or version
+changes can trigger automatic publication.
 
 ## Decision
 
-Release all publishable workspace packages at 0.12.0 in one reviewed composition
-and one annotated v0.12.0 source tag. QUIC and WebView inherit that version for
-their first publication. Update every internal requirement,
-including unpublished Python, benchmark and test consumers. Use the pinned
-cargo-release 1.1.7 version step; it performs no upload or tag operation.
+Release every publishable workspace package at 0.12.0 as one dependency-closed
+unit and one annotated v0.12.0 source tag. QUIC and WebView inherit that version
+for their first publication. Internal requirements and the unpublished Python,
+benchmark, and test consumers advance with the same source unit. The pinned
+cargo-release version step performs no upload or tag operation.
 
-For this release, direct registry dependency floors use the versions in the
-verified committed lock. These are supported minimums, not claims about the
-earliest compatible upstream API. Requirements retain caret compatibility.
-Subsequent lock advances do not automatically raise these floors. The minimum
-gate resolves the declared direct floors from the committed graph, preserves
-every Git provider identity, and checks that graph with Rust 1.95.
+Keep literal empty-cohort input on automatic push and schedule events.
+The pinned planning action returns zero before Cargo metadata or registry reads;
+its SemVer, authentication, upload, and release-tag jobs then remain skipped.
+Keep existing release-event and manual-dispatch paths under their established
+authority. This decision does not grant a separate package or Python release.
 
-The release includes the four lifecycle contracts and their regression tests.
-It does not claim Tokio feature, performance or platform parity. Non-yielding
-closures remain nonpreemptible, destructor shutdown retains its documented join
-contract, and task-wait expiry does not cancel the underlying task. The PAL
-thread-per-pending-timer implementation remains a scalability limitation.
+Integrate compatible private repairs first. Keep public additions and their
+native callers at the one 0.12 boundary, with migration documentation and exact
+consumer preparation. Changes to StateWord, metrics, or no-std capability are
+included only when independently required by the delivered contracts; their
+presence in the preservation branch is insufficient.
 
-Before merge, verify the exact candidate with workspace format, strict Clippy,
-nextest, benchmark smoke, doctests, rustdoc, MSRV and supported feature gates.
-Run SemVer against the fetched base and published contracts under the declared
-breaking classification, the production-cell Loom models and applicable Miri
-cases. Release prerequisites include dependency-closed package verification,
-minimal-version/MSRV checking, an SBOM and independent reproducible builds.
-The strict original Linux QUIC matrix must retain every admitted workload and
-its existing deadlines; any error blocks the gate. Historical results do not
-certify this candidate.
+For this candidate, direct registry dependency floors use versions from the
+verified lock as supported minimums, retaining caret compatibility. A later lock
+advance does not itself raise those floors. The minimum-version gate preserves
+Git provider identities and checks the direct-floor graph with Rust 1.95.
 
-Retain the existing trusted-publishing workflow selected by Atlas ADR 0068.
-Its first-publication restriction must be resolved for QUIC before the complete
-runtime closure can publish. Do not infer complete publication from a successful
-workflow that skips a package. Verify exact registry versions and installed
-artifact smoke tests after upload; no Python registry release is part of this
-Rust release.
+Before public integration, verify exact source with format, strict Clippy,
+Nextest, benchmark smoke, doctests, rustdoc, MSRV, and supported features.
+Compare the fetched base and published contracts under the declared breaking
+classification. Run applicable production-cell Loom and Miri cases, consumer
+contracts, dependency-closed packaging, minimal versions, an SBOM, and independent
+reproducible builds.
+
+The original strict Linux QUIC matrix retains every admitted workload and its
+existing deadlines. Any pair failure blocks release. The default branch's
+historical known-limit result does not establish 108 successful pairs.
+
+Activate automatic publication only after the exact full candidate and release
+cohort pass those gates. Replace the empty input with the complete publishable
+workspace cohort in one reviewed change. Interrupted uploads retain the same
+candidate, version, cohort, toolchain, target, profile, and archive hashes; only
+the pending subset changes. Registry-installed smoke tests and documentation
+health cover the entire unit before one source release is finalized.
 
 ## Alternatives
 
-A 0.11 patch release misclassifies the public break. Independently bumped merges
-can publish incomplete source. Removing the native QUIC dependency or suppressing
-its failing workloads changes the production contract instead of establishing
-release acceptance. Replacing the publisher introduces an unrelated release
-architecture change.
+A 0.11 patch release misclassifies public breaks. Independently published source
+slices can release an incomplete runtime. Removing the QUIC dependency,
+suppressing a failing workload, or raising its deadline changes acceptance
+instead of establishing it. Replacing the publisher duplicates its existing
+owner rather than repairing the required unit semantics.
 
 ## Consequences
 
-External state implementations follow the task-result migration guide; exhaustive
-metrics literals initialize the new field. One protected merge is the release
-authority boundary. First publication can still require local registry access;
-credentials remain in the Cargo credential store and never enter source or logs.
+Private source repairs can land while publication remains unarmed. Publication
+does not follow merely from completion of a source merge or a historical green
+run. First publication may require the existing local Cargo credential store;
+credentials never enter source, evidence, or logs.
+
+The release does not claim Tokio feature, performance, or platform parity.
+Non-yielding closures remain nonpreemptible, destructor shutdown retains its
+documented join contract, task-wait expiry does not cancel the underlying task,
+and thread-per-pending-timer scaling remains a limitation.
 
 ## Overturning evidence
 
-A candidate gate failure, unresolved publication dependency, incompatible
-consumer or differing independent build artifact holds the release until its
-cause is corrected. Evidence that either public change is compatible may narrow
-the version classification, but does not permit partial source publication.
+A gate failure, incompatible consumer, incomplete registry unit, changed source
+identity, or differing independent artifact holds activation until corrected.
+If the pinned empty-cohort plan can reach authentication, upload, or tagging,
+publication stays unarmed until its shared owner restores that boundary.
