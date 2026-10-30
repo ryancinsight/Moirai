@@ -134,15 +134,27 @@ fn wake_all<I>(members: I, mut wake: impl FnMut(I::Item))
 where
     I: IntoIterator,
 {
-    let mut first_panic = None;
+    let mut panics = Vec::new();
     for member in members {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| wake(member))) {
-            first_panic.get_or_insert(payload);
+            panics.push(payload);
         }
     }
-    if let Some(payload) = first_panic {
-        resume_unwind(payload);
+    let mut panics = panics.into_iter();
+    let Some(first_panic) = panics.next() else {
+        return;
+    };
+    let mut disposal_panics = Vec::new();
+    for payload in panics {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+            disposal_panics.push(payload);
+        }
     }
+    // A recursive panic from dropping a disposal-panic payload supersedes the
+    // first callback panic: preserving both would require leaking one payload
+    // or unbounded recursive recovery.
+    drop(disposal_panics);
+    resume_unwind(first_panic);
 }
 
 /// `RawWakerVTable::drop`: release the members and the allocation.
@@ -156,7 +168,7 @@ unsafe fn drop_members(data: *const ()) {
 mod tests {
     #![allow(clippy::unwrap_used, reason = "test scope")]
 
-    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::task::{Wake, Waker};
@@ -166,7 +178,16 @@ mod tests {
     use super::register;
 
     struct PanickingWake {
-        wakes: AtomicUsize,
+        index: usize,
+        wakes: Arc<[AtomicUsize; 3]>,
+    }
+
+    struct PanickingPayload;
+
+    impl Drop for PanickingPayload {
+        fn drop(&mut self) {
+            panic!("payload destructor");
+        }
     }
 
     impl Wake for PanickingWake {
@@ -175,19 +196,27 @@ mod tests {
         }
 
         fn wake_by_ref(self: &Arc<Self>) {
-            self.wakes.fetch_add(1, Ordering::Relaxed);
-            panic!("callback panic");
+            self.wakes[self.index].fetch_add(1, Ordering::Relaxed);
+            match self.index {
+                0 => panic!("first callback"),
+                1 => panic_any(PanickingPayload),
+                _ => {}
+            }
         }
     }
 
     fn assert_panicking_member_does_not_suppress_later_wake(by_ref: bool) {
-        let panicking = Arc::new(PanickingWake {
-            wakes: AtomicUsize::new(0),
-        });
-        let (later, later_waker) = counting_waker();
+        let wakes = Arc::new([const { AtomicUsize::new(0) }; 3]);
         let mut slot = None;
-        drop(register(&mut slot, Waker::from(Arc::clone(&panicking))));
-        drop(register(&mut slot, later_waker));
+        for index in 0..3 {
+            drop(register(
+                &mut slot,
+                Waker::from(Arc::new(PanickingWake {
+                    index,
+                    wakes: Arc::clone(&wakes),
+                })),
+            ));
+        }
         let fan_out = slot.take().unwrap();
 
         let panic = catch_unwind(AssertUnwindSafe(|| {
@@ -199,9 +228,11 @@ mod tests {
         }))
         .unwrap_err();
 
-        assert_eq!(panic.downcast_ref::<&str>(), Some(&"callback panic"));
-        assert_eq!(panicking.wakes.load(Ordering::Relaxed), 1);
-        assert_eq!(later.wakes(), 1);
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"first callback"));
+        assert_eq!(
+            wakes.each_ref().map(|wake| wake.load(Ordering::Relaxed)),
+            [1; 3]
+        );
     }
 
     #[test]
