@@ -1,54 +1,31 @@
+diff --git a/src/connection/mod.rs b/src/connection/mod.rs
+index 5155740b..a11fe79f 100644
 --- a/src/connection/mod.rs
 +++ b/src/connection/mod.rs
-@@ -59,6 +59,7 @@
- mod packet_crypto;
- use packet_crypto::{PrevCrypto, ZeroRttCrypto};
- 
+@@ -61,0 +62 @@ use packet_crypto::{PrevCrypto, ZeroRttCrypto};
 +mod observation;
- mod paths;
- pub use paths::RttEstimator;
- use paths::{PathData, PathResponses};
-@@ -384,6 +385,7 @@
-     /// - a call was made to `handle_timeout`
-     #[must_use]
-     pub fn poll_timeout(&mut self) -> Option<Instant> {
+@@ -386,0 +388 @@ impl Connection {
 +        self.observe_recovery("driver");
-         self.timers.next_timeout()
-     }
- 
-@@ -1468,6 +1470,11 @@
-         space: SpaceId,
-         ack: frame::Ack,
-     ) -> Result<(), TransportError> {
+@@ -1470,0 +1473,5 @@ impl Connection {
 +        if space != SpaceId::Data {
 +            trace!(target: "quinn_proto::observation", ?space,
 +                ranges = ?ack.iter().map(|r| [*r.start(), *r.end()]).collect::<Vec<_>>(),
 +                "engine ack received");
 +        }
-         if ack.largest >= self.spaces[space].next_packet_number {
-             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
-         }
-@@ -1667,6 +1674,7 @@
-                 return;
-             }
-         };
+@@ -1669,0 +1677 @@ impl Connection {
 +        self.observe_recovery("pto");
-         trace!(
-             in_flight = self.path.in_flight.bytes,
-             count = self.pto_count,
-@@ -2111,6 +2119,8 @@
-         // complete. Therefore, we will never see CRYPTO data from a later-than-expected space.
-         debug_assert!(space <= expected, "received out-of-order CRYPTO data");
- 
+@@ -2113,0 +2122,2 @@ impl Connection {
 +        trace!(target: "quinn_proto::observation", ?space,
 +            offset = crypto.offset, len = crypto.data.len(), "engine crypto received");
-         let end = crypto.offset + crypto.data.len() as u64;
-         if space < expected && end > self.spaces[space].crypto_stream.bytes_read() {
-             warn!(
---- a/src/connection/observation.rs
+diff --git a/src/connection/observation.rs b/src/connection/observation.rs
+new file mode 100644
+index 00000000..bc28f25e
+--- /dev/null
 +++ b/src/connection/observation.rs
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,66 @@
 +//! Read-only diagnostic instrumentation; never published as a recovery fork.
++//! Tracing changes work and allocation, so its timings do not characterize the
++//! pristine engine's performance.
 +use super::{Connection, SpaceId, timer::Timer};
 +use crate::Instant;
 +
@@ -112,12 +89,11 @@
 +            "engine recovery state");
 +    }
 +}
+diff --git a/src/connection/packet_builder.rs b/src/connection/packet_builder.rs
+index d67c85a2..685ac6a8 100644
 --- a/src/connection/packet_builder.rs
 +++ b/src/connection/packet_builder.rs
-@@ -233,6 +233,13 @@
-             stream_frames: sent.stream_frames,
-         };
- 
+@@ -235,0 +236,7 @@ impl PacketBuilder {
 +        if space_id != SpaceId::Data {
 +            trace!(target: "quinn_proto::observation", space = ?space_id,
 +                pn = exact_number, size, ack_eliciting,
@@ -125,15 +101,11 @@
 +                    .map(|c| [c.offset, c.data.len() as u64]).collect::<Vec<_>>())
 +                    .unwrap_or_default(), "engine packet sent");
 +        }
-         conn.path
-             .sent(exact_number, packet, &mut conn.spaces[space_id]);
-         conn.stats.path.sent_packets += 1;
+diff --git a/src/connection/streams/state.rs b/src/connection/streams/state.rs
+index 7a5908d1..17f3cb4a 100644
 --- a/src/connection/streams/state.rs
 +++ b/src/connection/streams/state.rs
-@@ -144,6 +144,17 @@
- }
- 
- impl StreamsState {
+@@ -146,0 +147,10 @@ impl StreamsState {
 +    /// Numeric metadata only; no stream payload is inspected.
 +    pub(crate) fn observe_credit(&self) -> ([u64; 4], Vec<[u64; 5]>) {
 +        let mut rows: Vec<_> = self.send.iter().filter_map(|(id, send)| {
@@ -144,7 +116,3 @@
 +        rows.sort_unstable_by_key(|row| row[0]);
 +        ([self.max_data, self.data_sent, self.buffered_data, self.send_window], rows)
 +    }
-+
-     #[allow(unreachable_pub)] // fuzzing only
-     pub fn new(
-         side: Side,
