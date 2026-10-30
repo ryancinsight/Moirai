@@ -114,7 +114,10 @@ fn pal_timer_is_pending_before_deadline_and_wakes() {
     let wake_flag = Arc::new(WakeFlag::new(wake_tx));
     let waker = waker(Arc::clone(&wake_flag));
     let mut context = Context::from_waker(&waker);
-    let mut timer = Box::pin(sleep(Duration::from_millis(20)));
+    let mut timer = Box::pin(
+        sleep(Duration::from_millis(20))
+            .expect("invariant: twenty milliseconds fits in the instant range"),
+    );
 
     assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
     assert!(!wake_flag.woke.load(Ordering::Acquire));
@@ -136,7 +139,9 @@ fn pal_timer_zero_duration_completes_immediately() {
     let wake_flag = Arc::new(WakeFlag::new(wake_tx));
     let waker = waker(wake_flag);
     let mut context = Context::from_waker(&waker);
-    let mut timer = Box::pin(sleep(Duration::ZERO));
+    let mut timer = Box::pin(
+        sleep(Duration::ZERO).expect("invariant: zero duration fits in the instant range"),
+    );
 
     assert!(matches!(
         timer.as_mut().poll(&mut context),
@@ -146,19 +151,47 @@ fn pal_timer_zero_duration_completes_immediately() {
 
 #[test]
 fn pal_timer_extreme_duration_does_not_panic() {
-    // Regression: `Instant::now() + Duration::MAX` panics on overflow. The
-    // deadline computation must clamp/`checked_add` instead, yielding a far-future
-    // deadline rather than aborting.
-    let timer = super::Timer::new(Duration::MAX);
-    assert!(timer.deadline() > std::time::Instant::now());
+    for duration in [Duration::MAX, Duration::from_secs(u64::MAX)] {
+        let error = match super::Timer::new(duration) {
+            Ok(_) => panic!("unrepresentable timer duration must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
 
-    let timer = super::Timer::new(Duration::from_secs(u64::MAX));
-    assert!(timer.deadline() > std::time::Instant::now());
+    let start = Instant::now();
+    let duration = Duration::from_secs(366 * 24 * 60 * 60);
+    let expected = start
+        .checked_add(duration)
+        .expect("invariant: one year fits in the platform instant range");
+    assert_eq!(
+        super::deadline_after(start, duration)
+            .expect("invariant: the same representable deadline must be accepted"),
+        expected
+    );
+}
+
+#[test]
+fn pal_timer_preserves_exact_century_plus_duration() {
+    const ONE_HUNDRED_YEARS: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
+    let duration = ONE_HUNDRED_YEARS
+        .checked_add(Duration::from_secs(1))
+        .expect("invariant: adding one second to one hundred years cannot overflow Duration");
+    let start = Instant::now();
+    let expected = start
+        .checked_add(duration)
+        .expect("invariant: supported targets represent a timer beyond one hundred years");
+    assert_eq!(
+        super::deadline_after(start, duration)
+            .expect("invariant: a representable deadline must retain the requested duration"),
+        expected
+    );
 }
 
 #[test]
 fn pal_timer_cancellation_before_wait_exits_without_parking() {
-    let timer = sleep(SLEEPER_DEADLINE);
+    let timer =
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range");
     let deadline = timer.deadline;
     let state = Arc::clone(&timer.state);
     let events = observe_sleeper(&state);
@@ -182,7 +215,9 @@ fn pal_timer_cancellation_before_wait_exits_without_parking() {
 #[test]
 fn pal_timer_drop_during_wait_exits_and_releases_waker() {
     let (observer, task_waker, _wake_events) = tracked_waker();
-    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
+    let mut timer = Box::pin(
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
+    );
     let state = Arc::clone(&timer.state);
     let events = observe_sleeper(&state);
     let deadline = event_deadline();
@@ -203,7 +238,9 @@ fn pal_timer_drop_during_wait_exits_and_releases_waker() {
 
 #[test]
 fn pal_timer_spurious_notification_reparks_the_sleeper() {
-    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
+    let mut timer = Box::pin(
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
+    );
     let state = Arc::clone(&timer.state);
     let events = observe_sleeper(&state);
     let mut context = Context::from_waker(std::task::Waker::noop());
@@ -225,7 +262,9 @@ fn pal_timer_spurious_notification_reparks_the_sleeper() {
 #[test]
 fn pal_timer_borrowed_ready_exits_and_releases_waker() {
     let (observer, task_waker, _wake_events) = tracked_waker();
-    let mut timer = Box::pin(sleep(SLEEPER_DEADLINE));
+    let mut timer = Box::pin(
+        sleep(SLEEPER_DEADLINE).expect("invariant: the test deadline fits in the instant range"),
+    );
     let state = Arc::clone(&timer.state);
     let events = observe_sleeper(&state);
     let deadline = event_deadline();

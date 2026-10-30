@@ -29,7 +29,8 @@ pub trait TaskManager: Send + Sync + 'static {
     /// Cancelling a settled task succeeds without changing its outcome.
     ///
     /// # Errors
-    /// Returns an executor error when the task id is unknown.
+    /// Returns [`ExecutorError::UnknownTask`](crate::error::ExecutorError::UnknownTask)
+    /// with `id` when no registered task has that identifier.
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()>;
 
     /// Get the current status of a task.
@@ -55,7 +56,12 @@ pub trait TaskManager: Send + Sync + 'static {
     /// simultaneous deadline observation.
     ///
     /// # Errors
-    /// Returns a typed timeout, timer-service failure, or unknown-task error.
+    /// Returns [`ExecutorError::UnknownTask`](crate::error::ExecutorError::UnknownTask)
+    /// when `id` is not registered,
+    /// [`ExecutorError::WaitTimedOut`](crate::error::ExecutorError::WaitTimedOut)
+    /// when the deadline expires. With the standard library, it returns
+    /// `ExecutorError::TimerFailed` when the timer cannot be constructed or
+    /// driven.
     fn wait_for_task(
         &self,
         id: TaskId,

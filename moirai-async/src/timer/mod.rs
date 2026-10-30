@@ -34,10 +34,9 @@ pub const MAX_TIMER_DURATION: Duration = Duration::from_secs(100 * 365 * 24 * 60
 /// `Instant + Duration` panics on overflow, so a near-`Duration::MAX` input
 /// (e.g. a caller using `Duration::MAX` as "never") would abort. Clamp the
 /// duration to ~100 years — effectively "never" — which `checked_add` then
-/// resolves without overflowing `Instant`. Mirrors the round-16 hardening of
-/// `moirai_pal::timer::Timer::new`. `unwrap_or(base)` is a safe
-/// (non-panicking) degenerate fallback; it is unreachable on any real
-/// platform, where `Instant` has decades of headroom.
+/// resolves without overflowing `Instant`. `unwrap_or(base)` is a safe
+/// (non-panicking) degenerate fallback; it is unreachable on any real platform,
+/// where `Instant` has decades of headroom.
 pub(crate) fn clamped_deadline(base: Instant, duration: Duration) -> Instant {
     base.checked_add(duration.min(MAX_TIMER_DURATION))
         .unwrap_or(base)

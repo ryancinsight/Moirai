@@ -27,9 +27,20 @@ synchronous or blocking closures continue until they return. A task already
 returning its result may win the cancellation race.
 
 `wait_for_task(id, timeout)` observes task settlement without consuming the
-result handle. A positive timeout owns a PAL timer; expiry returns a typed error
-and leaves the underlying task running. `None` creates no timer. Completion
-already visible when polled wins a simultaneous timeout observation.
+result handle. A positive timeout owns a PAL timer; expiry returns
+`ExecutorError::WaitTimedOut { id }` and leaves the underlying task running.
+Unknown identifiers return `ExecutorError::UnknownTask { id }`. PAL timer
+construction and worker failures return `ExecutorError::TimerFailed { id,
+source }`, preserving the original `std::io::Error` as the error source. `None`
+creates no timer. Completion already visible when polled wins a simultaneous
+successful or failed timer observation.
+
+PAL `Timer::new(duration)` and `timer::sleep(duration)` now return
+`std::io::Result<Timer>`. Durations outside the platform monotonic-clock range
+return `ErrorKind::InvalidInput` instead of being clamped. `ExecutorError` no
+longer implements `Clone`, `PartialEq`, or `Eq` because a preserved
+`std::io::Error` implements none of those contracts. Match its variants and
+fields directly; shared owners may clone their existing `Arc<ExecutorError>`.
 
 `TaskRegistry::register_waker(id, &waker)` now returns `Option<TaskWaiter>`.
 Retain the token while waiting and call `token.update(&waker)` on subsequent

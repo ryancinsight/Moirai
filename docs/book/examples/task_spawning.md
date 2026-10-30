@@ -41,8 +41,10 @@ all task-spawning assertions passed
   and shutdown settle pending asynchronous work at poll boundaries; they do not
   forcibly interrupt a synchronous or blocking closure that is already running.
 
-- A zero-duration `wait_for_task` deadline returns the typed timeout while the
-  task remains alive. The example then cancels and collects that task explicitly.
+- A zero-duration `wait_for_task` deadline returns
+  `ExecutorError::WaitTimedOut` with the task identifier while the task remains
+  alive. The example then cancels and collects that task explicitly. Unknown
+  identifiers and timer-service failures use distinct executor variants.
 
 - Explicit shutdown cancels pending asynchronous work and joins the workers.
   Dropping the runtime also joins its workers, so Drop can wait for synchronous

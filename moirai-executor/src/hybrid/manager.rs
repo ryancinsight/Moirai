@@ -200,7 +200,7 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
         id: TaskId,
         timeout: Option<core::time::Duration>,
     ) -> impl core::future::Future<Output = ExecutorResult<()>> + Send {
-        let deadline = timeout.map(|duration| Ok(moirai_pal::timer::sleep(duration)));
+        let deadline = timeout.map(moirai_pal::timer::sleep);
         completion_wait(Arc::clone(&self.task_registry), id, deadline)
     }
 

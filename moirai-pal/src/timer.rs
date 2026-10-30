@@ -18,23 +18,17 @@ pub struct Timer {
 
 impl Timer {
     /// Create a timer that completes after `duration`.
-    #[must_use]
-    pub fn new(duration: Duration) -> Self {
-        // Clamp absurd durations and use `checked_add` so a near-`Duration::MAX`
-        // input cannot panic the deadline computation (a library must not panic
-        // on input-dependent paths). The clamp caps the wait at ~100 years —
-        // effectively "never" — which `checked_add` then resolves without
-        // overflowing `Instant`.
-        const MAX_TIMER: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
-        let now = Instant::now();
-        // `unwrap_or(now)` is a safe (non-panicking) degenerate fallback; it is
-        // unreachable on any real platform, where `Instant` has decades of
-        // headroom above `now`.
-        let deadline = now.checked_add(duration.min(MAX_TIMER)).unwrap_or(now);
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::ErrorKind::InvalidInput`] when `duration` cannot be
+    /// represented as an [`Instant`] after the current time.
+    pub fn new(duration: Duration) -> io::Result<Self> {
+        let deadline = deadline_after(Instant::now(), duration)?;
+        Ok(Self {
             deadline,
             state: Arc::new(TimerState::new()),
-        }
+        })
     }
 
     /// Return the absolute completion deadline.
@@ -42,6 +36,15 @@ impl Timer {
     pub fn deadline(&self) -> Instant {
         self.deadline
     }
+}
+
+fn deadline_after(start: Instant, duration: Duration) -> io::Result<Instant> {
+    start.checked_add(duration).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "timer duration exceeds the monotonic clock range",
+        )
+    })
 }
 
 struct TimerState {
@@ -224,7 +227,12 @@ impl Future for Timer {
 }
 
 /// Create a timer that completes after the specified duration.
-pub fn sleep(duration: Duration) -> Timer {
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::InvalidInput`] when `duration` cannot be
+/// represented as an [`Instant`] after the current time.
+pub fn sleep(duration: Duration) -> io::Result<Timer> {
     Timer::new(duration)
 }
 
