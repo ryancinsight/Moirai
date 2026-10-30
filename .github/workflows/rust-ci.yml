@@ -275,6 +275,13 @@ jobs:
           cargo nextest run --locked -p moirai-executor --lib --release
           -E 'test(hybrid::shutdown::admission::loom_tests::production_admission_linearizes_close_and_release)'
 
+      - name: Run the production PAL timer models
+        env:
+          LOOM_MAX_PREEMPTIONS: 4
+        run: >-
+          cargo nextest run --locked -p moirai-pal --lib --release
+          -E 'test(loom_timer)'
+
   supply-chain:
     name: Supply-chain
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}

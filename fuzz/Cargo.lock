@@ -1036,6 +1036,7 @@ dependencies = [
  "accesskit_windows",
  "js-sys",
  "libc",
+ "loom",
  "melinoe",
  "moirai-core",
  "socket2",

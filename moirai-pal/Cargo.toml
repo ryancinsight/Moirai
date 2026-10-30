@@ -152,6 +152,9 @@ png = "0.18.1"
 criterion = { workspace = true }
 proptest = { workspace = true }
 
+[target.'cfg(loom)'.dependencies]
+loom = { workspace = true }
+
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.79"
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
