@@ -16,6 +16,8 @@ POINT_KINDS = {'engine recovery state', 'engine ack received',
                'engine crypto received', 'engine packet sent',
                'engine cubic callback', 'engine congestion blocked',
                'engine pacing blocked'}
+# JSON limits match Capture in the pinned native collector.
+BUCKET_LIMITS = {'callback': 1_024, 'blocker': 256}
 
 
 def within_bits(value, width):
@@ -123,10 +125,76 @@ def point(value):
             'PTO candidate without an armed loss timer')
 
 
+def retained_buckets(state, sample, previous, previous_elapsed, history, group, prefix,
+                     label, identity_fields):
+    observations = f'{prefix}_observations'
+    require(within_bits(state.get(observations), 64) and
+            type(state.get(f'{prefix}_buckets_dropped')) is int and
+            state[f'{prefix}_buckets_dropped'] == 0 and
+            isinstance(state.get(group), list) and len(state[group]) <= BUCKET_LIMITS[prefix],
+            f'{label} capture exceeds its bound')
+    current = []
+    total = 0
+    last_first = 0
+    for bucket in state[group]:
+        require(set(bucket) == {'second', 'observations', 'first', 'last', *identity_fields},
+                f'{label} bucket differs')
+        require(within_bits(bucket['second'], 128), f'invalid {label} bucket second')
+        first, last = bucket['first'], bucket['last']
+        point(first); point(last)
+        require(first['elapsed_ns'] <= last['elapsed_ns'] <= sample['elapsed_ns'] and
+                first['elapsed_ns']//10**9 == last['elapsed_ns']//10**9 == bucket['second'],
+                f'invalid {label} bucket time')
+        require(first['elapsed_ns'] >= last_first, f'{label} insertion order changes')
+        last_first = first['elapsed_ns']
+        identity = tuple(bucket[field] for field in identity_fields)
+        require(prefix != 'blocker' or identity[0] in
+                ('engine congestion blocked', 'engine pacing blocked'),
+                'blocker kind differs')
+        for retained in (first, last):
+            require(retained['kind'] == ('engine cubic callback' if prefix == 'callback'
+                                         else identity[0]),
+                    f'{label} endpoint kind differs')
+            observed = tuple(retained['fields'].get(field, retained.get(field))
+                             for field in identity_fields)
+            require(identity == observed, f'{label} bucket identity differs')
+        require(within_bits(bucket['observations'], 64) and bucket['observations'] > 0,
+                f'{label} bucket identity differs')
+        require(bucket['observations'] != 1 or first == last,
+                f'{label} singleton endpoints differ')
+        key = (bucket['second'], *identity)
+        require(key not in current, f'duplicate {label} bucket')
+        current.append(key)
+        total += bucket['observations']
+        old = history.get(key)
+        if old:
+            require(old['first'] == first and old['observations'] <= bucket['observations'] and
+                    old['last']['elapsed_ns'] <= last['elapsed_ns'],
+                    f'{label} bucket history changes')
+            if old['observations'] == bucket['observations']:
+                require(old == bucket, f'{label} bucket changes without an observation')
+            else:
+                require(last['elapsed_ns'] >= previous_elapsed,
+                        f'{label} adds an observation before the previous capture')
+        elif previous_elapsed is not None:
+            require(first['elapsed_ns'] >= previous_elapsed,
+                    f'{label} appears before the previous capture')
+        history[key] = bucket
+    require(total == state[observations], f'{label} count differs from retained history')
+    if previous:
+        prior = [(bucket['second'], *(bucket[field] for field in identity_fields))
+                 for bucket in previous[group]]
+        require(current[:len(prior)] == prior, f'{label} insertion order changes')
+        require(state[observations] >= previous[observations], f'{label} count decreases')
+
+
 def state_trace(text):
     samples = []
     buckets = {}
     previous = None
+    previous_elapsed = None
+    callback_buckets = {}
+    blocker_buckets = {}
     for line in (text or '').splitlines():
         if 'protocol recovery observation' not in line:
             continue
@@ -134,6 +202,11 @@ def state_trace(text):
         state = sample.get('engine')
         if state is None:
             continue
+        require(within_bits(sample.get('elapsed_ns'), 128),
+                'invalid protocol capture time')
+        if previous_elapsed is not None:
+            require(sample['elapsed_ns'] >= previous_elapsed,
+                    'protocol capture time decreases')
         require(type(state['observed_states']) is int and state['observed_states'] > 0,
                 'no actual engine states')
         for key in ('handshake', 'events', 'ptos'):
@@ -167,7 +240,18 @@ def state_trace(text):
                 require(old['first'] == first and old['observations'] <= bucket['observations'] and
                         old['last']['elapsed_ns'] <= last['elapsed_ns'], 'engine bucket history changes')
             buckets[bucket['second']] = bucket
+        for group, prefix, label, identity in (
+                ('callbacks', 'callback', 'CUBIC callback', ('callback', 'outcome')),
+                ('blockers', 'blocker', 'blocker', ('kind',))):
+            keys = {group, prefix+'_observations', prefix+'_buckets_dropped'}
+            prior = previous if previous and keys.intersection(previous) else None
+            if keys.intersection(state) or prior:
+                require(keys.issubset(state), f'{label} extension is incomplete')
+                retained_buckets(state, sample, prior, previous_elapsed,
+                                 callback_buckets if prefix == 'callback' else blocker_buckets,
+                                 group, prefix, label, identity)
         previous = state
+        previous_elapsed = sample['elapsed_ns']
         samples.append(sample)
     require(bool(samples), 'engine state capture is absent')
     require(bool(previous['handshake']), 'engine handshake capture is absent')
@@ -185,8 +269,13 @@ def state_trace(text):
             numbers = sent[event['fields']['space']]
             require(all(sum(lo <= pn <= hi for pn in numbers) == hi - lo + 1
                         for lo, hi in event['fields']['ranges']), 'ACK refers to unobserved packet')
-    return {**previous, 'buckets': [buckets[k] for k in sorted(buckets)],
-            'last_protocol_observation': samples[-1]['observation']}
+    result = {**previous, 'buckets': [buckets[k] for k in sorted(buckets)],
+              'last_protocol_observation': samples[-1]['observation']}
+    if 'callbacks' in previous:
+        result['callbacks'] = list(callback_buckets.values())
+    if 'blockers' in previous:
+        result['blockers'] = list(blocker_buckets.values())
+    return result
 
 
 def state_pair(client, server, success):
