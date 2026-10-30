@@ -172,7 +172,10 @@ fn shutdown_timeout_bounds_inline_cancellation_callbacks() {
     callback_finished_receiver
         .recv_timeout(EVENT_DEADLINE)
         .expect("completion callback finishes after release");
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
     assert_eq!(handle.join(), Some(Err(TaskError::Cancelled)));
     assert_eq!(drops.load(Ordering::Acquire), 1);
 

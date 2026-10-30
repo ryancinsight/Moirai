@@ -82,10 +82,10 @@ fn saturated_indexed_admission_runs_rejected_chunks_on_caller() {
                 panic!("caller-run chunk panic");
             }
         });
-    assert_eq!(
+    assert!(matches!(
         panic_result,
         Err(ExecutorError::SpawnFailed(TaskError::Panicked))
-    );
+    ));
 
     let reduction_panic = scheduler.map_reduce_indexed::<SyncTask, _, _, _>(
         Priority::Normal,
@@ -100,10 +100,10 @@ fn saturated_indexed_admission_runs_rejected_chunks_on_caller() {
         },
         usize::wrapping_add,
     );
-    assert_eq!(
+    assert!(matches!(
         reduction_panic,
         Err(ExecutorError::SpawnFailed(TaskError::Panicked))
-    );
+    ));
     assert_eq!(scheduler.admission_caller_runs(), 4);
 
     release_tx.send(()).unwrap();
@@ -208,7 +208,10 @@ fn saturated_scope_propagates_a_caller_run_job_panic() {
     });
     std::panic::set_hook(previous_hook);
 
-    assert_eq!(scoped, Err(ExecutorError::SpawnFailed(TaskError::Panicked)));
+    assert!(matches!(
+        scoped,
+        Err(ExecutorError::SpawnFailed(TaskError::Panicked))
+    ));
 
     release_tx.send(()).unwrap();
     scheduler.join().unwrap();
@@ -335,5 +338,5 @@ fn blocking_lane_rejects_admission_after_shutdown() {
     scheduler.shutdown();
 
     let result = scheduler.schedule::<BlockingTask, _>(Priority::Normal, None, |_| {});
-    assert_eq!(result, Err(ExecutorError::ShuttingDown));
+    assert!(matches!(result, Err(ExecutorError::ShuttingDown)));
 }

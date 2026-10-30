@@ -3,6 +3,8 @@
 use alloc::string::String;
 use core::fmt;
 
+use crate::task::TaskId;
+
 /// Errors that can occur during task operations.
 #[allow(clippy::module_name_repetitions)]
 #[must_use]
@@ -93,7 +95,7 @@ impl fmt::Display for TaskErrorKind {
 /// Errors that can occur during executor operations.
 #[allow(clippy::module_name_repetitions)]
 #[must_use]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ExecutorError {
     /// Executor is shutting down
     ShuttingDown,
@@ -110,6 +112,24 @@ pub enum ExecutorError {
     ThreadPoolCreationFailed,
     /// Task spawn failed
     SpawnFailed(TaskError),
+    /// The requested task is not registered with this executor.
+    UnknownTask {
+        /// Identifier supplied by the caller.
+        id: TaskId,
+    },
+    /// Waiting for the task exceeded the caller's deadline.
+    WaitTimedOut {
+        /// Identifier of the task whose wait expired.
+        id: TaskId,
+    },
+    /// The platform timer could not be constructed or driven.
+    #[cfg(feature = "std")]
+    TimerFailed {
+        /// Identifier of the task being observed.
+        id: TaskId,
+        /// Original platform timer failure.
+        source: std::io::Error,
+    },
     /// Resource exhaustion detected
     ResourceExhausted(String),
     /// Performance anomaly detected
@@ -166,6 +186,10 @@ impl fmt::Display for ExecutorError {
             ),
             Self::ThreadPoolCreationFailed => write!(f, "Failed to create thread pool"),
             Self::SpawnFailed(err) => write!(f, "Failed to spawn task: {err}"),
+            Self::UnknownTask { id } => write!(f, "Task {id} is not registered"),
+            Self::WaitTimedOut { id } => write!(f, "Waiting for task {id} timed out"),
+            #[cfg(feature = "std")]
+            Self::TimerFailed { id, .. } => write!(f, "Timer for task {id} failed"),
             Self::ResourceExhausted(msg) => write!(f, "Resource exhausted: {msg}"),
             Self::PerformanceAnomaly(msg) => write!(f, "Performance anomaly: {msg}"),
             Self::NoSchedulerAvailable => write!(f, "No scheduler available"),
@@ -244,6 +268,7 @@ impl std::error::Error for ExecutorError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::WorkerPlacementFailed { cause, .. } => Some(cause),
+            Self::TimerFailed { source, .. } => Some(source),
             _ => None,
         }
     }
@@ -304,5 +329,59 @@ mod tests {
             format!("{}", PlacementFailure::OutOfRange),
             "the processor is outside the range this target can bind"
         );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn timer_failure_preserves_operating_system_error_source() {
+        let id = TaskId::new(73);
+        let error = ExecutorError::TimerFailed {
+            id,
+            source: std::io::Error::from_raw_os_error(1_234),
+        };
+        assert_eq!(format!("{error}"), "Timer for task Task#73 failed");
+        let source = std::error::Error::source(&error)
+            .expect("invariant: timer failure owns its I/O source");
+        let io_error = source
+            .downcast_ref::<std::io::Error>()
+            .expect("invariant: the direct source is the owned I/O error");
+        assert_eq!(io_error.raw_os_error(), Some(1_234));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn timer_failure_preserves_custom_io_error_payload() {
+        #[derive(Debug)]
+        struct TimerPayload {
+            operation: &'static str,
+            sequence: u32,
+        }
+
+        impl fmt::Display for TimerPayload {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str(self.operation)
+            }
+        }
+
+        impl std::error::Error for TimerPayload {}
+
+        let error = ExecutorError::TimerFailed {
+            id: TaskId::new(91),
+            source: std::io::Error::other(TimerPayload {
+                operation: "start deadline worker",
+                sequence: 47,
+            }),
+        };
+        let source = std::error::Error::source(&error)
+            .expect("invariant: timer failure owns its I/O source");
+        let io_error = source
+            .downcast_ref::<std::io::Error>()
+            .expect("invariant: the direct source is the owned I/O error");
+        let payload = io_error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<TimerPayload>())
+            .expect("invariant: the custom payload remains inside the I/O error");
+        assert_eq!(payload.operation, "start deadline worker");
+        assert_eq!(payload.sequence, 47);
     }
 }

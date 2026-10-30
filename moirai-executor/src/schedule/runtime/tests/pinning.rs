@@ -52,14 +52,14 @@ fn bind_failure_names_the_lowest_failing_worker_and_no_worker_survives() {
 
     let result = ThreadScheduler::<256>::with_pin_probe(4, probe(pairs, binder, &drops));
 
-    assert_eq!(
-        result.err(),
-        Some(ExecutorError::WorkerPlacementFailed {
+    assert!(matches!(
+        result,
+        Err(ExecutorError::WorkerPlacementFailed {
             worker: 1,
             processor: 11,
             cause: PlacementFailure::Os { code: 87 },
         })
-    );
+    ));
     assert_eq!(
         drops.load(Ordering::Acquire),
         1,
@@ -85,14 +85,14 @@ fn out_of_range_refusal_reports_its_worker_and_processor() {
         probe(vec![(4, 0), (5, 0), (40_000, 1)], binder, &drops),
     );
 
-    assert_eq!(
-        result.err(),
-        Some(ExecutorError::WorkerPlacementFailed {
+    assert!(matches!(
+        result,
+        Err(ExecutorError::WorkerPlacementFailed {
             worker: 2,
             processor: 40_000,
             cause: PlacementFailure::OutOfRange,
         })
-    );
+    ));
     assert_eq!(drops.load(Ordering::Acquire), 1);
 }
 
@@ -162,7 +162,7 @@ fn a_topology_with_no_processor_is_an_invalid_configuration() {
 
     let result = ThreadScheduler::<256>::with_pin_probe(2, probe(Vec::new(), binder, &drops));
 
-    assert_eq!(result.err(), Some(ExecutorError::InvalidConfiguration));
+    assert!(matches!(result, Err(ExecutorError::InvalidConfiguration)));
     assert!(log.lock().unwrap().is_empty(), "no worker was started");
 }
 

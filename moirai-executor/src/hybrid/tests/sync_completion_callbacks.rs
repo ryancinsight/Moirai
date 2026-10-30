@@ -124,7 +124,10 @@ fn assert_completion_callback<C: WorkClass>() {
             .expect("completion callback joins before the event deadline"),
         Some(Ok(TASK_VALUE))
     );
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
     assert_eq!(executor.task_status(id), Some(TaskStatus::Completed));
     assert_metrics(&executor, 1, 1, 0);
 
@@ -206,7 +209,10 @@ fn assert_panicking_capture_cancellation<C: WorkClass>() {
     assert_late_sentinel::<C>(&executor);
 
     assert_eq!(handle.join(), Some(Err(TaskError::Panicked)));
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
     assert_eq!(gate.join(), Some(Ok(())));
     assert_eq!(body_runs.load(Ordering::Acquire), 0);
     assert_eq!(capture_drops.load(Ordering::Acquire), 1);
@@ -267,7 +273,10 @@ fn assert_panicking_detached_capture_cancellation() {
         .expect("panicking detached callback runs before the deadline");
     assert_late_sentinel::<BlockingTask>(&executor);
 
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
     assert_eq!(gate.join(), Some(Ok(())));
     assert_eq!(body_runs.load(Ordering::Acquire), 0);
     assert_eq!(capture_drops.load(Ordering::Acquire), 1);
@@ -322,7 +331,10 @@ fn assert_cancellation_callback<C: WorkClass>() {
             .expect("cancellation callback joins before the event deadline"),
         Some(Err(TaskError::Cancelled))
     );
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
     assert_eq!(gate.join(), Some(Ok(())));
     assert!(!body_ran.load(Ordering::Acquire));
     assert_eq!(executor.task_status(id), Some(TaskStatus::Cancelled));

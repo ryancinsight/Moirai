@@ -245,7 +245,10 @@ fn rejected_future_destructor_panic_surfaces_as_panicked() {
         Err(error) => error,
     };
 
-    assert_eq!(rejection, ExecutorError::SpawnFailed(TaskError::Panicked));
+    assert!(matches!(
+        rejection,
+        ExecutorError::SpawnFailed(TaskError::Panicked)
+    ));
     assert_eq!(probe.drops.load(Ordering::Acquire), 1);
     assert_eq!(probe.polls.load(Ordering::Acquire), 0);
     assert_eq!(
@@ -277,7 +280,10 @@ fn closed_registration_future_destructor_panic_surfaces_as_panicked() {
         Err(error) => error,
     };
 
-    assert_eq!(rejection, ExecutorError::SpawnFailed(TaskError::Panicked));
+    assert!(matches!(
+        rejection,
+        ExecutorError::SpawnFailed(TaskError::Panicked)
+    ));
     assert_eq!(probe.drops.load(Ordering::Acquire), 1);
     assert_eq!(probe.polls.load(Ordering::Acquire), 0);
     ExecutorControl::shutdown(&executor);

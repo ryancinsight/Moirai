@@ -105,7 +105,7 @@ fn closed_async_registration_rejects_and_drops_unpolled_future() {
         Err(error) => error,
     };
 
-    assert_eq!(rejection, ExecutorError::ShuttingDown);
+    assert!(matches!(rejection, ExecutorError::ShuttingDown));
     assert_eq!(polls.load(Ordering::Relaxed), 0);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
     let successor = executor

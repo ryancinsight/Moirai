@@ -115,10 +115,10 @@ fn run_task_spawning() -> Result<(), ExampleError> {
     assert_eq!(runtime.block_on(cancelled), Some(Err(TaskError::Cancelled)));
 
     let deadline = TaskSpawner::spawn_async(&runtime, pending::<usize>())?;
-    assert_eq!(
+    assert!(matches!(
         runtime.block_on(runtime.wait_for_task(deadline.id(), Some(Duration::ZERO))),
         Err(ExecutorError::SpawnFailed(TaskError::Timeout))
-    );
+    ));
     assert!(!deadline.is_finished());
     runtime.cancel_task(deadline.id())?;
     assert_eq!(runtime.block_on(deadline), Some(Err(TaskError::Cancelled)));

@@ -206,7 +206,10 @@ fn indexed_map_reduce_reports_panicked_mapper() {
     let metrics = scheduler.metrics();
 
     scheduler.shutdown();
-    assert_eq!(result, Err(ExecutorError::SpawnFailed(TaskError::Panicked)));
+    assert!(matches!(
+        result,
+        Err(ExecutorError::SpawnFailed(TaskError::Panicked))
+    ));
     // Three lanes cover four items: the caller lane plus two scheduled worker
     // chunks. One worker chunk completes and the mapper-panic chunk reaches the
     // scheduler boundary as a failed job.

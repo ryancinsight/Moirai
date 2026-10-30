@@ -106,7 +106,10 @@ fn waking_an_async_task_after_shutdown_resolves_its_waiter_as_cancelled() {
         1,
         "the refused wake must complete the task and wake its waiter"
     );
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
     assert_eq!(executor.task_status(id), Some(TaskStatus::Cancelled));
     assert_eq!(
         handle.join(),

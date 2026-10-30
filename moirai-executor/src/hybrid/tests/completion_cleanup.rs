@@ -189,7 +189,7 @@ fn uncollected_output_destruction_is_a_publication_failure() {
         .take()
         .expect("future saved its waker")
         .wake();
-    assert_eq!(executor.join(), Ok(()));
+    assert!(matches!(executor.join(), Ok(())));
     let sentinel = executor
         .spawn_result::<SyncTask, _>(Priority::Normal, None, || 59usize)
         .unwrap();

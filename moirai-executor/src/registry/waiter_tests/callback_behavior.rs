@@ -262,12 +262,18 @@ fn task_manager_wait_recovers_after_its_waker_clone_panics() {
 
     let (normal, normal_waker) = counting_waker();
     let mut normal_context = Context::from_waker(&normal_waker);
-    assert_eq!(wait.as_mut().poll(&mut normal_context), Poll::Pending);
+    assert!(matches!(
+        wait.as_mut().poll(&mut normal_context),
+        Poll::Pending
+    ));
     release_tx.send(()).unwrap();
     assert_eq!(handle.join().unwrap().unwrap(), 7);
     executor.join().unwrap();
     assert_eq!(normal.wakes(), 1);
-    assert_eq!(wait.as_mut().poll(&mut normal_context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut normal_context),
+        Poll::Ready(Ok(()))
+    ));
     executor.shutdown();
 }
 

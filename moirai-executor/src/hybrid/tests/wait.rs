@@ -126,7 +126,10 @@ fn wait_for_task_is_woken_by_completion_not_polling() {
         std::thread::yield_now();
     }
     assert_eq!(wake.0.load(Ordering::Acquire), 1);
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+    assert!(matches!(
+        wait.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
 
     gate_handle.join().unwrap().unwrap();
     executor.shutdown();
@@ -176,11 +179,14 @@ fn concurrent_waits_on_one_task_are_all_woken_by_completion() {
         }
         assert_eq!(wake.0.load(Ordering::Acquire), 1, "{name} waiter");
     }
-    assert_eq!(first.as_mut().poll(&mut first_context), Poll::Ready(Ok(())));
-    assert_eq!(
+    assert!(matches!(
+        first.as_mut().poll(&mut first_context),
+        Poll::Ready(Ok(()))
+    ));
+    assert!(matches!(
         second.as_mut().poll(&mut second_context),
         Poll::Ready(Ok(()))
-    );
+    ));
 
     gate_handle.join().unwrap().unwrap();
     executor.shutdown();
@@ -204,12 +210,12 @@ fn wait_for_task_timeout_expires_and_unknown_task_errors() {
     let mut context = Context::from_waker(&waker);
     let mut unknown =
         std::pin::pin!(executor.wait_for_task(moirai_core::TaskId::new(u64::MAX / 2), None));
-    assert_eq!(
+    assert!(matches!(
         unknown.as_mut().poll(&mut context),
         Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
             moirai_core::TaskError::InvalidOperation
         )))
-    );
+    ));
 
     // A never-completing task with an already-expired deadline returns the
     // typed timeout on its first poll. This exercises the deadline branch
@@ -218,12 +224,12 @@ fn wait_for_task_timeout_expires_and_unknown_task_errors() {
     let handle = executor.spawn_blocking(|| 1usize).unwrap();
     let mut wait =
         std::pin::pin!(executor.wait_for_task(handle.id(), Some(std::time::Duration::ZERO)));
-    assert_eq!(
+    assert!(matches!(
         wait.as_mut().poll(&mut context),
         Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
             moirai_core::TaskError::Timeout
         )))
-    );
+    ));
 
     release.send(()).unwrap();
     assert_eq!(handle.join().unwrap().unwrap(), 1);
@@ -248,7 +254,7 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
         Some(EventDeadline(Arc::clone(&event))),
     ));
 
-    assert_eq!(wait.as_mut().poll(&mut context), Poll::Pending);
+    assert!(matches!(wait.as_mut().poll(&mut context), Poll::Pending));
     assert_eq!(
         Arc::strong_count(&wake),
         4,
@@ -256,12 +262,12 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
     );
     event.fire();
     assert_eq!(wake.wakes(), 1);
-    assert_eq!(
+    assert!(matches!(
         wait.as_mut().poll(&mut context),
         Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
             moirai_core::TaskError::Timeout
         )))
-    );
+    ));
     assert_eq!(Arc::strong_count(&wake), 2);
 
     let event = DeadlineEvent::new();
@@ -273,7 +279,10 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
             task_id,
             Some(EventDeadline(event)),
         ));
-        assert_eq!(dropped.as_mut().poll(&mut dropped_context), Poll::Pending);
+        assert!(matches!(
+            dropped.as_mut().poll(&mut dropped_context),
+            Poll::Pending
+        ));
         assert_eq!(Arc::strong_count(&dropped_wake), 4);
     }
     assert_eq!(Arc::strong_count(&dropped_wake), 2);
@@ -286,15 +295,18 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
         task_id,
         Some(EventDeadline(Arc::clone(&event))),
     ));
-    assert_eq!(failed.as_mut().poll(&mut failed_context), Poll::Pending);
+    assert!(matches!(
+        failed.as_mut().poll(&mut failed_context),
+        Poll::Pending
+    ));
     event.fail();
     assert_eq!(failed_wake.wakes(), 1);
-    assert_eq!(
+    assert!(matches!(
         failed.as_mut().poll(&mut failed_context),
         Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
             moirai_core::TaskError::ExecutionFailed(moirai_core::error::TaskErrorKind::Io)
         )))
-    );
+    ));
     assert_eq!(Arc::strong_count(&failed_wake), 2);
 
     let event = DeadlineEvent::new();
@@ -305,19 +317,19 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
         task_id,
         Some(EventDeadline(Arc::clone(&event))),
     ));
-    assert_eq!(
+    assert!(matches!(
         completed.as_mut().poll(&mut completed_context),
         Poll::Pending
-    );
+    ));
     assert_eq!(Arc::strong_count(&event), 2);
     assert_eq!(Arc::strong_count(&completed_wake), 4);
 
     registry.mark_started(task_id.0, 0);
     registry.mark_completed(task_id.0);
-    assert_eq!(
+    assert!(matches!(
         completed.as_mut().poll(&mut completed_context),
         Poll::Ready(Ok(()))
-    );
+    ));
     assert_eq!(
         Arc::strong_count(&event),
         1,
@@ -350,7 +362,7 @@ fn abandoned_task_manager_waits_release_one_thousand_distinct_wakers() {
         let mut context = Context::from_waker(&waker);
         {
             let mut wait = std::pin::pin!(executor.wait_for_task(handle.id(), None));
-            assert_eq!(wait.as_mut().poll(&mut context), Poll::Pending);
+            assert!(matches!(wait.as_mut().poll(&mut context), Poll::Pending));
         }
         drop(waker);
         assert_eq!(
@@ -363,18 +375,18 @@ fn abandoned_task_manager_waits_release_one_thousand_distinct_wakers() {
     let (survivor, survivor_waker) = crate::counting_wake::counting_waker();
     let mut survivor_context = Context::from_waker(&survivor_waker);
     let mut survivor_wait = std::pin::pin!(executor.wait_for_task(handle.id(), None));
-    assert_eq!(
+    assert!(matches!(
         survivor_wait.as_mut().poll(&mut survivor_context),
         Poll::Pending
-    );
+    ));
     release.send(()).unwrap();
     assert_eq!(handle.join().unwrap().unwrap(), 11);
     executor.join().unwrap();
     assert_eq!(survivor.wakes(), 1);
-    assert_eq!(
+    assert!(matches!(
         survivor_wait.as_mut().poll(&mut survivor_context),
         Poll::Ready(Ok(()))
-    );
+    ));
 
     gate_handle.join().unwrap().unwrap();
     executor.shutdown();
@@ -399,9 +411,15 @@ fn task_manager_repoll_replaces_its_registered_waker() {
     let mut current_context = Context::from_waker(&current_waker);
     let mut wait = std::pin::pin!(executor.wait_for_task(handle.id(), None));
 
-    assert_eq!(wait.as_mut().poll(&mut old_context), Poll::Pending);
+    assert!(matches!(
+        wait.as_mut().poll(&mut old_context),
+        Poll::Pending
+    ));
     assert_eq!(Arc::strong_count(&old), 3);
-    assert_eq!(wait.as_mut().poll(&mut current_context), Poll::Pending);
+    assert!(matches!(
+        wait.as_mut().poll(&mut current_context),
+        Poll::Pending
+    ));
     assert_eq!(Arc::strong_count(&old), 2);
     assert_eq!(Arc::strong_count(&current), 3);
 
@@ -410,10 +428,10 @@ fn task_manager_repoll_replaces_its_registered_waker() {
     executor.join().unwrap();
     assert_eq!(old.wakes(), 0);
     assert_eq!(current.wakes(), 1);
-    assert_eq!(
+    assert!(matches!(
         wait.as_mut().poll(&mut current_context),
         Poll::Ready(Ok(()))
-    );
+    ));
     assert_eq!(Arc::strong_count(&current), 2);
 
     gate_handle.join().unwrap().unwrap();
@@ -444,12 +462,12 @@ fn wait_for_task_positive_timeout_wakes_and_reports_timeout() {
     wake_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("PAL timer must wake the task waiter at its deadline");
-    assert_eq!(
+    assert!(matches!(
         wait.as_mut().poll(&mut context),
         Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
             moirai_core::TaskError::Timeout
         )))
-    );
+    ));
 
     release.send(()).unwrap();
     assert_eq!(handle.join().unwrap().unwrap(), 1);
@@ -483,7 +501,10 @@ fn wait_for_task_completion_precedes_unexpired_timeout_and_drop_cancels_timer() 
         wake_rx
             .recv_timeout(Duration::from_secs(5))
             .expect("completion must wake the timer-backed task waiter");
-        assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(Ok(())));
+        assert!(matches!(
+            wait.as_mut().poll(&mut context),
+            Poll::Ready(Ok(()))
+        ));
     }
 
     gate_handle.join().unwrap().unwrap();

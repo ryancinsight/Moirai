@@ -275,7 +275,10 @@ fn scheduler_scope_reports_panicked_job() {
     });
 
     scheduler.shutdown();
-    assert_eq!(result, Err(ExecutorError::SpawnFailed(TaskError::Panicked)));
+    assert!(matches!(
+        result,
+        Err(ExecutorError::SpawnFailed(TaskError::Panicked))
+    ));
     assert_eq!(completed.load(Ordering::Relaxed), 1);
 }
 
@@ -296,10 +299,10 @@ fn scheduler_scope_completes_registered_jobs_before_body_error_returns() {
     });
 
     scheduler.shutdown();
-    assert_eq!(
+    assert!(matches!(
         result,
         Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation))
-    );
+    ));
     assert_eq!(completed.load(Ordering::Relaxed), 8);
 }
 
@@ -403,10 +406,10 @@ fn scoped_job_dropped_before_running_fails_its_scope() {
 
     assert_eq!(ran.load(Ordering::Relaxed), 0);
     assert!(!state.has_panicked());
-    assert_eq!(
+    assert!(matches!(
         state.unrun_job_result(),
         Err(ExecutorError::SpawnFailed(TaskError::Cancelled))
-    );
+    ));
 }
 
 /// The waiter returns and destroys the stack-owned state as soon as the last
@@ -447,7 +450,7 @@ fn scoped_job_that_ran_leaves_its_scope_whole() {
 
     assert_eq!(ran.load(Ordering::Relaxed), 1);
     assert!(!state.has_panicked());
-    assert_eq!(state.unrun_job_result(), Ok(()));
+    assert!(matches!(state.unrun_job_result(), Ok(())));
 }
 
 #[test]
@@ -464,8 +467,8 @@ fn refused_scoped_job_is_forgiven_and_an_admitted_drop_is_not() {
     drop(registered_job(&state, &ran));
     state.wait();
 
-    assert_eq!(
+    assert!(matches!(
         state.unrun_job_result(),
         Err(ExecutorError::SpawnFailed(TaskError::Cancelled))
-    );
+    ));
 }
