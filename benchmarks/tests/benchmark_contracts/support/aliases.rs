@@ -173,6 +173,7 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         "../moirai-executor/src/registry/mod.rs",
         &[
             "../moirai-executor/src/registry/mod.rs",
+            "../moirai-executor/src/registry/completion.rs",
             "../moirai-executor/src/registry/state.rs",
             "../moirai-executor/src/registry/token.rs",
             "../moirai-executor/src/registry/registry.rs",

@@ -23,7 +23,7 @@ mod tests {
         let started_at = started.started_at.expect("start() must stamp started_at");
         assert!(started.completed_at.is_none());
 
-        let execution_time = running.complete();
+        let execution_time = running.complete().notify();
 
         let completed = registry.get_metadata(task_id).unwrap();
         let completed_at = completed
@@ -44,7 +44,7 @@ mod tests {
         let (task_id, lifecycle) = registry.register_next_task();
 
         let running = lifecycle.start(2);
-        let execution_time = running.complete();
+        let execution_time = running.complete().notify();
 
         let metadata = registry.get_metadata(task_id).unwrap();
         assert_eq!(metadata.id, task_id);
@@ -80,7 +80,7 @@ mod tests {
         };
 
         assert_eq!(block.strong_count(), 1);
-        lifecycle.start(5).complete();
+        lifecycle.start(5).complete().notify();
         assert!(
             block.upgrade().is_none(),
             "the token must release its sole block owner after completion"
@@ -130,7 +130,7 @@ mod tests {
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
-        lifecycle.start(2).cancel();
+        lifecycle.start(2).cancel().notify();
 
         let metadata = registry.get_metadata(task_id).unwrap();
         assert!(metadata.cancelled);
@@ -146,7 +146,7 @@ mod tests {
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
-        lifecycle.start(0).complete();
+        lifecycle.start(0).complete().notify();
 
         let metadata = registry.get_metadata(task_id).unwrap();
         assert!(registry.is_completed(task_id));
@@ -196,7 +196,7 @@ mod tests {
         let registry = TaskRegistry::new();
         for _ in 1..TASK_STATE_BLOCK_SIZE - 1 {
             let (_, lifecycle) = registry.register_next_task();
-            lifecycle.start(0).complete();
+            lifecycle.start(0).complete().notify();
         }
         let task_id = registry.register_task();
         assert_eq!(task_id, (TASK_STATE_BLOCK_SIZE - 1) as u64);
@@ -238,7 +238,7 @@ mod tests {
             Priority::Critical
         );
 
-        lifecycle.start(0).complete();
+        lifecycle.start(0).complete().notify();
         // The recorded priority survives completion.
         assert_eq!(
             registry.get_metadata(task_id).unwrap().priority,
@@ -258,7 +258,10 @@ mod tests {
         );
 
         // The job-start gate observes the request and never yields a running token.
-        assert!(lifecycle.start_unless_cancelled(4).is_none());
+        lifecycle
+            .start_unless_cancelled(4)
+            .expect_err("the requested cancellation must skip the task body")
+            .notify();
 
         let metadata = registry.get_metadata(task_id).unwrap();
         assert!(metadata.cancelled);
@@ -274,7 +277,7 @@ mod tests {
     fn cancel_after_completion_reports_already_completed() {
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
-        lifecycle.start(0).complete();
+        lifecycle.start(0).complete().notify();
 
         assert_eq!(
             registry.request_cancel(task_id),

@@ -1,5 +1,6 @@
 //! Task registry for tracking and managing task lifecycle.
 
+mod completion;
 pub(crate) mod diagnostics;
 mod directory;
 mod fan_out;
@@ -17,6 +18,7 @@ mod token_tests;
 #[cfg(test)]
 mod waiter_tests;
 
+pub(crate) use completion::TaskCompletion;
 pub(crate) use registry::CancelOutcome;
 pub use registry::TaskRegistry;
 pub use retention::RetentionPolicy;

@@ -26,8 +26,12 @@ where
         // accessor, so lifecycle mutation is single-threaded.
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
         match std::mem::replace(lifecycle, AsyncLifecycle::Completed) {
-            AsyncLifecycle::Registered(token) => token.cancel(),
-            AsyncLifecycle::Running(token) => token.cancel(),
+            AsyncLifecycle::Registered(token) => {
+                token.cancel().notify();
+            }
+            AsyncLifecycle::Running(token) => {
+                token.cancel().notify();
+            }
             AsyncLifecycle::Completed => {}
         }
     }
@@ -39,7 +43,7 @@ where
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
         let running = std::mem::replace(lifecycle, AsyncLifecycle::Completed);
         if let AsyncLifecycle::Running(token) = running {
-            token.complete()
+            token.complete().notify()
         } else {
             core::time::Duration::ZERO
         }
