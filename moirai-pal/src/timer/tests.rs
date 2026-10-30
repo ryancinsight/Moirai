@@ -356,3 +356,24 @@ fn pal_timer_waker_callbacks_run_outside_the_registry_lock() {
     assert_eq!(registered_waker_count(&wake_state), 0);
     assert_eq!(wake_probe.counts(), completed_counts);
 }
+
+#[test]
+fn pal_timer_spawn_failure_preserves_error_and_releases_the_waker() {
+    let state = Arc::new(TimerState::new());
+    let probe = Arc::new(CallbackProbe::new(Arc::clone(&state)));
+    let task_waker = callback_waker(&probe);
+
+    state.register_waker(&task_waker);
+    drop(task_waker);
+    assert_eq!(Arc::strong_count(&probe), 2);
+
+    let error = state
+        .finish_spawn(Err(std::io::Error::from_raw_os_error(i32::MAX)))
+        .expect_err("injected worker spawn failure must remain an error");
+
+    assert_eq!(error.raw_os_error(), Some(i32::MAX));
+    assert!(state.completed.load(Ordering::Acquire));
+    assert_eq!(registered_waker_count(&state), 0);
+    assert_eq!(Arc::strong_count(&probe), 1);
+    assert_eq!(probe.counts().drops, 2);
+}
