@@ -73,3 +73,4 @@ jobs:
       id-token: write # OIDC trusted publishing; no stored registry token.
     with:
       rust-toolchain: "1.97.0"
+      cohort-json: '{}'
