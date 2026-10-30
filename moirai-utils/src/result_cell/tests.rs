@@ -8,6 +8,8 @@ use std::task::{Wake, Waker};
 use std::thread;
 use std::time::Duration;
 
+mod removal;
+
 struct CountingWake(AtomicUsize);
 
 impl Wake for CountingWake {

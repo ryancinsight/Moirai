@@ -194,14 +194,18 @@ where
 
 /// The consumer's production check-register-recheck sequence.
 fn poll(cell: &ModelCell, waiter: &ModelWaiter) -> Option<TrackedValue> {
-    if let Some(value) = cell.try_take_ready() {
-        return Some(value);
+    if cell.is_completed() {
+        return cell.try_take_ready();
     }
     // SAFETY: each model has one serialized consumer.
     unsafe {
         cell.register(waiter);
     }
-    cell.try_take_ready()
+    if cell.is_completed() {
+        cell.try_take_ready()
+    } else {
+        None
+    }
 }
 
 /// `complete` races a single check-register-recheck poll.
@@ -294,6 +298,98 @@ fn complete_races_reregistering_poll() {
         assert_eq!(probe.wakes.load(Ordering::Relaxed), 1);
         assert!(matches!(probe.wake_mask.load(Ordering::Relaxed), 1 | 2));
 
+        drop(value);
+        drop(cell);
+        drop(first);
+        drop(second);
+        assert_eq!(value_drops.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            probe.drops.load(Ordering::Relaxed),
+            probe.clones.load(Ordering::Relaxed) + 2
+        );
+    });
+}
+
+/// Completion races removal of an already-registered waiter.
+#[test]
+fn complete_races_waiter_removal() {
+    check_model(|| {
+        let value_drops = Arc::new(AtomicUsize::new(0));
+        let probe = Arc::new(WaiterProbe::new());
+        let cell = Arc::new(ModelCell::new());
+        let waiter = ModelWaiter::passive(0, &probe);
+        // SAFETY: this is the model's only consumer registration.
+        unsafe { cell.register(&waiter) };
+
+        let producer = {
+            let cell = Arc::clone(&cell);
+            let value_drops = Arc::clone(&value_drops);
+            thread::spawn(move || cell.complete(tracked_value(&value_drops)))
+        };
+        let remover = {
+            let cell = Arc::clone(&cell);
+            thread::spawn(move || {
+                // SAFETY: this is the serialized consumer's next operation.
+                unsafe { cell.take_waiter() }
+            })
+        };
+
+        let removed = remover.join().expect("invariant: remover completes");
+        producer.join().expect("invariant: producer completes");
+        assert_eq!(
+            probe.wakes.load(Ordering::Acquire),
+            usize::from(removed.is_none())
+        );
+        drop(removed);
+        let value = cell
+            .try_take_ready()
+            .expect("invariant: completion publishes one value");
+        assert_eq!(value.value, VALUE);
+        assert!(cell.try_take_ready().is_none());
+        drop(value);
+        drop(cell);
+        drop(waiter);
+        assert_eq!(value_drops.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            probe.drops.load(Ordering::Relaxed),
+            probe.clones.load(Ordering::Relaxed) + 1
+        );
+    });
+}
+
+/// A removed slot supports the production check-register-recheck sequence.
+#[test]
+fn removal_then_reregistration_preserves_publication() {
+    check_model(|| {
+        let value_drops = Arc::new(AtomicUsize::new(0));
+        let probe = Arc::new(WaiterProbe::new());
+        let cell = Arc::new(ModelCell::new());
+        let first = ModelWaiter::passive(0, &probe);
+        let second = ModelWaiter::passive(1, &probe);
+        // SAFETY: this is the model's only serialized consumer.
+        unsafe { cell.register(&first) };
+        let producer = {
+            let cell = Arc::clone(&cell);
+            let value_drops = Arc::clone(&value_drops);
+            thread::spawn(move || cell.complete(tracked_value(&value_drops)))
+        };
+
+        // SAFETY: registration returned before the same consumer removes it.
+        let removed = unsafe { cell.take_waiter() };
+        drop(removed);
+        let observed = poll(&cell, &second);
+        let observed_ready = observed.is_some();
+        producer.join().expect("invariant: producer completes");
+        assert!(
+            observed_ready || probe.wake_mask.load(Ordering::Acquire) & (1 << second.id) != 0,
+            "publication is observed or wakes the newly registered waiter"
+        );
+        let value = observed.unwrap_or_else(|| {
+            cell.try_take_ready()
+                .expect("invariant: notification follows publication")
+        });
+        assert_eq!(value.value, VALUE);
+        assert!(cell.try_take_ready().is_none());
         drop(value);
         drop(cell);
         drop(first);

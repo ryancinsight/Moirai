@@ -9,6 +9,9 @@ protocol waits for the producer while registering a consumer and drops replaced
 waiters while claiming a state the producer needs. A waker destructor can itself
 complete the result, making that destruction reentrant.
 
+Abandoning an awaited handle must also release its registered waiter promptly
+without revoking a notification the producer already owns.
+
 The public unsafe `StateWord` storage seam exposes a mutable reference during
 cell destruction, although the consumer only reads its final value. Loom stores
 atomic values in its execution model and can expose them only within a closure;
@@ -22,6 +25,10 @@ If registration owns the waiter, notification marks a pending wake and returns;
 registration then takes responsibility for that wake. Otherwise the producer
 owns notification. Both release waiter ownership before invoking any waiter
 destructor or wake callback. Registration never waits for producer progress.
+Consumer removal uses the same waiter claim, moves the waiter out, and releases
+the claim before destruction. A failed claim leaves producer-owned notification
+unchanged. The operation has bounded library steps; arbitrary Rust destructors
+may block or unwind after ownership is released.
 
 Replace `StateWord::get_mut` with `exclusive_state(&mut self) -> u8`. This returns
 the actual stored state under exclusive access and grants no mutable reference.
@@ -47,8 +54,9 @@ External `StateWord` implementors migrate the getter as described in
 ## Verification
 
 Production-cell tests gate result publication, replace wakers that own result
-senders, and assert exactly-once values and wakeups. Loom exercises the production
-algorithm with instrumented atomics under a finite preemption bound. Its payload
+senders, remove waiters with reentrant and panicking destructors, and assert
+exactly-once values and wakeups. Loom exercises the production algorithm with
+instrumented atomics under a finite preemption bound. Its payload
 cells remain ordinary Rust cells, so the model establishes atomic protocol
 evidence rather than exhaustive raw-memory access checking. Miri supplies a
 separate memory-access check for the executed regression cases.

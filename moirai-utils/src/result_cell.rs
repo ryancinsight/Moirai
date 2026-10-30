@@ -12,16 +12,17 @@
 //!
 //! - the **producer** calls [`complete`](ResultCell::complete) exactly once — the tail
 //!   of a spawned unit of work;
-//! - the **consumer** calls [`try_take_ready`](ResultCell::try_take_ready) and
-//!   [`register`](ResultCell::register) from its own poll or park loop.
+//! - the **consumer** calls [`try_take_ready`](ResultCell::try_take_ready),
+//!   [`register`](ResultCell::register), and
+//!   [`take_waiter`](ResultCell::take_waiter) from its own poll, park, or
+//!   abandonment path.
 //!
 //! Because those are the only two owners, the `result` and `waiter` cells need
-//! no lock. The type does not enforce that, so [`register`](ResultCell::register)
-//! is `unsafe` and its caller vouches for the single consumer. The producer runs
-//! once; the consumer is serialized with itself (`poll` takes `Pin<&mut Self>`
-//! on the async side, and the blocking side registers once per wait); and `Drop`
-//! runs only after the last `Arc`, so it has exclusive access and races neither
-//! side.
+//! no lock. The type does not enforce that, so consumer waiter operations are
+//! `unsafe` and their caller vouches for serialization. The producer runs once;
+//! the consumer is serialized with itself (`poll` takes `Pin<&mut Self>` on the
+//! async side, and the blocking side registers once per wait); and `Drop` runs
+//! only after the last `Arc`, so it has exclusive access and races neither side.
 //!
 //! # State machines
 //!
@@ -274,11 +275,11 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
     ///
     /// # Safety
     ///
-    /// No other call to `register` may run on this cell concurrently. The cell
-    /// has one consumer by construction (a blocking join takes the handle by
-    /// value; an async poll takes `Pin<&mut Self>`), and the caller is that
-    /// consumer. `waiter.clone()` may run arbitrary code but must not recursively
-    /// register another consumer on this cell.
+    /// No other consumer waiter operation may run on this cell concurrently.
+    /// The cell has one consumer by construction (a blocking join takes the
+    /// handle by value; an async poll takes `Pin<&mut Self>`), and the caller is
+    /// that consumer. `waiter.clone()` may run arbitrary code but must not
+    /// recursively register or remove a waiter on this cell.
     pub unsafe fn register(&self, waiter: &W) {
         if matches!(
             self.state.load(Ordering::Acquire),
@@ -369,6 +370,71 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         if let Some(wake) = wake {
             wake.wake();
         }
+    }
+
+    /// Remove and return the registered waiter without waking it.
+    ///
+    /// Removal makes one bounded ownership attempt. `None` means the slot was
+    /// empty or the producer already owned notification; a producer-owned
+    /// callback may still be in flight. The returned waiter is destroyed by the
+    /// caller, after this method has released the waiter-machine claim.
+    ///
+    /// # Safety
+    ///
+    /// No other consumer waiter operation may run concurrently or re-enter
+    /// before this call returns.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::task::Waker;
+    /// use moirai_utils::ResultCell;
+    ///
+    /// let cell = ResultCell::<usize, Waker>::new();
+    /// // SAFETY: this scope is the cell's only consumer.
+    /// unsafe { cell.register(Waker::noop()) };
+    /// // SAFETY: registration returned and this remains the only consumer.
+    /// let waiter = unsafe { cell.take_waiter() };
+    /// assert!(waiter.is_some());
+    /// assert!(!cell.has_registered_waiter());
+    /// ```
+    pub unsafe fn take_waiter(&self) -> Option<W> {
+        if self
+            .waiter_state
+            .compare_exchange(
+                WAITER_IDLE,
+                WAITER_REGISTERING,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            return None;
+        }
+
+        // Safety: IDLE -> REGISTERING gives this consumer exclusive access.
+        let waiter = unsafe { (*self.waiter.get()).take() };
+        self.waiter_present.store(false, Ordering::Release);
+
+        if self
+            .waiter_state
+            .compare_exchange(
+                WAITER_REGISTERING,
+                WAITER_IDLE,
+                Ordering::Release,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            debug_assert_eq!(
+                self.waiter_state.load(Ordering::Relaxed),
+                WAITER_REGISTERING_AND_WAKING
+            );
+            // The failed acquire observes the producer's pending notification
+            // before publishing IDLE to a later consumer registration.
+            self.waiter_state.store(WAITER_IDLE, Ordering::Release);
+        }
+        waiter
     }
 
     /// Claim the producer side of the hand-off.
