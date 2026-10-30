@@ -11,8 +11,9 @@ The executor admission flag does not guard every submission path. Async work
 can also complete on an external waking thread, outside scheduler joining.
 
 An empty task table is insufficient evidence of drainage when registration
-retirement precedes result publication or callbacks. A callback may request
-shutdown while it still owns the settlement obligation being awaited.
+retirement precedes result publication, callbacks, or library-owned cleanup of
+a captured callback panic. A callback may request shutdown while it still owns
+the settlement obligation being awaited.
 
 ## Recommended decision
 
@@ -76,12 +77,21 @@ They may retain the shutdown owner until they return. Caller deadlines and
 library-owned destruction remain independent of that work; this is not a
 hard-real-time scheduling guarantee or bounded completion of arbitrary code.
 
+Async result-publication callback panics are diagnostics, not unwinds across an
+external inline wake boundary. The runtime increments `publication_panics`,
+disposes the captured payload through its existing panic boundary, and retires
+registration only after that cleanup returns. Synchronous result settlement
+continues to resume its callback panic while the native scheduler's active
+owner contains the escaped cleanup.
+
 ## Verification
 
-Gate an external inline completion callback: its published result is readable
-while its settlement owner remains retained, and retirement occurs once after
-release. Exercise callback and destructor panic, first-admission rejection,
-saved stale wakers, and overlapping cancellation/shutdown requests.
+Gate an external inline completion callback and its panic-payload destructor:
+the published result is readable and the task remains registered while payload
+cleanup blocks. After release, payload and future destruction each occur once,
+registration retires, the external wake returns without propagating the panic,
+and a saved stale waker is inert. Exercise destructor panic, first-admission
+rejection, saved stale wakers, and overlapping cancellation/shutdown requests.
 
 Gate non-yielding compute and blocking work while checking independent caller
 timeouts and request-only destruction through event synchronization. Cover

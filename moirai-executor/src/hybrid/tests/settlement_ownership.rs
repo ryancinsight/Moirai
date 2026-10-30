@@ -22,17 +22,11 @@ use crate::SyncTask;
 
 const EVENT_DEADLINE: Duration = Duration::from_secs(5);
 
-enum Destruction {
-    Complete,
-    Panic,
-}
-
 struct InlineCompletion {
     ready: Arc<AtomicBool>,
     waker: Arc<Mutex<Option<Waker>>>,
     parked: Option<mpsc::SyncSender<()>>,
     drops: Arc<AtomicUsize>,
-    destruction: Destruction,
 }
 
 impl Future for InlineCompletion {
@@ -53,15 +47,30 @@ impl Future for InlineCompletion {
 impl Drop for InlineCompletion {
     fn drop(&mut self) {
         self.drops.fetch_add(1, Ordering::AcqRel);
-        if matches!(self.destruction, Destruction::Panic) {
-            panic!("inline future destructor panic");
-        }
     }
 }
 
 enum CallbackExit {
     Release(Mutex<mpsc::Receiver<()>>),
-    Panic,
+    Panic(Mutex<Option<GatedPanicPayload>>),
+}
+
+struct GatedPanicPayload {
+    entered: mpsc::SyncSender<()>,
+    release: mpsc::Receiver<()>,
+    drops: Arc<AtomicUsize>,
+}
+
+impl Drop for GatedPanicPayload {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::AcqRel);
+        self.entered
+            .send(())
+            .expect("payload-drop observer remains connected");
+        self.release
+            .recv()
+            .expect("payload-drop release remains connected");
+    }
 }
 
 struct SettlementCallback {
@@ -96,7 +105,13 @@ impl Wake for SettlementCallback {
                 .unwrap()
                 .recv()
                 .expect("callback release remains connected"),
-            CallbackExit::Panic => panic!("settlement callback panic"),
+            CallbackExit::Panic(payload) => std::panic::panic_any(
+                payload
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("settlement callback owns its panic payload"),
+            ),
         }
     }
 }
@@ -111,7 +126,7 @@ struct SettlementFixture {
     drops: Arc<AtomicUsize>,
 }
 
-fn native_inline_fixture(destruction: Destruction) -> SettlementFixture {
+fn native_inline_fixture() -> SettlementFixture {
     let executor = HybridExecutor::new(ExecutorConfig {
         worker_threads: 1,
         max_global_queue_size: 8,
@@ -128,7 +143,6 @@ fn native_inline_fixture(destruction: Destruction) -> SettlementFixture {
             waker: Arc::clone(&waker),
             parked: Some(parked_sender),
             drops: Arc::clone(&drops),
-            destruction,
         })
         .unwrap();
     parked
@@ -162,7 +176,7 @@ fn native_inline_fixture(destruction: Destruction) -> SettlementFixture {
 
 #[test]
 fn external_inline_callback_keeps_settlement_owner_until_release() {
-    let fixture = native_inline_fixture(Destruction::Complete);
+    let fixture = native_inline_fixture();
     let id = fixture.handle.id();
     let (observed_sender, observed) = mpsc::sync_channel(1);
     let (entered_sender, entered) = mpsc::sync_channel(1);
@@ -203,46 +217,64 @@ fn external_inline_callback_keeps_settlement_owner_until_release() {
 }
 
 #[test]
-fn panicking_inline_callback_retires_after_error_publication() {
-    let fixture = native_inline_fixture(Destruction::Panic);
+fn panicking_inline_callback_retains_owner_through_payload_cleanup() {
+    let fixture = native_inline_fixture();
     let id = fixture.handle.id();
     let (observed_sender, observed) = mpsc::sync_channel(1);
     let (entered_sender, entered) = mpsc::sync_channel(1);
+    let (payload_entered_sender, payload_entered) = mpsc::sync_channel(1);
+    let (payload_release, payload_release_receiver) = mpsc::channel();
+    let payload_drops = Arc::new(AtomicUsize::new(0));
     let callback = Waker::from(Arc::new(SettlementCallback {
         handle: Mutex::new(Some(fixture.handle)),
         observed: observed_sender,
         entered: entered_sender,
-        exit: CallbackExit::Panic,
+        exit: CallbackExit::Panic(Mutex::new(Some(GatedPanicPayload {
+            entered: payload_entered_sender,
+            release: payload_release_receiver,
+            drops: Arc::clone(&payload_drops),
+        }))),
     }));
     let mut context = Context::from_waker(&callback);
     let mut wait = std::pin::pin!(fixture.executor.wait_for_task(id, None));
     assert!(wait.as_mut().poll(&mut context).is_pending());
 
     fixture.ready.store(true, Ordering::Release);
+    let stale_waker = fixture.task_waker.clone();
     let waking = std::thread::spawn(move || fixture.task_waker.wake());
-    assert_eq!(
-        observed.recv_timeout(EVENT_DEADLINE).unwrap(),
-        Some(Err(TaskError::Panicked))
-    );
-    entered.recv_timeout(EVENT_DEADLINE).unwrap();
-    let panic = waking
-        .join()
-        .expect_err("callback panic resumes after retirement");
-    assert_eq!(
-        panic.downcast_ref::<&str>(),
-        Some(&"settlement callback panic")
-    );
-    assert!(fixture.executor.async_tasks.close_and_snapshot().is_empty());
-    assert_eq!(fixture.drops.load(Ordering::Acquire), 1);
-    assert_eq!(
-        fixture
-            .executor
-            .metrics()
-            .publication_panics
-            .load(Ordering::Acquire),
-        1
-    );
-    fixture.worker_release.send(()).unwrap();
-    assert_eq!(fixture.worker_gate.join(), Some(Ok(())));
+    let observed_result = observed.recv_timeout(EVENT_DEADLINE);
+    let callback_entry = entered.recv_timeout(EVENT_DEADLINE);
+    let payload_drop_entry = payload_entered.recv_timeout(EVENT_DEADLINE);
+    let retained_during_payload_drop = fixture
+        .executor
+        .async_tasks
+        .close_and_snapshot()
+        .contains_key(&id.0);
+    let payload_release_result = payload_release.send(());
+    let external_wake_result = waking.join().map_err(drop);
+    stale_waker.wake_by_ref();
+    let retired_after_cleanup = fixture.executor.async_tasks.close_and_snapshot().is_empty();
+    let future_drop_count = fixture.drops.load(Ordering::Acquire);
+    let payload_drop_count = payload_drops.load(Ordering::Acquire);
+    let publication_panics = fixture
+        .executor
+        .metrics()
+        .publication_panics
+        .load(Ordering::Acquire);
+    let worker_release_result = fixture.worker_release.send(());
+    let worker_result = fixture.worker_gate.join();
     ExecutorControl::shutdown(&fixture.executor);
+
+    assert_eq!(observed_result, Ok(Some(Ok(1789))));
+    assert_eq!(callback_entry, Ok(()));
+    assert_eq!(payload_drop_entry, Ok(()));
+    assert!(retained_during_payload_drop);
+    assert_eq!(payload_release_result, Ok(()));
+    assert_eq!(external_wake_result, Ok(()));
+    assert!(retired_after_cleanup);
+    assert_eq!(payload_drop_count, 1);
+    assert_eq!(future_drop_count, 1);
+    assert_eq!(publication_panics, 1);
+    assert_eq!(worker_release_result, Ok(()));
+    assert_eq!(worker_result, Some(Ok(())));
 }

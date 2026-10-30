@@ -65,4 +65,13 @@ any terminal result. See [ADR 0089](../adr/0089-owned-completion-waiters.md).
 and runtime destruction joins it. Neither call preempts a running synchronous
 or blocking closure.
 
+Async result-publication callback panics no longer unwind through an external
+inline wake. The result remains readable, `publication_panics` records the
+failure, and the task stays registered until the runtime has disposed the
+captured panic payload through its existing containment boundary. An empty task
+table before that disposal was not a complete settlement oracle. This changes
+only the async runtime callback boundary: synchronous `send_task_result`
+continues to resume its callback panic while the native scheduler's active
+owner contains the escaped cleanup.
+
 [ADR 0085](../adr/0085-result-state-storage.md) records the storage decision.

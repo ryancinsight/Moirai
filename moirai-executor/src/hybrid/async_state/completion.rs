@@ -20,7 +20,7 @@ use crate::{
     schedule::WorkSubmit,
 };
 
-use crate::hybrid::result::{PanicPayload, drop_after_settlement, publish_result, resume_callback};
+use crate::hybrid::result::{PanicPayload, drop_after_settlement, publish_result};
 
 impl<S, F, L> AsyncFutureState<S, F, L>
 where
@@ -92,10 +92,12 @@ where
 
     /// Retire executor ownership after every settlement callback and cleanup.
     fn finish_settlement(&self, callback_panic: Option<PanicPayload>) {
+        if let Some(callback_panic) = callback_panic {
+            drop_after_settlement(callback_panic);
+        }
         if let Some(registration) = self.registration.get() {
             registration.remove();
         }
-        resume_callback(callback_panic);
     }
 
     fn finish_result(
