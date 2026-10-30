@@ -1,4 +1,5 @@
 """Validate actual numeric engine states without inferring continuous durations."""
+from enum import Enum, auto
 import json
 
 from quic_recovery_audit import require
@@ -18,6 +19,13 @@ POINT_KINDS = {'engine recovery state', 'engine ack received',
                'engine pacing blocked'}
 # JSON limits match Capture in the pinned native collector.
 BUCKET_LIMITS = {'callback': 1_024, 'blocker': 256}
+
+
+class StateOutcome(Enum):
+    """Select the completeness required from a process state history."""
+
+    SUCCESS = auto()
+    FAILURE = auto()
 
 
 def within_bits(value, width):
@@ -269,7 +277,9 @@ def state_bucket(bucket, sample, old):
                 'engine single-observation pacing aggregate differs')
 
 
-def state_trace(text):
+def state_trace(text, outcome: StateOutcome = StateOutcome.SUCCESS):
+    if type(outcome) is not StateOutcome:
+        raise TypeError('outcome must be StateOutcome')
     samples = []
     buckets = {}
     previous = None
@@ -318,10 +328,14 @@ def state_trace(text):
                     'engine bucket insertion order changes')
             require(sum(bucket['observations'] for bucket in state['buckets']) ==
                     state['observed_states'], 'engine count differs from full bucket history')
+            require(set(current_bucket_keys) == set(buckets),
+                    'full engine capture omits sampled history')
             full_bucket_keys = current_bucket_keys
         else:
             require(len(state['buckets']) <= 1,
                     'sample retains more than its latest bucket')
+        require(sum(bucket['observations'] for bucket in buckets.values()) <=
+                state['observed_states'], 'known engine count exceeds cumulative history')
         for group, prefix, label, identity in (
                 ('callbacks', 'callback', 'CUBIC callback', ('callback', 'outcome')),
                 ('blockers', 'blocker', 'blocker', ('kind',))):
@@ -337,9 +351,8 @@ def state_trace(text):
         samples.append(sample)
     require(bool(samples), 'engine state capture is absent')
     require(bool(previous['handshake']), 'engine handshake capture is absent')
-    require(final_full_snapshot and
-            sum(bucket['observations'] for bucket in previous['buckets']) ==
-            previous['observed_states'], 'final engine capture is not a full snapshot')
+    require(outcome is StateOutcome.FAILURE or final_full_snapshot,
+            'final engine capture is not a full snapshot')
     ordered = sorted([*previous['handshake'], *previous['ptos'],
                       *[p for b in buckets.values() for p in (b['first'], b['last'])]],
                      key=lambda p: p['elapsed_ns'])
@@ -354,9 +367,12 @@ def state_trace(text):
             numbers = sent[event['fields']['space']]
             require(all(sum(lo <= pn <= hi for pn in numbers) == hi - lo + 1
                         for lo, hi in event['fields']['ranges']), 'ACK refers to unobserved packet')
-    require({bucket['second'] for bucket in previous['buckets']} == set(buckets),
-            'final engine capture omits sampled history')
-    result = {**previous, 'buckets': previous['buckets'],
+    if final_full_snapshot:
+        require({bucket['second'] for bucket in previous['buckets']} == set(buckets),
+                'final engine capture omits sampled history')
+    known_buckets = (previous['buckets'] if final_full_snapshot else
+                     [buckets[key] for key in sorted(buckets)])
+    result = {**previous, 'buckets': known_buckets,
               'last_protocol_observation': samples[-1]['observation']}
     if 'callbacks' in previous:
         result['callbacks'] = list(callback_buckets.values())
@@ -366,7 +382,8 @@ def state_trace(text):
 
 
 def state_pair(client, server, success):
-    states = {role: state_trace(text) for role, text in (('client', client), ('server', server))}
+    outcome = StateOutcome.SUCCESS if success else StateOutcome.FAILURE
+    states = {role: state_trace(text, outcome) for role, text in (('client', client), ('server', server))}
     if success:
         for role, peer in (('client', 'server'), ('server', 'client')):
             local = states[role]['buckets'][-1]['last']['fields']['spaces']

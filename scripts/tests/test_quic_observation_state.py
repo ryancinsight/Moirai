@@ -131,7 +131,7 @@ class RealStateObservations(unittest.TestCase):
     def test_sampled_state_history_matches_native_final_order_and_counts(self):
         import copy
         import json
-        from quic_observation.audit import state_trace
+        from quic_observation.audit import StateOutcome, state_trace
         trace = self.evidence['runs'][80]['reports']['diagnostics']['client_stderr']
         lines = [line for line in trace.splitlines()
                  if 'protocol recovery observation' in line]
@@ -139,6 +139,8 @@ class RealStateObservations(unittest.TestCase):
             line.split('protocol_recovery=', 1)[1])[0] for line in lines]
         state_samples = [sample for sample in samples if sample.get('engine')]
         actual = state_trace(trace)
+        with self.assertRaisesRegex(TypeError, 'StateOutcome'):
+            state_trace(trace, False)
         self.assertEqual([bucket['second'] for bucket in state_samples[0]['engine']['buckets']],
                          [1])
         self.assertEqual([bucket['second'] for bucket in state_samples[-1]['engine']['buckets']],
@@ -154,8 +156,10 @@ class RealStateObservations(unittest.TestCase):
                         if value.get('observation') == 'sample' and
                         value.get('engine', {}).get('buckets'))
         selected['engine']['buckets'][0]['observations'] = selected['engine']['observed_states'] + 1
-        with self.assertRaisesRegex(ValueError, 'invalid bucket count'):
-            state_trace(encoded(invalid))
+        for outcome in StateOutcome:
+            with self.subTest(outcome=outcome), self.assertRaisesRegex(
+                    ValueError, 'invalid bucket count'):
+                state_trace(encoded(invalid), outcome)
 
         invalid = copy.deepcopy(samples)
         selected = next(value for value in invalid
@@ -174,20 +178,49 @@ class RealStateObservations(unittest.TestCase):
                 sample['engine']['buckets'] = [bucket for bucket in sample['engine']['buckets']
                                                if bucket['second'] != 1]
                 sample['engine']['buckets'][0]['observations'] += removed
-        with self.assertRaisesRegex(ValueError, 'omits sampled history'):
-            state_trace(encoded(invalid))
+        for outcome in StateOutcome:
+            with self.subTest(outcome=outcome), self.assertRaisesRegex(
+                    ValueError, 'omits sampled history'):
+                state_trace(encoded(invalid), outcome)
 
         invalid = [copy.deepcopy(value) for value in samples
                    if value.get('observation') == 'sample' and value.get('engine')]
         invalid.append(copy.deepcopy(state_samples[-1]))
         invalid[-1]['engine']['buckets'].reverse()
-        with self.assertRaisesRegex(ValueError, 'insertion order changes'):
-            state_trace(encoded(invalid))
+        for outcome in StateOutcome:
+            with self.subTest(outcome=outcome), self.assertRaisesRegex(
+                    ValueError, 'insertion order changes'):
+                state_trace(encoded(invalid), outcome)
 
         invalid = copy.deepcopy(samples)
         invalid[-1]['engine']['observed_states'] += 1
-        with self.assertRaisesRegex(ValueError, 'count differs from full bucket history'):
-            state_trace(encoded(invalid))
+        for outcome in StateOutcome:
+            with self.subTest(outcome=outcome), self.assertRaisesRegex(
+                    ValueError, 'count differs from full bucket history'):
+                state_trace(encoded(invalid), outcome)
+
+        earlier, later = next((first, second) for first, second in
+                               zip(state_samples, state_samples[1:])
+                               if first['engine']['observed_states'] > 1)
+        invalid = copy.deepcopy([earlier, later])
+        invalid[-1]['engine']['observed_states'] = invalid[0]['engine']['observed_states'] - 1
+        with self.assertRaisesRegex(ValueError, 'engine count decreases'):
+            state_trace(encoded(invalid), StateOutcome.FAILURE)
+
+        earlier, later = next((first, second) for first, second in
+                               zip(state_samples, state_samples[1:])
+                               if ({bucket['second'] for bucket in first['engine']['buckets']} &
+                                   {bucket['second'] for bucket in second['engine']['buckets']}))
+        invalid = copy.deepcopy([earlier, later])
+        common = ({bucket['second'] for bucket in invalid[0]['engine']['buckets']} &
+                  {bucket['second'] for bucket in invalid[1]['engine']['buckets']}).pop()
+        changed = next(bucket for bucket in invalid[1]['engine']['buckets']
+                       if bucket['second'] == common)
+        changed['first']['fields']['tls_handshake'] ^= True
+        if changed['observations'] == 1:
+            changed['last'] = copy.deepcopy(changed['first'])
+        with self.assertRaisesRegex(ValueError, 'bucket history changes'):
+            state_trace(encoded(invalid), StateOutcome.FAILURE)
 
         for invalid_count in (True, 2**64):
             invalid = copy.deepcopy(samples)
@@ -199,10 +232,91 @@ class RealStateObservations(unittest.TestCase):
         invalid = copy.deepcopy(samples)
         invalid[-1]['observation'] = 'sample'
         final_bucket = invalid[-1]['engine']['buckets'][-1]
-        final_bucket['observations'] = invalid[-1]['engine']['observed_states']
         invalid[-1]['engine']['buckets'] = [final_bucket]
         with self.assertRaisesRegex(ValueError, 'final engine capture is not a full snapshot'):
             state_trace(encoded(invalid))
+
+    def test_failed_archived_samples_match_existing_known_history(self):
+        import copy
+        import gzip
+        import json
+        from quic_observation.audit import StateOutcome, state_pair, state_trace
+        from quic_trace_audit import diagnostics
+        directory = (Path(__file__).resolve().parents[2] /
+                     'moirai-quic/measurements/recovery/2026-10-14/state')
+        paths = [*sorted(directory.glob('03dcc4a3-matrix-*.json.gz')),
+                 *sorted(directory.glob('03dcc4a3-fairness-*.json.gz'))]
+        shards = [json.loads(gzip.decompress(path.read_bytes())) for path in paths]
+        flows = [flow for shard in shards for record in shard['runs']
+                 for flow in record.get('flows', [record])]
+        golden = json.loads(gzip.decompress(
+            (directory/'03dcc4a3-audit.json.gz').read_bytes()))['engine_states']
+        self.assertEqual(len(flows), len(golden))
+        failed = 0
+        sampled = 0
+        for flow, expected in zip(flows, golden, strict=True):
+            if 'error' not in flow:
+                continue
+            failed += 1
+            actual = state_pair(diagnostics(flow, 'client'), diagnostics(flow, 'server'), False)
+            self.assertEqual(actual, {role: expected[role] for role in ('client', 'server')})
+            if all(actual[role]['last_protocol_observation'] == 'sample'
+                   for role in ('client', 'server')):
+                sampled += 1
+                for role in ('client', 'server'):
+                    state = actual[role]
+                    self.assertLess(sum(bucket['observations'] for bucket in state['buckets']),
+                                    state['observed_states'])
+                    with self.assertRaisesRegex(ValueError, 'not a full snapshot'):
+                        state_trace(diagnostics(flow, role))
+        self.assertEqual((failed, sampled), (27, 21))
+
+        trace = diagnostics(next(flow for flow in flows if 'error' in flow), 'client')
+        decoder = json.JSONDecoder()
+        invalid = [decoder.raw_decode(line.split('protocol_recovery=', 1)[1])[0]
+                   for line in trace.splitlines()
+                   if 'protocol recovery observation' in line]
+        invalid = [copy.deepcopy(sample) for sample in invalid
+                   if sample.get('observation') == 'sample' and sample.get('engine')]
+        largest_bucket = 0
+        latest_buckets = {}
+        for sample in invalid:
+            for bucket in sample['engine']['buckets']:
+                largest_bucket = max(largest_bucket, bucket['observations'])
+                latest_buckets[bucket['second']] = bucket
+            sample['engine']['observed_states'] = largest_bucket
+        self.assertEqual((len(invalid), largest_bucket,
+                          sum(bucket['observations'] for bucket in latest_buckets.values())),
+                         (59, 640, 3_727))
+        encoded = '\n'.join('protocol recovery observation protocol_recovery=' +
+                            json.dumps(sample) for sample in invalid)
+        with self.assertRaisesRegex(ValueError, 'known engine count exceeds'):
+            state_trace(encoded, StateOutcome.FAILURE)
+
+    def test_failed_outcome_preserves_pacing_and_callback_checks(self):
+        import copy
+        import json
+        from quic_observation.audit import StateOutcome, state_trace
+        stderr = self.evidence['runs'][0]['reports']['diagnostics']['client_stderr']
+        line = next(line for line in reversed(stderr.splitlines())
+                    if 'protocol recovery observation' in line)
+        sample = json.JSONDecoder().raw_decode(line.split('protocol_recovery=', 1)[1])[0]
+
+        pacing = copy.deepcopy(sample)
+        pacing['engine']['buckets'][0]['pacing_armed_observations'] = 0
+        pacing['engine']['buckets'][0]['max_pacing_remaining_ns'] = 1
+        encoded = 'protocol recovery observation protocol_recovery=' + json.dumps(pacing)
+        with self.assertRaisesRegex(ValueError, 'pacing observation aggregate'):
+            state_trace(encoded, StateOutcome.FAILURE)
+
+        corrupted = copy.deepcopy(sample)
+        corrupted['engine'].update({
+            'callback_observations': 1, 'callback_buckets_dropped': 0,
+            'callbacks': [],
+        })
+        encoded = 'protocol recovery observation protocol_recovery=' + json.dumps(corrupted)
+        with self.assertRaisesRegex(ValueError, 'callback count'):
+            state_trace(encoded, StateOutcome.FAILURE)
 
     def test_pacing_aggregates_equal_possible_hidden_observations(self):
         import copy
