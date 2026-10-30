@@ -1,8 +1,13 @@
 """Provenance checks use the real pinned registry source, never a stand-in."""
 import hashlib
+import io
+import os
 from pathlib import Path
+import shutil
 import sys
+import tarfile
 import tempfile
+import tomllib
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,17 +17,89 @@ from quic_observation.prepare import patch_source, registry_source
 class ObservationProvenance(unittest.TestCase):
     def test_actual_pinned_source_accepts_only_the_read_only_patch(self):
         root = Path(__file__).resolve().parents[2]
-        source, checksum = registry_source(root)
-        self.assertEqual(len(checksum), 64)
-        original = (source/'src/connection/mod.rs').read_bytes()
         with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            source, checksum = registry_source(root, temporary/'registry')
+            self.assertEqual(len(checksum), 64)
+            original = (source/'src/connection/mod.rs').read_bytes()
             report = patch_source(source, Path(temporary)/'engine', root)
             self.assertEqual(set(report['changed_files']), {
                 'src/connection/mod.rs', 'src/connection/observation.rs',
                 'src/connection/packet_builder.rs', 'src/connection/streams/state.rs'})
             self.assertEqual(report['pristine_mod_sha256'], hashlib.sha256(original).hexdigest())
             self.assertNotEqual(report['observed_mod_sha256'], report['pristine_mod_sha256'])
-        self.assertEqual((source/'src/connection/mod.rs').read_bytes(), original)
+            self.assertEqual((source/'src/connection/mod.rs').read_bytes(), original)
+
+    def test_prepared_lock_bytes_match_provenance(self):
+        import json
+        from quic_observation.prepare import digest, prepare
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)/'prepared'
+            prepare(root, output)
+            provenance = json.loads((output/'provenance.json').read_text())
+            self.assertEqual(digest((output/'workspace/Cargo.lock').read_bytes()),
+                             provenance['diagnostic_lock_sha256'])
+
+    def test_registry_extra_file_is_not_a_diagnostic_build_input(self):
+        root = Path(__file__).resolve().parents[2]
+        cargo = Path(os.environ.get('CARGO_HOME', Path.home()/'.cargo'))
+        source = next((cargo/'registry/src').glob('*/quinn-proto-0.11.19'))
+        archive = cargo/'registry/cache'/source.parent.name/'quinn-proto-0.11.19.crate'
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            cached = temporary/'cargo/registry/src'/source.parent.name/source.name
+            shutil.copytree(source, cached)
+            cached_archive = temporary/'cargo/registry/cache'/source.parent.name/archive.name
+            cached_archive.parent.mkdir(parents=True)
+            shutil.copyfile(archive, cached_archive)
+            (cached/'unauthenticated.rs').write_text('compile_error!("not authenticated");\n')
+            prior = os.environ.get('CARGO_HOME')
+            os.environ['CARGO_HOME'] = str(temporary/'cargo')
+            try:
+                observed, _ = registry_source(root, temporary/'registry')
+            finally:
+                if prior is None:
+                    os.environ.pop('CARGO_HOME')
+                else:
+                    os.environ['CARGO_HOME'] = prior
+            self.assertFalse((observed/'unauthenticated.rs').exists())
+
+    def test_registry_archive_rejects_unsafe_member_paths(self):
+        from quic_observation.prepare import digest
+        root = Path(__file__).resolve().parents[2]
+        packages = tomllib.loads((root/'Cargo.lock').read_text())['package']
+        checksum = next(p['checksum'] for p in packages
+                        if p['name'] == 'quinn-proto' and p['version'] == '0.11.19')
+        names = ('quinn-proto-0.11.19/../escape.rs',
+                 'quinn-proto-0.11.19\\escape.rs')
+        for name in names:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                temporary = Path(temporary)
+                cargo = temporary/'cargo'
+                source = cargo/'registry/src/index/quinn-proto-0.11.19'
+                source.mkdir(parents=True)
+                archive = cargo/'registry/cache/index/quinn-proto-0.11.19.crate'
+                archive.parent.mkdir(parents=True)
+                with tarfile.open(archive, 'w:gz') as contents:
+                    member = tarfile.TarInfo(name)
+                    member.size = 1
+                    contents.addfile(member, io.BytesIO(b'x'))
+                source_root = temporary/'source'
+                source_root.mkdir()
+                lock = (root/'Cargo.lock').read_text().replace(
+                    checksum, digest(archive.read_bytes()), 1)
+                (source_root/'Cargo.lock').write_text(lock)
+                prior = os.environ.get('CARGO_HOME')
+                os.environ['CARGO_HOME'] = str(cargo)
+                try:
+                    with self.assertRaisesRegex(ValueError, 'unsafe path'):
+                        registry_source(source_root, temporary/'registry')
+                finally:
+                    if prior is None:
+                        os.environ.pop('CARGO_HOME')
+                    else:
+                        os.environ['CARGO_HOME'] = prior
 
 class RealStateObservations(unittest.TestCase):
     @classmethod

@@ -2,9 +2,10 @@
 """Build-only read-only instrumentation of the exact pinned registry engine."""
 import argparse
 import hashlib
+import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import tarfile
@@ -21,7 +22,7 @@ def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def registry_source(root):
+def registry_source(root, destination):
     packages = tomllib.loads((root/'Cargo.lock').read_text())['package']
     package = next(p for p in packages if p['name'] == ENGINE)
     if package['version'] != VERSION:
@@ -31,36 +32,63 @@ def registry_source(root):
     valid = []
     for source in sources:
         archive = cargo/'registry/cache'/source.parent.name/f'{ENGINE}-{VERSION}.crate'
-        if archive.exists() and digest(archive.read_bytes()) == package['checksum']:
-            with tarfile.open(archive) as contents:
-                for entry in contents.getmembers():
-                    if not entry.isfile():
-                        continue
-                    name = Path(entry.name).relative_to(f'{ENGINE}-{VERSION}')
+        archive_raw = archive.read_bytes() if archive.exists() else b''
+        if digest(archive_raw) == package['checksum']:
+            with tarfile.open(fileobj=io.BytesIO(archive_raw)) as contents:
+                entries = contents.getmembers()
+                if not entries or not all(entry.isfile() for entry in entries):
+                    raise ValueError('cached engine archive contains a non-file entry')
+                names = []
+                for entry in entries:
+                    if '\\' in entry.name:
+                        raise ValueError('cached engine archive contains an unsafe path')
+                    name = PurePosixPath(entry.name).relative_to(f'{ENGINE}-{VERSION}')
+                    if not name.parts or '..' in name.parts:
+                        raise ValueError('cached engine archive contains an unsafe path')
+                    names.append(name.as_posix())
                     if (source/name).read_bytes() != contents.extractfile(entry).read():
                         raise ValueError(f'modified registry source: {name}')
-            valid.append(source)
+                if (len(set(names)) != len(names) or
+                        len({name.casefold() for name in names}) != len(names)):
+                    raise ValueError('cached engine archive contains colliding paths')
+                valid.append((archive_raw, names))
     if len(valid) != 1:
         raise ValueError('exactly one verified cached engine is required; cargo fetch first')
-    return valid[0], package['checksum']
+    archive_raw, names = valid[0]
+    destination.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(archive_raw)) as contents:
+        for name in names:
+            target = destination/name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(contents.extractfile(f'{ENGINE}-{VERSION}/{name}').read())
+    return destination, package['checksum']
 
 
-def patch_source(source, destination, root):
+def patch_source(source, destination, root, patch_raw=None, allowed=None):
     patch = root/'scripts/quic_observation/engine.patch'
-    raw = patch.read_text()
-    if any(line.startswith('-') and not line.startswith('--- ') for line in raw.splitlines()):
+    raw = patch.read_bytes() if patch_raw is None else patch_raw
+    text = raw.decode()
+    if any(line.startswith('-') and not line.startswith('--- ') for line in text.splitlines()):
         raise ValueError('instrumentation cannot remove or replace an engine statement')
-    changed = {line.removeprefix('+++ b/') for line in raw.splitlines() if line.startswith('+++ b/')}
-    if changed != ALLOWED:
+    changed = {line.removeprefix('+++ b/') for line in text.splitlines()
+               if line.startswith('+++ b/')}
+    if changed != (ALLOWED if allowed is None else allowed):
         raise ValueError('unexpected instrumentation file inventory')
     shutil.copytree(source, destination)
-    subprocess.run(['git', 'apply', '--check', str(patch)], cwd=destination, check=True)
-    subprocess.run(['git', 'apply', str(patch)], cwd=destination, check=True)
+    command = ['git', '-c', 'core.autocrlf=false', 'apply', '--unidiff-zero']
+    subprocess.run([*command, '--check', '-'], cwd=destination, input=raw, check=True)
+    subprocess.run([*command, '-'], cwd=destination, input=raw, check=True)
+    for name in changed - {'src/connection/observation.rs'}:
+        original_lines = iter((source/name).read_text().splitlines())
+        observed_lines = iter((destination/name).read_text().splitlines())
+        if not all(any(candidate == line for candidate in observed_lines)
+                   for line in original_lines):
+            raise ValueError(f'instrumentation changes original statement sequence: {name}')
     for original in source.rglob('*'):
-        if original.is_file() and str(original.relative_to(source)) not in changed:
+        if original.is_file() and original.relative_to(source).as_posix() not in changed:
             if original.read_bytes() != (destination/original.relative_to(source)).read_bytes():
                 raise ValueError('instrumentation changes an unrelated source file')
-    return {'engine': ENGINE, 'version': VERSION, 'patch_sha256': digest(patch.read_bytes()),
+    return {'engine': ENGINE, 'version': VERSION, 'patch_sha256': digest(raw),
             'changed_files': sorted(changed),
             'pristine_mod_sha256': digest((source/'src/connection/mod.rs').read_bytes()),
             'observed_mod_sha256': digest((destination/'src/connection/mod.rs').read_bytes()),
@@ -84,8 +112,9 @@ def diagnostic_lock(original):
 
 
 def verify_provenance(report, root):
-    source, checksum = registry_source(root)
     with tempfile.TemporaryDirectory() as temporary:
+        temporary = Path(temporary)
+        source, checksum = registry_source(root, temporary/'registry')
         expected = patch_source(source, Path(temporary)/'engine', root)
     original = (root/'Cargo.lock').read_text()
     expected.update({'registry_checksum': checksum,
@@ -96,9 +125,10 @@ def verify_provenance(report, root):
 
 
 def prepare(root, destination):
-    source, checksum = registry_source(root)
     destination.mkdir(parents=True, exist_ok=False)
-    report = patch_source(source, destination/'engine', root)
+    with tempfile.TemporaryDirectory() as temporary:
+        source, checksum = registry_source(root, Path(temporary)/'registry')
+        report = patch_source(source, destination/'engine', root)
     report['registry_checksum'] = checksum
     workspace = destination/'workspace'
     files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode().split('\0')
@@ -111,7 +141,7 @@ def prepare(root, destination):
         shutil.copy2(original_file, target)
     original = (root/'Cargo.lock').read_text()
     observed = diagnostic_lock(original)
-    (workspace/'Cargo.lock').write_text(observed)
+    (workspace/'Cargo.lock').write_text(observed, newline='\n')
     config = '[patch.crates-io]\nquinn-proto = { path = '+json.dumps(str(destination/'engine'))+' }\n'
     (destination/'config.toml').write_text(config)
     report.update({'canonical_lock_sha256': digest(original.encode()),

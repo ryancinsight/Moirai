@@ -25,9 +25,9 @@ class HandshakeRecoveryEvidence(unittest.TestCase):
         self.assertEqual(hashlib.sha256(measured['patch_text'].encode()).hexdigest(), measured['patch_sha256'])
         self.assertEqual(hashlib.sha256((DIRECTORY/'handshake-candidate.patch').read_bytes()).hexdigest(),
                          measured['normalized_patch_sha256'])
-        source, _ = registry_source(ROOT)
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
+            source, _ = registry_source(ROOT, directory/'registry')
             original = directory/'measured.patch'
             original.write_text(measured['patch_text'])
             for label, patch in (('measured', original), ('normalized', DIRECTORY/'handshake-candidate.patch')):
