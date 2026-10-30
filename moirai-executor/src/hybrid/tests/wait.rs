@@ -1,5 +1,6 @@
 use moirai_core::{
     TaskId,
+    error::ExecutorError,
     executor::{ExecutorConfig, ExecutorControl, TaskManager, TaskSpawner},
 };
 
@@ -8,6 +9,8 @@ use crate::{BlockingTask, TaskRegistry, counting_wake::CountingWake};
 
 struct DeadlineEvent {
     outcome: std::sync::atomic::AtomicU8,
+    polls: std::sync::atomic::AtomicUsize,
+    failure: std::sync::Mutex<Option<std::io::Error>>,
     waker: std::sync::Mutex<Option<std::task::Waker>>,
 }
 
@@ -15,6 +18,8 @@ impl DeadlineEvent {
     fn new() -> std::sync::Arc<Self> {
         std::sync::Arc::new(Self {
             outcome: std::sync::atomic::AtomicU8::new(0),
+            polls: std::sync::atomic::AtomicUsize::new(0),
+            failure: std::sync::Mutex::new(None),
             waker: std::sync::Mutex::new(None),
         })
     }
@@ -23,8 +28,20 @@ impl DeadlineEvent {
         self.publish(1);
     }
 
-    fn fail(&self) {
+    fn fail(&self, error: std::io::Error) {
+        let previous = self.failure.lock().unwrap().replace(error);
+        assert!(previous.is_none(), "deadline failure is published once");
         self.publish(2);
+    }
+
+    fn result(&self) -> Option<std::io::Result<()>> {
+        match self.outcome.load(std::sync::atomic::Ordering::Acquire) {
+            1 => Some(Ok(())),
+            2 => Some(Err(self.failure.lock().unwrap().take().expect(
+                "invariant: failed deadline publishes its I/O error before its state",
+            ))),
+            _ => None,
+        }
     }
 
     fn publish(&self, outcome: u8) {
@@ -37,37 +54,63 @@ impl DeadlineEvent {
     }
 }
 
-struct EventDeadline(std::sync::Arc<DeadlineEvent>);
+struct EventDeadline {
+    event: std::sync::Arc<DeadlineEvent>,
+    _pin: std::marker::PhantomPinned,
+}
+
+impl EventDeadline {
+    fn new(event: std::sync::Arc<DeadlineEvent>) -> Self {
+        Self {
+            event,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+}
 
 impl Drop for EventDeadline {
     fn drop(&mut self) {
-        let waker = self.0.waker.lock().unwrap().take();
+        let waker = self.event.waker.lock().unwrap().take();
         drop(waker);
     }
 }
 
 impl std::future::Future for EventDeadline {
-    type Output = Result<(), ()>;
+    type Output = std::io::Result<()>;
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
         context: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        match self.0.outcome.load(std::sync::atomic::Ordering::Acquire) {
-            1 => return std::task::Poll::Ready(Ok(())),
-            2 => return std::task::Poll::Ready(Err(())),
-            _ => {}
+        let event = &self.as_ref().get_ref().event;
+        event
+            .polls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(result) = event.result() {
+            return std::task::Poll::Ready(result);
         }
         let incoming = context.waker().clone();
-        let previous = self.0.waker.lock().unwrap().replace(incoming);
+        let previous = event.waker.lock().unwrap().replace(incoming);
         drop(previous);
-        match self.0.outcome.load(std::sync::atomic::Ordering::Acquire) {
-            1 => std::task::Poll::Ready(Ok(())),
-            2 => std::task::Poll::Ready(Err(())),
-            _ => std::task::Poll::Pending,
-        }
+        event
+            .result()
+            .map_or(std::task::Poll::Pending, std::task::Poll::Ready)
     }
 }
+
+#[derive(Debug)]
+struct DeadlineFailure {
+    operation: &'static str,
+    sequence: u32,
+}
+
+impl std::fmt::Display for DeadlineFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.operation)
+    }
+}
+
+impl std::error::Error for DeadlineFailure {}
 
 struct WakeSignal(std::sync::mpsc::SyncSender<()>);
 
@@ -208,14 +251,29 @@ fn wait_for_task_timeout_expires_and_unknown_task_errors() {
     // Unknown task resolves immediately with a typed error.
     let waker = Waker::from(Arc::new(CountingWake(AtomicUsize::new(0))));
     let mut context = Context::from_waker(&waker);
-    let mut unknown =
-        std::pin::pin!(executor.wait_for_task(moirai_core::TaskId::new(u64::MAX / 2), None));
+    let unknown_id = moirai_core::TaskId::new(u64::MAX / 2);
+    let unknown_deadline = DeadlineEvent::new();
+    let mut unknown = std::pin::pin!(super::super::manager::completion_wait(
+        Arc::clone(&executor.task_registry),
+        unknown_id,
+        Some(Ok(EventDeadline::new(Arc::clone(&unknown_deadline)))),
+    ));
     assert!(matches!(
         unknown.as_mut().poll(&mut context),
-        Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
-            moirai_core::TaskError::InvalidOperation
-        )))
+        Poll::Ready(Err(ExecutorError::UnknownTask { id })) if id == unknown_id
     ));
+    assert_eq!(
+        unknown_deadline
+            .polls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "unknown tasks are rejected before polling their deadline"
+    );
+    assert_eq!(
+        Arc::strong_count(&unknown_deadline),
+        1,
+        "the terminal future releases its unpolled deadline"
+    );
 
     // A never-completing task with an already-expired deadline returns the
     // typed timeout on its first poll. This exercises the deadline branch
@@ -224,15 +282,20 @@ fn wait_for_task_timeout_expires_and_unknown_task_errors() {
     let handle = executor.spawn_blocking(|| 1usize).unwrap();
     let mut wait =
         std::pin::pin!(executor.wait_for_task(handle.id(), Some(std::time::Duration::ZERO)));
+    let timed_out_id = handle.id();
     assert!(matches!(
         wait.as_mut().poll(&mut context),
-        Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
-            moirai_core::TaskError::Timeout
-        )))
+        Poll::Ready(Err(ExecutorError::WaitTimedOut { id })) if id == timed_out_id
     ));
 
     release.send(()).unwrap();
     assert_eq!(handle.join().unwrap().unwrap(), 1);
+    let mut completed_zero =
+        std::pin::pin!(executor.wait_for_task(timed_out_id, Some(std::time::Duration::ZERO)));
+    assert!(matches!(
+        completed_zero.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
     gate_handle.join().unwrap().unwrap();
     executor.shutdown();
 }
@@ -251,7 +314,7 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
     let mut wait = std::pin::pin!(super::super::manager::completion_wait(
         Arc::clone(&registry),
         task_id,
-        Some(EventDeadline(Arc::clone(&event))),
+        Some(Ok(EventDeadline::new(Arc::clone(&event)))),
     ));
 
     assert!(matches!(wait.as_mut().poll(&mut context), Poll::Pending));
@@ -264,9 +327,7 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
     assert_eq!(wake.wakes(), 1);
     assert!(matches!(
         wait.as_mut().poll(&mut context),
-        Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
-            moirai_core::TaskError::Timeout
-        )))
+        Poll::Ready(Err(ExecutorError::WaitTimedOut { id })) if id == task_id
     ));
     assert_eq!(Arc::strong_count(&wake), 2);
 
@@ -277,7 +338,7 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
         let mut dropped = std::pin::pin!(super::super::manager::completion_wait(
             Arc::clone(&registry),
             task_id,
-            Some(EventDeadline(event)),
+            Some(Ok(EventDeadline::new(event))),
         ));
         assert!(matches!(
             dropped.as_mut().poll(&mut dropped_context),
@@ -293,21 +354,52 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
     let mut failed = std::pin::pin!(super::super::manager::completion_wait(
         Arc::clone(&registry),
         task_id,
-        Some(EventDeadline(Arc::clone(&event))),
+        Some(Ok(EventDeadline::new(Arc::clone(&event)))),
     ));
     assert!(matches!(
         failed.as_mut().poll(&mut failed_context),
         Poll::Pending
     ));
-    event.fail();
+    event.fail(std::io::Error::other(DeadlineFailure {
+        operation: "start injected timer",
+        sequence: 29,
+    }));
     assert_eq!(failed_wake.wakes(), 1);
-    assert!(matches!(
-        failed.as_mut().poll(&mut failed_context),
-        Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
-            moirai_core::TaskError::ExecutionFailed(moirai_core::error::TaskErrorKind::Io)
-        )))
-    ));
+    match failed.as_mut().poll(&mut failed_context) {
+        Poll::Ready(Err(ExecutorError::TimerFailed { id, source })) => {
+            assert_eq!(id, task_id);
+            let payload = source
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<DeadlineFailure>())
+                .expect("invariant: timer failure retains its custom I/O payload");
+            assert_eq!(payload.operation, "start injected timer");
+            assert_eq!(payload.sequence, 29);
+        }
+        outcome => panic!("expected the injected timer failure, got {outcome:?}"),
+    }
     assert_eq!(Arc::strong_count(&failed_wake), 2);
+
+    let mut construction_failed =
+        std::pin::pin!(super::super::manager::completion_wait::<EventDeadline>(
+            Arc::clone(&registry),
+            task_id,
+            Some(Err(std::io::Error::other(DeadlineFailure {
+                operation: "construct injected timer",
+                sequence: 30,
+            }))),
+        ));
+    match construction_failed.as_mut().poll(&mut failed_context) {
+        Poll::Ready(Err(ExecutorError::TimerFailed { id, source })) => {
+            assert_eq!(id, task_id);
+            let payload = source
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<DeadlineFailure>())
+                .expect("invariant: timer construction failure retains its I/O payload");
+            assert_eq!(payload.operation, "construct injected timer");
+            assert_eq!(payload.sequence, 30);
+        }
+        outcome => panic!("expected the timer construction failure, got {outcome:?}"),
+    }
 
     let event = DeadlineEvent::new();
     let (completed_wake, completed_waker) = crate::counting_wake::counting_waker();
@@ -315,7 +407,7 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
     let mut completed = std::pin::pin!(super::super::manager::completion_wait(
         Arc::clone(&registry),
         task_id,
-        Some(EventDeadline(Arc::clone(&event))),
+        Some(Ok(EventDeadline::new(Arc::clone(&event)))),
     ));
     assert!(matches!(
         completed.as_mut().poll(&mut completed_context),
@@ -340,6 +432,63 @@ fn controlled_deadline_and_future_drop_remove_owned_registrations() {
         2,
         "a ready wait releases deadline and task-registration wakers"
     );
+
+    let ready_deadline = DeadlineEvent::new();
+    ready_deadline.fire();
+    let mut ready = std::pin::pin!(super::super::manager::completion_wait(
+        Arc::clone(&registry),
+        task_id,
+        Some(Ok(EventDeadline::new(Arc::clone(&ready_deadline)))),
+    ));
+    assert!(matches!(
+        ready.as_mut().poll(&mut completed_context),
+        Poll::Ready(Ok(()))
+    ));
+    assert_eq!(
+        ready_deadline
+            .polls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    assert_eq!(Arc::strong_count(&ready_deadline), 1);
+
+    let mut ready_before_construction_failure =
+        std::pin::pin!(super::super::manager::completion_wait::<EventDeadline>(
+            Arc::clone(&registry),
+            task_id,
+            Some(Err(std::io::Error::other(DeadlineFailure {
+                operation: "unobserved timer construction failure",
+                sequence: 32,
+            }))),
+        ));
+    assert!(matches!(
+        ready_before_construction_failure
+            .as_mut()
+            .poll(&mut completed_context),
+        Poll::Ready(Ok(()))
+    ));
+
+    let failed_deadline = DeadlineEvent::new();
+    failed_deadline.fail(std::io::Error::other(DeadlineFailure {
+        operation: "unobserved timer failure",
+        sequence: 31,
+    }));
+    let mut ready_before_failure = std::pin::pin!(super::super::manager::completion_wait(
+        Arc::clone(&registry),
+        task_id,
+        Some(Ok(EventDeadline::new(Arc::clone(&failed_deadline)))),
+    ));
+    assert!(matches!(
+        ready_before_failure.as_mut().poll(&mut completed_context),
+        Poll::Ready(Ok(()))
+    ));
+    assert_eq!(
+        failed_deadline
+            .polls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    assert_eq!(Arc::strong_count(&failed_deadline), 1);
 }
 
 #[test]
@@ -462,11 +611,10 @@ fn wait_for_task_positive_timeout_wakes_and_reports_timeout() {
     wake_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("PAL timer must wake the task waiter at its deadline");
+    let timed_out_id = handle.id();
     assert!(matches!(
         wait.as_mut().poll(&mut context),
-        Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
-            moirai_core::TaskError::Timeout
-        )))
+        Poll::Ready(Err(ExecutorError::WaitTimedOut { id })) if id == timed_out_id
     ));
 
     release.send(()).unwrap();

@@ -83,6 +83,7 @@ quinn = { version = "0.11.12", default-features = false, features = ["rustls-rin
 # Plain-old-data marker traits (zero-cost bit-pattern validity for shared-memory
 # IPC and GPU buffers). SSOT version for every workspace member.
 bytemuck = "1.25.2"
+pin-project-lite = "0.2.17"
 
 # Development and testing dependencies only (not used in runtime)
 criterion = "0.5.1"

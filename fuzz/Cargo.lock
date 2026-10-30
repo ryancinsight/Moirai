@@ -1001,6 +1001,7 @@ dependencies = [
  "moirai-pal",
  "moirai-scheduler",
  "moirai-utils",
+ "pin-project-lite",
  "themis-topology",
 ]
 

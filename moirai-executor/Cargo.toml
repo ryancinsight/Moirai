@@ -21,6 +21,7 @@ moirai-pal = { workspace = true }
 mnemosyne = { workspace = true, optional = true }
 melinoe = { workspace = true, features = ["std"] }
 themis = { workspace = true }
+pin-project-lite = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

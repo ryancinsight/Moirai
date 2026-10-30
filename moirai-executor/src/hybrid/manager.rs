@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::{future::Future, pin::Pin};
 
 use moirai_core::{
-    error::{ExecutorError, ExecutorResult, TaskError, TaskErrorKind},
+    error::{ExecutorError, ExecutorResult},
     executor::{TaskManager, TaskStats, TaskStatus},
     task::TaskId,
 };
@@ -25,82 +25,142 @@ fn status_of(metadata: &TaskMetadata) -> TaskStatus {
     }
 }
 
-/// Build the owned completion wait around a caller-supplied deadline future.
-///
-/// Production supplies the PAL timer. Tests supply an event-driven future so
-/// expiry and cleanup do not depend on wall-clock progress.
-pub(super) fn completion_wait<F, E>(
-    registry: Arc<TaskRegistry>,
-    id: TaskId,
-    mut deadline: Option<F>,
-) -> impl Future<Output = ExecutorResult<()>> + Send
-where
-    F: Future<Output = Result<(), E>> + Send + Unpin,
-{
-    let mut waiter: Option<TaskWaiter> = None;
+pin_project_lite::pin_project! {
+    #[project = DeadlineStateProj]
+    #[project_replace = DeadlineStateProjReplace]
+    enum DeadlineState<F> {
+        Inactive,
+        Running {
+            #[pin]
+            future: F,
+        },
+        Failed { source: std::io::Error },
+    }
+}
 
-    std::future::poll_fn(move |context| {
-        match registry.completion(id.0) {
+pin_project_lite::pin_project! {
+    /// Owns a completion registration and its caller-supplied deadline future.
+    pub(super) struct CompletionWait<F> {
+        registry: Arc<TaskRegistry>,
+        id: TaskId,
+        #[pin]
+        deadline: DeadlineState<F>,
+        waiter: Option<TaskWaiter>,
+    }
+}
+
+fn release_resources<F>(mut deadline: Pin<&mut DeadlineState<F>>, waiter: &mut Option<TaskWaiter>) {
+    waiter.take();
+    deadline.set(DeadlineState::Inactive);
+}
+
+impl<F> Future for CompletionWait<F>
+where
+    F: Future<Output = std::io::Result<()>> + Send,
+{
+    type Output = ExecutorResult<()>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let mut this = self.project();
+        let id = *this.id;
+
+        match this.registry.completion(id.0) {
             Some(true) => {
-                waiter.take();
-                deadline.take();
+                release_resources(this.deadline.as_mut(), this.waiter);
                 return std::task::Poll::Ready(Ok(()));
             }
             Some(false) => {}
             None => {
-                waiter.take();
-                deadline.take();
-                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
-                    TaskError::InvalidOperation,
-                )));
+                release_resources(this.deadline.as_mut(), this.waiter);
+                return std::task::Poll::Ready(Err(ExecutorError::UnknownTask { id }));
             }
         }
 
-        let deadline_poll = deadline
-            .as_mut()
-            .map(|deadline| Pin::new(deadline).poll(context));
+        if matches!(
+            this.deadline.as_ref().get_ref(),
+            DeadlineState::Failed { .. }
+        ) {
+            let source = match this
+                .deadline
+                .as_mut()
+                .project_replace(DeadlineState::Inactive)
+            {
+                DeadlineStateProjReplace::Failed { source } => source,
+                DeadlineStateProjReplace::Inactive | DeadlineStateProjReplace::Running { .. } => {
+                    unreachable!("invariant: a construction failure remains present until consumed")
+                }
+            };
+            release_resources(this.deadline.as_mut(), this.waiter);
+            return std::task::Poll::Ready(Err(ExecutorError::TimerFailed { id, source }));
+        }
+
+        let deadline_poll = match this.deadline.as_mut().project() {
+            DeadlineStateProj::Inactive => None,
+            DeadlineStateProj::Running { future } => Some(future.poll(context)),
+            DeadlineStateProj::Failed { .. } => {
+                unreachable!("invariant: a construction failure is consumed before polling")
+            }
+        };
         match deadline_poll {
             Some(std::task::Poll::Ready(Ok(()))) => {
-                waiter.take();
-                deadline.take();
-                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(TaskError::Timeout)));
+                release_resources(this.deadline.as_mut(), this.waiter);
+                return std::task::Poll::Ready(Err(ExecutorError::WaitTimedOut { id }));
             }
-            Some(std::task::Poll::Ready(Err(_))) => {
-                waiter.take();
-                deadline.take();
-                return std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(
-                    TaskError::ExecutionFailed(TaskErrorKind::Io),
-                )));
+            Some(std::task::Poll::Ready(Err(source))) => {
+                release_resources(this.deadline.as_mut(), this.waiter);
+                return std::task::Poll::Ready(Err(ExecutorError::TimerFailed { id, source }));
             }
             Some(std::task::Poll::Pending) | None => {}
         }
 
-        let registration_live = if let Some(waiter) = waiter.as_mut() {
+        let registration_live = if let Some(waiter) = this.waiter.as_mut() {
             waiter.update(context.waker())
         } else {
-            waiter = registry.register_waker(id.0, context.waker());
-            waiter.is_some()
+            *this.waiter = this.registry.register_waker(id.0, context.waker());
+            this.waiter.is_some()
         };
         if !registration_live {
-            waiter.take();
+            this.waiter.take();
         }
 
         // Completion publishes before closing the waiter set. This recheck
         // covers completion racing either initial registration or an update.
-        match registry.completion(id.0) {
+        match this.registry.completion(id.0) {
             Some(true) => {
-                waiter.take();
-                deadline.take();
+                release_resources(this.deadline.as_mut(), this.waiter);
                 std::task::Poll::Ready(Ok(()))
             }
             Some(false) => std::task::Poll::Pending,
             None => {
-                waiter.take();
-                deadline.take();
-                std::task::Poll::Ready(Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation)))
+                release_resources(this.deadline.as_mut(), this.waiter);
+                std::task::Poll::Ready(Err(ExecutorError::UnknownTask { id }))
             }
         }
-    })
+    }
+}
+
+pub(super) fn completion_wait<F>(
+    registry: Arc<TaskRegistry>,
+    id: TaskId,
+    deadline: Option<std::io::Result<F>>,
+) -> CompletionWait<F>
+where
+    F: Future<Output = std::io::Result<()>> + Send,
+{
+    let deadline = match deadline {
+        Some(Ok(future)) => DeadlineState::Running { future },
+        Some(Err(source)) => DeadlineState::Failed { source },
+        None => DeadlineState::Inactive,
+    };
+    CompletionWait {
+        registry,
+        id,
+        deadline,
+        waiter: None,
+    }
 }
 
 impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
@@ -117,7 +177,7 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
             Some(CancelOutcome::Requested | CancelOutcome::AlreadyCompleted) => {
                 self.async_tasks.cancel(id.0)
             }
-            None => Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation)),
+            None => Err(ExecutorError::UnknownTask { id }),
         }
     }
 
@@ -140,11 +200,8 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
         id: TaskId,
         timeout: Option<core::time::Duration>,
     ) -> impl core::future::Future<Output = ExecutorResult<()>> + Send {
-        completion_wait(
-            Arc::clone(&self.task_registry),
-            id,
-            timeout.map(moirai_pal::timer::sleep),
-        )
+        let deadline = timeout.map(|duration| Ok(moirai_pal::timer::sleep(duration)));
+        completion_wait(Arc::clone(&self.task_registry), id, deadline)
     }
 
     /// Statistics limited to what the executor actually tracks.
