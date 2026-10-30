@@ -34,8 +34,11 @@
 //! waker owns) until completion, and each registration scans the members. A
 //! dropped waiter leaves its member behind the same way.
 //!
-//! A panic in one member's wake does not suppress the remaining notifications.
-//! The fan-out invokes every member, then resumes the first panic.
+//! A panic in one member's wake does not suppress the remaining notifications:
+//! every member is invoked before panic-payload disposal starts. Ordinary
+//! cleanup then resumes the first callback panic. A recursively panicking
+//! disposal payload can supersede it, and multiple such destructors can abort
+//! under Rust's double-panic semantics.
 
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::task::{RawWaker, RawWakerVTable, Waker};
@@ -150,9 +153,10 @@ where
             disposal_panics.push(payload);
         }
     }
-    // A recursive panic from dropping a disposal-panic payload supersedes the
-    // first callback panic: preserving both would require leaking one payload
-    // or unbounded recursive recovery.
+    // One recursive panic from dropping a disposal-panic payload supersedes
+    // the first callback panic. Multiple such destructors can abort when the
+    // second panics during unwinding; avoiding that would require leaking
+    // payloads or unbounded recursive recovery.
     drop(disposal_panics);
     resume_unwind(first_panic);
 }
