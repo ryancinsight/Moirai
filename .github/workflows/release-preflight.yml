@@ -191,7 +191,8 @@ jobs:
           test "${#sboms[@]}" -gt 0
           python3 scripts/release_sbom.py extend --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json "${sboms[@]}"
           python3 scripts/release_sbom.py validate --cohort '${{ needs.plan.outputs.cohort }}' --metadata output/release/locked-metadata.json "${sboms[@]}"
-          export POSTPROCESSOR_SHA256="$(python3 scripts/release_sbom.py source-hash)"
+          POSTPROCESSOR_SHA256="$(python3 scripts/release_sbom.py source-hash)"
+          export POSTPROCESSOR_SHA256
           python3 - <<'PY'
           import hashlib, json, os
           with open("output/release/locked-metadata.json", "rb") as metadata:

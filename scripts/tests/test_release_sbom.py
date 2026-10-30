@@ -15,7 +15,7 @@ COHORT = [{"name": "demo", "version": "1.0.0"}]
 class ReleaseSbomTests(unittest.TestCase):
     def test_provenance_uses_postprocessor_byte_hash(self):
         workflow = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release-preflight.yml").read_text(encoding="utf-8")
-        self.assertIn('export POSTPROCESSOR_SHA256="$(python3 scripts/release_sbom.py source-hash)"', workflow)
+        self.assertIn('POSTPROCESSOR_SHA256="$(python3 scripts/release_sbom.py source-hash)"\n          export POSTPROCESSOR_SHA256', workflow)
         self.assertNotIn("hashFiles('scripts/release_sbom.py')", workflow)
         self.assertEqual(release_sbom.source_hash(), __import__("hashlib").sha256((Path(__file__).resolve().parents[1] / "release_sbom.py").read_bytes()).hexdigest())
 
