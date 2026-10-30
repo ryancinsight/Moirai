@@ -1,11 +1,12 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
 use super::*;
+use crate::channel::error::ChannelError;
 use core::mem::size_of;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
 #[test]
 fn hybrid_channel_factory_is_zero_sized() {
@@ -86,6 +87,44 @@ fn test_hybrid_channel_lost_wakeup() {
     // If the bug is present, waker_count will remain 0. If fixed, it becomes 1.
     assert_eq!(pinned.as_mut().poll(&mut cx), Poll::Pending);
     assert_eq!(rx.waker_count.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn closed_channel_drains_final_message_across_receive_apis() {
+    use std::time::Duration;
+
+    fn closed_with(value: usize) -> HybridReceiver<usize> {
+        let (tx, rx) = HybridChannel::new(2);
+        tx.send(value).unwrap();
+        drop(tx);
+        rx
+    }
+
+    let rx = closed_with(11);
+    assert_eq!(rx.try_recv(), Ok(11));
+    assert_eq!(rx.try_recv(), Err(ChannelError::Closed));
+
+    let rx = closed_with(22);
+    assert_eq!(rx.recv(), Ok(22));
+    assert_eq!(rx.recv(), Err(ChannelError::Closed));
+
+    let rx = closed_with(33);
+    assert_eq!(rx.recv_timeout(Duration::from_secs(30)), Ok(33));
+    assert_eq!(rx.try_recv(), Err(ChannelError::Closed));
+
+    let rx = closed_with(44);
+    let mut context = Context::from_waker(Waker::noop());
+    let mut future = rx.recv_async();
+    assert_eq!(
+        Pin::new(&mut future).poll(&mut context),
+        Poll::Ready(Ok(44))
+    );
+    drop(future);
+    let mut drained = rx.recv_async();
+    assert_eq!(
+        Pin::new(&mut drained).poll(&mut context),
+        Poll::Ready(Err(ChannelError::Closed))
+    );
 }
 
 /// `Waker::wake` may execute the woken task inline (the executor polls inline

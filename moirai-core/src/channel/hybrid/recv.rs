@@ -1,4 +1,4 @@
-use crate::channel::error::Result;
+use crate::channel::error::{ChannelError, Result};
 use crate::communication::RingBuffer;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
@@ -59,7 +59,7 @@ impl<T: Send> HybridReceiver<T> {
     /// Receive value with zero-copy
     ///
     /// # Errors
-    /// Returns [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed)
+    /// Returns [`ChannelError::Closed`]
     /// when the sender is gone and the ring is drained.
     pub fn recv(&self) -> Result<T> {
         // Fast path: try to receive without blocking
@@ -71,10 +71,6 @@ impl<T: Send> HybridReceiver<T> {
         let current_thread = std::thread::current();
 
         loop {
-            if self.closed.load(Ordering::Acquire) && self.ring.is_empty() {
-                return Err(crate::channel::error::ChannelError::Closed);
-            }
-
             self.register_parked(&current_thread);
 
             // Dekker fence between the registration above and the re-checks
@@ -85,14 +81,16 @@ impl<T: Send> HybridReceiver<T> {
             // against a delivered message.
             fence(CHANNEL_STORE_LOAD_ORDER);
 
-            if let Some(value) = self.ring.try_consume() {
-                self.deregister_parked(&current_thread);
-                return Ok(value);
-            }
-
-            if self.closed.load(Ordering::Acquire) && self.ring.is_empty() {
-                self.deregister_parked(&current_thread);
-                return Err(crate::channel::error::ChannelError::Closed);
+            match self.try_recv() {
+                Ok(value) => {
+                    self.deregister_parked(&current_thread);
+                    return Ok(value);
+                }
+                Err(ChannelError::Empty) => {}
+                Err(error) => {
+                    self.deregister_parked(&current_thread);
+                    return Err(error);
+                }
             }
 
             // Park until unparked by sender
@@ -103,30 +101,31 @@ impl<T: Send> HybridReceiver<T> {
     /// Try to receive without blocking
     ///
     /// # Errors
-    /// Returns [`ChannelError::Empty`](crate::channel::error::ChannelError::Empty)
+    /// Returns [`ChannelError::Empty`]
     /// when no message is ready and
-    /// [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed) when
-    /// the sender is gone.
+    /// [`ChannelError::Closed`] when
+    /// the sender is gone and the ring is drained.
     pub fn try_recv(&self) -> Result<T> {
-        match self.ring.try_consume() {
-            Some(value) => Ok(value),
-            _ => {
-                if self.closed.load(Ordering::Acquire) {
-                    Err(crate::channel::error::ChannelError::Closed)
-                } else {
-                    Err(crate::channel::error::ChannelError::Empty)
-                }
-            }
+        if let Some(value) = self.ring.try_consume() {
+            return Ok(value);
         }
+        if !self.closed.load(Ordering::Acquire) {
+            return Err(ChannelError::Empty);
+        }
+
+        // The sender publishes its final ring cursor before releasing `closed`.
+        // Acquiring `closed` orders a second cursor load after that publication;
+        // the first load above may legally have observed the older empty state.
+        self.ring.try_consume().ok_or(ChannelError::Closed)
     }
 
     /// Receive with timeout
     ///
     /// # Errors
-    /// Returns [`ChannelError::Empty`](crate::channel::error::ChannelError::Empty)
+    /// Returns [`ChannelError::Empty`]
     /// when `timeout` elapses without a message and
-    /// [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed) when
-    /// the sender is gone.
+    /// [`ChannelError::Closed`] once
+    /// the sender is gone and the ring is drained.
     pub fn recv_timeout(&self, timeout: std::time::Duration) -> Result<T> {
         let start = std::time::Instant::now();
 
@@ -147,9 +146,16 @@ impl<T: Send> HybridReceiver<T> {
                     // and the thread pays the full remaining timeout for a
                     // message that is already in the ring.
                     fence(CHANNEL_STORE_LOAD_ORDER);
-                    if let Some(value) = self.ring.try_consume() {
-                        self.deregister_parked(&current_thread);
-                        return Ok(value);
+                    match self.try_recv() {
+                        Ok(value) => {
+                            self.deregister_parked(&current_thread);
+                            return Ok(value);
+                        }
+                        Err(ChannelError::Empty) => {}
+                        Err(error) => {
+                            self.deregister_parked(&current_thread);
+                            return Err(error);
+                        }
                     }
 
                     // Park for the remaining timeout budget.
@@ -183,7 +189,9 @@ impl<T: Send> HybridReceiver<T> {
         messages
     }
 
-    /// Async receive for use in async contexts (zero-cost waker-based Future)
+    /// Async receive for use in async contexts (zero-cost waker-based Future).
+    ///
+    /// Values published before sender drop are returned before `Closed`.
     #[cfg(feature = "std")]
     pub fn recv_async(&self) -> super::future::RecvFuture<'_, T> {
         super::future::RecvFuture {

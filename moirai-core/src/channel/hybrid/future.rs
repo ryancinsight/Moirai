@@ -1,4 +1,4 @@
-use crate::channel::error::Result;
+use crate::channel::error::{ChannelError, Result};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{Ordering, fence};
@@ -16,13 +16,10 @@ impl<T: Send> Future for RecvFuture<'_, T> {
     type Output = Result<T>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Fast path check
-        if let Some(value) = self.receiver.ring.try_consume() {
-            return Poll::Ready(Ok(value));
-        }
-
-        if self.receiver.closed.load(Ordering::Acquire) {
-            return Poll::Ready(Err(crate::channel::error::ChannelError::Closed));
+        match self.receiver.try_recv() {
+            Ok(value) => return Poll::Ready(Ok(value)),
+            Err(ChannelError::Empty) => {}
+            Err(error) => return Poll::Ready(Err(error)),
         }
 
         let this = self.get_mut();
@@ -69,15 +66,10 @@ impl<T: Send> Future for RecvFuture<'_, T> {
         // store-buffer pair `moirai-sync`'s `FutexMutex` documents).
         fence(CHANNEL_STORE_LOAD_ORDER);
 
-        let ready = match this.receiver.ring.try_consume() {
-            Some(value) => Some(Ok(value)),
-            _ => {
-                if this.receiver.closed.load(Ordering::Acquire) {
-                    Some(Err(crate::channel::error::ChannelError::Closed))
-                } else {
-                    None
-                }
-            }
+        let ready = match this.receiver.try_recv() {
+            Ok(value) => Some(Ok(value)),
+            Err(ChannelError::Empty) => None,
+            Err(error) => Some(Err(error)),
         };
 
         if let Some(output) = ready {
