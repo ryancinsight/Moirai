@@ -24,7 +24,172 @@ def git_repository(path):
     return path
 
 
+def git_tree(repository, entries):
+    records = []
+    for mode, name, contents in entries:
+        blob = subprocess.check_output(
+            ['git', 'hash-object', '-w', '--stdin'], cwd=repository, input=contents,
+        ).decode().strip()
+        records.append(f'{mode} blob {blob}\t{name}\0')
+    return subprocess.check_output(
+        ['git', 'mktree', '-z'], cwd=repository,
+        input=''.join(records).encode(),
+    ).decode().strip()
+
+
 class ObservationProvenance(unittest.TestCase):
+    def test_archived_source_preserves_confined_links_and_rejects_graph_escapes(self):
+        from quic_observation.prepare import archived_source, validate_archive_links
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            repository = git_repository(temporary/'history')
+            targets = {'direct': './target', 'normalized': 'dir/../target'}
+            tree = git_tree(repository, [
+                ('100644', 'target', b'target\n'),
+                *((('120000', name, target.encode())
+                   for name, target in targets.items())),
+            ])
+            archive = subprocess.check_output(
+                ['git', '--no-replace-objects', 'archive', '--format=tar', tree],
+                cwd=repository,
+            )
+            with tarfile.open(fileobj=io.BytesIO(archive)) as contents:
+                members = {member.name: member for member in contents.getmembers()}
+                for name, target in targets.items():
+                    self.assertEqual(members[name].linkname, target)
+                    self.assertEqual(
+                        tarfile.data_filter(members[name], temporary/'filtered').linkname,
+                        'target',
+                    )
+            validate_archive_links(targets)
+            unsafe = ({'link': '../outside'}, {'link': '/outside'},
+                      {'link': 'C:/outside'}, {'link': '..\\outside'},
+                      {'alias': '.', 'escape': 'alias/../outside'},
+                      {'a': 'b', 'b': 'a'})
+            for links in unsafe:
+                with self.subTest(links=links):
+                    with self.assertRaisesRegex(ValueError, 'escapes source|cycle'):
+                        validate_archive_links(links)
+                    rejected = git_tree(repository, [
+                        *((('120000', name, target.encode())
+                           for name, target in links.items())),
+                    ])
+                    with self.assertRaisesRegex(ValueError, 'escapes source|cycle'):
+                        archived_source(repository, rejected, temporary/f'rejected-{len(links)}')
+            probe = temporary/'probe'
+            try:
+                os.symlink('target', probe)
+            except OSError:
+                with self.assertRaisesRegex(ValueError, 'cannot materialize'):
+                    archived_source(repository, tree, temporary/'unsupported')
+            else:
+                probe.unlink()
+                archived_source(repository, tree, temporary/'source')
+                for name, target in targets.items():
+                    self.assertEqual(os.readlink(temporary/'source'/name), target)
+
+    def test_archived_source_ignores_replacements_and_rejects_case_collisions(self):
+        from quic_observation.prepare import archived_source
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            repository = git_repository(temporary/'history')
+            original = git_tree(repository, [('100644', 'identity.txt', b'original\n')])
+            replacement = git_tree(repository, [('100644', 'identity.txt', b'replacement\n')])
+            subprocess.run(['git', 'replace', original, replacement],
+                           cwd=repository, check=True)
+            self.assertEqual(subprocess.check_output(
+                ['git', 'show', f'{original}:identity.txt'], cwd=repository), b'replacement\n')
+            observed, gitlinks = archived_source(repository, original, temporary/'source')
+            self.assertEqual((observed, gitlinks), (original, []))
+            self.assertEqual((temporary/'source/identity.txt').read_bytes(), b'original\n')
+            collision = git_tree(repository, [
+                ('100644', 'File.txt', b'identical\n'),
+                ('100644', 'file.txt', b'identical\n'),
+            ])
+            with self.assertRaisesRegex(ValueError, 'case-folding path collision'):
+                archived_source(repository, collision, temporary/'collision')
+
+    def test_prepare_uses_exact_tree_instead_of_mutable_caller_files(self):
+        import json
+        from quic_observation.prepare import prepare
+        root = Path(__file__).resolve().parents[2]
+        tracked = 'moirai-quic/examples/quic_load.rs'
+        expected = subprocess.check_output(['git', 'show', f'HEAD:{tracked}'], cwd=root)
+        tree = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD^{tree}'], cwd=root, text=True).strip()
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            mutable = temporary/'mutable-caller'
+            changed = mutable/tracked
+            changed.parent.mkdir(parents=True)
+            changed.write_bytes(b'modified caller source\n')
+            hostile = temporary/'hostile.attributes'
+            hostile.write_text(f'{tracked} export-ignore\n')
+            config = {'GIT_CONFIG_COUNT': '1',
+                      'GIT_CONFIG_KEY_0': 'core.attributesFile',
+                      'GIT_CONFIG_VALUE_0': str(hostile)}
+            prior = {key: os.environ.get(key) for key in config}
+            os.environ.update(config)
+            output = temporary/'prepared'
+            try:
+                prepare(mutable, output, root, 'HEAD')
+            finally:
+                for key, value in prior.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+            self.assertEqual((output/'workspace'/tracked).read_bytes(), expected)
+            self.assertNotEqual((output/'workspace'/tracked).read_bytes(), changed.read_bytes())
+            provenance = json.loads((output/'provenance.json').read_text())
+            self.assertEqual((provenance['source_tree'], provenance['source_gitlinks']),
+                             (tree, []))
+
+    def test_exact_shallow_tree_and_moving_symbolic_claim(self):
+        from quic_observation.prepare import (diagnostic_lock, digest, patch_source,
+                                              provenance_inputs, verify_provenance)
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            repository = git_repository(temporary/'history')
+            patch = repository/'scripts/quic_observation/engine.patch'
+            patch.parent.mkdir(parents=True)
+            shutil.copyfile(root/'scripts/quic_observation/engine.patch', patch)
+            shutil.copyfile(root/'Cargo.lock', repository/'Cargo.lock')
+            identity = repository/'identity.txt'
+            identity.write_bytes(b'first\n')
+            subprocess.run(['git', 'add', 'Cargo.lock', 'identity.txt',
+                            'scripts/quic_observation/engine.patch'],
+                           cwd=repository, check=True)
+            subprocess.run(['git', 'commit', '-qm', 'first'], cwd=repository, check=True)
+            first_tree = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD^{tree}'], cwd=repository, text=True).strip()
+            exact_inputs = (patch.read_bytes(), (repository/'Cargo.lock').read_text())
+            source, checksum = registry_source(root, temporary/'registry')
+            report = patch_source(source, temporary/'engine', root)
+            original = (root/'Cargo.lock').read_text()
+            report.update({'registry_checksum': checksum,
+                           'canonical_lock_sha256': digest(original.encode()),
+                           'diagnostic_lock_sha256': digest(diagnostic_lock(original).encode()),
+                           'source_tree': first_tree, 'source_gitlinks': []})
+            verify_provenance(report, root, repository)
+            shallow = temporary/'shallow'
+            subprocess.run(['git', 'clone', '-q', '--depth=1', repository.as_uri(), shallow],
+                           check=True)
+            self.assertEqual(provenance_inputs(report, shallow, shallow), exact_inputs)
+            symbolic = {**report, 'source_tree': 'HEAD'}
+            for contents in (b'first\n', b'second\n'):
+                self.assertEqual(subprocess.check_output(
+                    ['git', 'show', 'HEAD:identity.txt'], cwd=repository), contents)
+                with self.assertRaisesRegex(ValueError, 'provenance differs'):
+                    verify_provenance(symbolic, root, repository)
+                if contents == b'first\n':
+                    identity.write_bytes(b'second\n')
+                    subprocess.run(['git', 'add', 'identity.txt'], cwd=repository, check=True)
+                    subprocess.run(['git', 'commit', '-qm', 'second'],
+                                   cwd=repository, check=True)
+            verify_provenance(report, root, repository)
+
     def test_provenance_finds_pair_created_by_lock_only_commit(self):
         from quic_observation.prepare import digest, provenance_inputs
         with tempfile.TemporaryDirectory() as temporary:

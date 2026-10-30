@@ -4,8 +4,10 @@ import argparse
 import hashlib
 import io
 import json
+import ntpath
 import os
 from pathlib import Path, PurePosixPath
+import posixpath
 import shutil
 import subprocess
 import tarfile
@@ -122,6 +124,20 @@ def provenance_inputs(report, root, history_repository):
     patch_name = 'scripts/quic_observation/engine.patch'
     expected_patch = report.get('patch_sha256')
     expected_lock = report.get('canonical_lock_sha256')
+    source_tree = report.get('source_tree')
+    if source_tree is not None:
+        try:
+            raw = subprocess.check_output(
+                [*GIT, 'show', f'{source_tree}:{patch_name}'], cwd=history_repository,
+                env=git_environment())
+            original = subprocess.check_output(
+                [*GIT, 'show', f'{source_tree}:Cargo.lock'], cwd=history_repository,
+                text=True, env=git_environment())
+        except subprocess.CalledProcessError as error:
+            raise ValueError('diagnostic source tree is not reachable') from error
+        if digest(raw) != expected_patch or digest(original.encode()) != expected_lock:
+            raise ValueError('diagnostic source tree differs from reported patch/lock')
+        return raw, original
     raw = (root/patch_name).read_bytes()
     original = (root/'Cargo.lock').read_text()
     if digest(raw) == expected_patch and digest(original.encode()) == expected_lock:
@@ -145,6 +161,126 @@ def provenance_inputs(report, root, history_repository):
     raise ValueError('diagnostic patch provenance is not reachable')
 
 
+def link_parts(paths, value, name):
+    if paths is ntpath:
+        value = value.replace('/', '\\')
+    drive, tail = paths.splitdrive(value)
+    if drive or paths.isabs(value):
+        raise ValueError(f'diagnostic symlink escapes source: {name}')
+    return [part for part in tail.split(paths.sep) if part not in ('', paths.curdir)]
+
+
+def validate_archive_links(links):
+    for paths in (posixpath, ntpath):
+        table = {}
+        for name, target in links.items():
+            if not target:
+                raise ValueError(f'diagnostic symlink target is empty: {name}')
+            key = paths.normcase(paths.sep.join(link_parts(paths, name, name)))
+            table[key] = target
+        for name, target in links.items():
+            parent = link_parts(paths, paths.dirname(name), name)
+            pending = link_parts(paths, target, name)
+            resolved = parent
+            expansions = 0
+            while pending:
+                part = pending.pop(0)
+                if part == paths.pardir:
+                    if not resolved:
+                        raise ValueError(f'diagnostic symlink escapes source: {name}')
+                    resolved.pop()
+                    continue
+                resolved.append(part)
+                key = paths.normcase(paths.sep.join(resolved))
+                if key in table:
+                    expansions += 1
+                    if expansions > len(table):
+                        raise ValueError(f'diagnostic symlink cycle: {name}')
+                    resolved.pop()
+                    pending[:0] = link_parts(paths, table[key], name)
+
+
+def archived_source(history_repository, revision, destination):
+    source_tree = subprocess.check_output(
+        [*GIT, 'rev-parse', f'{revision}^{{tree}}'],
+        cwd=history_repository, text=True, env=git_environment()).strip()
+    entries = subprocess.check_output([
+        *GIT, 'ls-tree', '-r', '-z', '--full-tree',
+        '--format=%(objectmode) %(objecttype) %(objectname) %(path)', source_tree],
+        cwd=history_repository, env=git_environment()).decode().split('\0')
+    blobs = {}
+    gitlinks = []
+    for entry in filter(None, entries):
+        mode, object_type, object_name, name = entry.split(' ', 3)
+        if object_type == 'blob':
+            blobs[name] = (mode, object_name)
+        elif mode == '160000' and object_type == 'commit':
+            gitlinks.append({'path': name, 'commit': object_name})
+        else:
+            raise ValueError(f'unsupported diagnostic source entry: {name}')
+    object_format = subprocess.check_output(
+        [*GIT, 'rev-parse', '--show-object-format'],
+        cwd=history_repository, text=True, env=git_environment()).strip()
+    archive = destination.parent/'source.tar'
+    attributes = destination.parent/'archive.attributes'
+    attributes.write_bytes(b'')
+    with archive.open('wb') as output:
+        subprocess.run([*GIT, '-c', 'core.autocrlf=false',
+                        '-c', f'core.attributesFile={attributes}',
+                        'archive', '--format=tar', source_tree],
+                       cwd=history_repository, stdout=output, check=True,
+                       env=git_environment())
+    with tarfile.open(archive) as contents:
+        material = [member for member in contents.getmembers()
+                    if member.isfile() or member.issym()]
+        members = {member.name: member for member in material}
+        if len(members) != len(material) or set(members) != set(blobs):
+            raise ValueError('diagnostic archive inventory differs from its Git tree')
+        if len({name.casefold() for name in blobs}) != len(blobs):
+            raise ValueError('diagnostic source contains a case-folding path collision')
+        links = {}
+        for name, (mode, _) in blobs.items():
+            member = members[name]
+            if mode == '120000':
+                if not member.issym():
+                    raise ValueError(f'diagnostic symlink mode differs: {name}')
+                links[name] = member.linkname
+            elif not member.isfile() or bool(member.mode & 0o111) != (mode == '100755'):
+                raise ValueError(f'diagnostic file mode differs: {name}')
+        validate_archive_links(links)
+        destination.mkdir()
+        contents.extractall(
+            destination,
+            members=(member for member in contents.getmembers() if not member.issym()),
+            filter='data',
+        )
+        for name, target in links.items():
+            try:
+                os.symlink(target, destination/name)
+            except OSError as error:
+                raise ValueError('host cannot materialize diagnostic symlinks') from error
+        extracted = {path.relative_to(destination).as_posix()
+                     for path in destination.rglob('*')
+                     if path.is_file() or path.is_symlink()}
+        if extracted != set(blobs):
+            raise ValueError('diagnostic extracted inventory differs from its Git tree')
+        for name, (mode, object_name) in blobs.items():
+            if mode == '120000':
+                if not (destination/name).is_symlink():
+                    raise ValueError(f'diagnostic symlink mode differs: {name}')
+                raw = os.fsencode(os.readlink(destination/name))
+                if raw != os.fsencode(links[name]):
+                    raise ValueError(f'diagnostic symlink target differs: {name}')
+            else:
+                raw = (destination/name).read_bytes()
+            hashed = hashlib.new(object_format)
+            hashed.update(f'blob {len(raw)}\0'.encode())
+            hashed.update(raw)
+            if hashed.hexdigest() != object_name:
+                raise ValueError(f'diagnostic blob differs: {name}')
+    return source_tree, gitlinks
+
+
 def verify_provenance(report, root, history_repository=None):
     history_repository = root if history_repository is None else history_repository
     reported_files = set(report.get('changed_files', ()))
@@ -152,48 +288,79 @@ def verify_provenance(report, root, history_repository=None):
         raise ValueError('diagnostic report has an unrecognized patch inventory')
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
-        source, checksum = registry_source(root, temporary/'registry')
-        raw, original = provenance_inputs(report, root, history_repository)
-        expected = patch_source(source, Path(temporary)/'engine', root, raw,
+        source_root = root
+        if 'source_tree' in report:
+            source_root = temporary/'source'
+            source_tree, source_gitlinks = archived_source(
+                history_repository, report['source_tree'], source_root)
+        source, checksum = registry_source(source_root, temporary/'registry')
+        raw, original = provenance_inputs(report, source_root, history_repository)
+        expected = patch_source(source, Path(temporary)/'engine', source_root, raw,
                                 reported_files)
     expected.update({'registry_checksum': checksum,
                      'canonical_lock_sha256': digest(original.encode()),
                      'diagnostic_lock_sha256': digest(diagnostic_lock(original).encode())})
+    if 'source_tree' in report:
+        expected['source_tree'] = source_tree
+        expected['source_gitlinks'] = source_gitlinks
     if report != expected:
         raise ValueError('diagnostic build provenance differs from verified source/patch/locks')
 
 
-def prepare(root, destination):
+def prepare(root, destination, history_repository=None, revision='HEAD'):
+    history_repository = root if history_repository is None else history_repository
     destination.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory() as temporary:
-        source, checksum = registry_source(root, Path(temporary)/'registry')
-        report = patch_source(source, destination/'engine', root)
-    report['registry_checksum'] = checksum
-    workspace = destination/'workspace'
-    files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode().split('\0')
-    for name in filter(None, files):
-        original_file = root/name
-        if not original_file.is_file():
-            raise ValueError(f'tracked source is absent: {name}')
-        target = workspace/name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(original_file, target)
-    original = (root/'Cargo.lock').read_text()
-    observed = diagnostic_lock(original)
-    (workspace/'Cargo.lock').write_text(observed, newline='\n')
-    config = '[patch.crates-io]\nquinn-proto = { path = '+json.dumps(str(destination/'engine'))+' }\n'
-    (destination/'config.toml').write_text(config)
-    report.update({'canonical_lock_sha256': digest(original.encode()),
-                   'diagnostic_lock_sha256': digest(observed.encode())})
-    (destination/'provenance.json').write_text(json.dumps(report, indent=2)+'\n')
+        source_root = Path(temporary)/'source'
+        source_tree, source_gitlinks = archived_source(
+            history_repository, revision, source_root)
+        source, checksum = registry_source(source_root, Path(temporary)/'registry')
+        report = patch_source(source, destination/'engine', source_root)
+        report['registry_checksum'] = checksum
+        workspace = destination/'workspace'
+        shutil.copytree(source_root, workspace, symlinks=True)
+        original = (source_root/'Cargo.lock').read_text()
+        observed = diagnostic_lock(original)
+        config = ('[build]\n'
+                  'rustflags = ["--cfg", "quic_observation", '
+                  '"--check-cfg=cfg(quic_observation)"]\n\n'
+                  '[patch.crates-io]\nquinn-proto = { path = ' +
+                  json.dumps(str(destination/'engine')) + ' }\n')
+        (destination/'config.toml').write_text(config, newline='\n')
+        # The lock is written last so Cargo's freshness check never treats the
+        # newly created path patch as newer lock input requiring a no-op rewrite.
+        (workspace/'Cargo.lock').write_text(observed, newline='\n')
+        subprocess.run([
+            'cargo', '--config', str(destination/'config.toml'), 'metadata', '--offline',
+            '--manifest-path', str(workspace/'Cargo.toml'), '--format-version', '1'],
+            cwd=destination, stdout=subprocess.DEVNULL, check=True)
+        if (workspace/'Cargo.lock').read_bytes() != observed.encode():
+            raise ValueError('Cargo changes the diagnostic lock during patch resolution')
+        report.update({'canonical_lock_sha256': digest(original.encode()),
+                       'source_tree': source_tree,
+                       'source_gitlinks': source_gitlinks,
+                       'diagnostic_lock_sha256': digest(observed.encode())})
+        provenance_inputs(report, source_root, history_repository)
+        (destination/'provenance.json').write_text(
+            json.dumps(report, indent=2)+'\n', newline='\n')
     print(json.dumps({'workspace': str(workspace), 'config': str(destination/'config.toml')}))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--source-tree')
+    parser.add_argument('--history-repository', type=Path)
     arguments = parser.parse_args()
-    prepare(Path(__file__).resolve().parents[2], arguments.output.resolve())
+    if arguments.source_tree is None:
+        if arguments.history_repository is not None:
+            parser.error('--history-repository requires --source-tree')
+        prepare(Path(__file__).resolve().parents[2], arguments.output.resolve())
+        return
+    if arguments.history_repository is None:
+        parser.error('--source-tree requires --history-repository')
+    history = arguments.history_repository.resolve()
+    prepare(history, arguments.output.resolve(), history, arguments.source_tree)
 
 
 if __name__ == '__main__':
