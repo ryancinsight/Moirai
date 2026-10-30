@@ -40,6 +40,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  workflow-lint:
+    name: Workflow analyzers
+    uses: ryancinsight/atlas/.github/workflows/workflow-lint.yml@f019a0e2f51d0f4f0ed90496392a0a160cebce17
+    permissions:
+      contents: read
+
   quic-diagnostics:
     name: Native QUIC diagnosis
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.quic_case != '' }}
@@ -586,7 +592,7 @@ jobs:
   verdict:
     name: Verification result
     if: ${{ always() }}
-    needs: [semver, adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri, quic]
+    needs: [workflow-lint, semver, adr-index, lockfile, gate, msrv, loom, supply-chain, fuzz, miri, quic]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
