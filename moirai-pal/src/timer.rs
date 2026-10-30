@@ -8,6 +8,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::task::{Context, Poll};
+use std::thread;
 use std::time::{Duration, Instant};
 
 /// Platform-agnostic one-shot timer future.
@@ -89,6 +90,30 @@ impl TimerState {
         }
     }
 
+    fn clear_waker(&self) {
+        let removed = self
+            .waker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        drop(removed);
+    }
+
+    fn finish_poll(&self) {
+        self.completed.store(true, Ordering::Release);
+        self.clear_waker();
+    }
+
+    fn finish_spawn(&self, worker: io::Result<thread::JoinHandle<()>>) -> io::Result<()> {
+        match worker {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                self.finish_poll();
+                Err(error)
+            }
+        }
+    }
+
     fn spawn_sleeper(self: &Arc<Self>, deadline: Instant) -> io::Result<()> {
         if self
             .sleeper_started
@@ -99,21 +124,16 @@ impl TimerState {
         }
 
         let state = Arc::clone(self);
-        match std::thread::Builder::new()
+        let worker = thread::Builder::new()
             .name("moirai-pal-timer".to_owned())
             .spawn(move || {
                 let now = Instant::now();
                 if deadline > now {
-                    std::thread::sleep(deadline.duration_since(now));
+                    thread::sleep(deadline.duration_since(now));
                 }
                 state.complete();
-            }) {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                self.completed.store(true, Ordering::Release);
-                Err(error)
-            }
-        }
+            });
+        self.finish_spawn(worker)
     }
 }
 
