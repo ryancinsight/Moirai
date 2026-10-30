@@ -23,7 +23,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// drains and releases its scheduler ownership after its current task
     /// returns.
     pub fn shutdown(&self) {
-        self.request_shutdown();
+        self.inner.request_close();
 
         #[cfg(test)]
         if let Some(barrier) = self.inner.shutdown_started_barrier.get() {
@@ -39,19 +39,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     pub(crate) fn is_current_worker(&self) -> bool {
         current_thread_belongs_to(&self.inner)
-    }
-
-    fn request_shutdown(&self) {
-        // SeqCst: the producer half of the parking handshake (wait.rs pairs
-        // this store with its `pending_tasks` recheck), so a shutdown cannot
-        // hide behind a worker that parks between the two observations.
-        if !self.inner.shutdown.swap(true, Ordering::SeqCst) {
-            wake_all_workers(&self.inner);
-        }
-
-        if let Some(lane) = self.inner.blocking_lane.get() {
-            lane.request_close();
-        }
     }
 
     fn join_shutdown(&self) {
@@ -117,6 +104,25 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     }
 }
 
+impl<const BLOCKING_QUEUE_CAPACITY: usize> SchedulerInner<BLOCKING_QUEUE_CAPACITY> {
+    /// Publish request-only closure without joining or acquiring queue locks.
+    pub(in crate::schedule::runtime) fn request_close(&self) {
+        // SeqCst: the producer half of the parking handshake (wait.rs pairs
+        // this store with its `pending_tasks` recheck), so a shutdown cannot
+        // hide behind a worker that parks between the two observations.
+        if !self.shutdown.swap(true, Ordering::SeqCst) {
+            wake_all_workers(self);
+        }
+
+        // A lane published after the swap performs its own same-word SeqCst
+        // handshake in admission. A lane already visible here closes without
+        // the initialization mutex, keeping final-handle Drop nonblocking.
+        if let Some(lane) = self.blocking_lane.get() {
+            lane.request_close();
+        }
+    }
+}
+
 impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
     for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
@@ -129,7 +135,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
         let previous = self.inner.external_handles.fetch_sub(1, Ordering::AcqRel);
         debug_assert!(previous > 0, "scheduler handle count must not underflow");
         if previous == 1 {
-            self.request_shutdown();
+            self.inner.request_close();
         }
     }
 }
