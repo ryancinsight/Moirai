@@ -80,6 +80,17 @@ def probe_identity(binary):
     return {"runtime": runtime, "executable": executable}
 
 
+def probe_runtime(probe):
+    """Return the runtime only for a complete supported probe identity."""
+    if (type(probe) is not dict or set(probe) != {"runtime", "executable"} or
+            type(probe.get("runtime")) is not str or type(probe.get("executable")) is not str):
+        raise ValueError("invalid probe identity schema")
+    expected = probe_identity(Path(probe["executable"]))
+    if probe != expected:
+        raise ValueError("probe runtime and executable disagree")
+    return probe["runtime"]
+
+
 def record_pair(binary, network, streams, size, policy, **options):
     try:
         return {"policy": policy, "reports": pair(binary, network, streams, size,
@@ -200,7 +211,8 @@ def main():
                 if "error" in preflight:
                     raise RuntimeError("authenticated trace preflight fails")
                 for role in ("client", "server"):
-                    protocol_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"], True)
+                    protocol_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"], True,
+                                   report["probe"])
                     if "engine_observation" in report:
                         from quic_observation.audit import state_trace
                         state_trace(preflight["reports"]["diagnostics"][f"{role}_stderr"])

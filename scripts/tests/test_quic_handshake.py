@@ -5,7 +5,9 @@ import itertools
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -57,12 +59,16 @@ class HandshakeRecoveryEvidence(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), native['candidate_mod_sha256'])
 
     def test_complete_linux_observer_and_independent_pristine_gate_replay_exactly(self):
-        from quic_trace_audit import trace_audit
         from quic_recovery_audit import audit_default
         paths = [*sorted(DIRECTORY.glob('03dcc4a3-matrix-*.json.gz')),
                  *sorted(DIRECTORY.glob('03dcc4a3-fairness-*.json.gz'))]
-        shards = [json.loads(gzip.decompress(p.read_bytes())) for p in paths]
-        result = trace_audit(shards)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)/'audit.json'
+            subprocess.run(
+                [sys.executable, str(ROOT/'scripts/quic_trace_audit.py'), *map(str, paths),
+                 '--probe-executable', 'quic_load', '--output', str(output)], cwd=ROOT,
+                capture_output=True, text=True, check=True)
+            result = json.loads(output.read_text())
         self.assertEqual(result, json.loads(gzip.decompress(
             (DIRECTORY/'03dcc4a3-audit.json.gz').read_bytes())))
         self.assertEqual({p: (c['pairs'], c['passed']) for p, c in result['counts'].items()}, {

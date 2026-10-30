@@ -6,16 +6,34 @@ import gzip
 import json
 from pathlib import Path
 
+from quic_recovery import probe_identity, probe_runtime
 from quic_recovery_audit import audit, diagnostics, require
 
+TIMER_COUNTS = ("timer_driver_wakes", "timer_lateness_ns", "max_timer_lateness_ns")
 COUNTS = ("congestion_blocked", "pacing_blocked", "anti_amplification_blocked",
           "data_blocked", "stream_data_blocked", "established", "pto_initial",
           "pto_handshake", "pto_data", "max_pto_backoff", "max_pto_in_flight_bytes",
-          "timer_driver_wakes", "timer_lateness_ns", "max_timer_lateness_ns")
+          *TIMER_COUNTS)
+NON_TIMER_COUNTS = tuple(field for field in COUNTS if field not in TIMER_COUNTS)
 PHASES = ("authenticated", "exchange", "complete", "drain")
 
 
-def protocol_trace(text, success):
+def check_recovery_counts(counts, runtime, inventory_message):
+    require(set(counts) == set(COUNTS), inventory_message)
+    require(all(type(counts[field]) is int and counts[field] >= 0
+                for field in NON_TIMER_COUNTS), "invalid recovery count")
+    timers = [counts[field] for field in TIMER_COUNTS]
+    if runtime == "moirai":
+        require(all(type(value) is int and value >= 0 for value in timers),
+                "invalid Moirai timer count")
+    else:
+        require(all(value is None for value in timers),
+                "Tokio timer telemetry must be unavailable")
+
+
+def protocol_trace(text, success, probe):
+    runtime = probe_runtime(probe)
+    comparable_counts = COUNTS if runtime == "moirai" else NON_TIMER_COUNTS
     samples = []
     for line in (text or "").splitlines():
         if "protocol recovery observation" not in line:
@@ -26,14 +44,13 @@ def protocol_trace(text, success):
         require(sample["schema"] == 1, "unknown protocol recovery schema")
         for field in ("observed_unix_ns", "elapsed_ns"):
             require(type(sample[field]) is int and sample[field] >= 0, "invalid trace time")
-        require(set(sample["counts"]) == set(COUNTS), "recovery counter inventory differs")
-        require(all(type(v) is int and v >= 0 for v in sample["counts"].values()),
-                "invalid recovery count")
+        check_recovery_counts(sample["counts"], runtime, "recovery counter inventory differs")
         counts = sample["counts"]
-        require(counts["max_timer_lateness_ns"] <= counts["timer_lateness_ns"],
-                "timer maximum exceeds sum")
-        require(counts["timer_driver_wakes"] > 0 or counts["timer_lateness_ns"] == 0,
-                "lateness without a timer-driver wake")
+        if runtime == "moirai":
+            require(counts["max_timer_lateness_ns"] <= counts["timer_lateness_ns"],
+                    "timer maximum exceeds sum")
+            require(counts["timer_driver_wakes"] > 0 or counts["timer_lateness_ns"] == 0,
+                    "lateness without a timer-driver wake")
         require(counts["established"] <= 1, "probe establishes more than one connection")
         require(sample["phase"] in ("handshake", *PHASES), "unknown probe phase")
         require(sample["observation"] in
@@ -49,9 +66,9 @@ def protocol_trace(text, success):
             require(all(0 <= e["elapsed_ns"] <= sample["elapsed_ns"] for e in entries),
                     "event lies outside trace observation")
         for phase in sample["phases"]:
-            require(set(phase["counts"]) == set(COUNTS), "phase counter inventory differs")
-            require(all(type(v) is int and 0 <= v <= counts[k]
-                        for k, v in phase["counts"].items()), "phase counter exceeds snapshot")
+            check_recovery_counts(phase["counts"], runtime, "phase counter inventory differs")
+            require(all(phase["counts"][field] <= counts[field] for field in comparable_counts),
+                    "phase counter exceeds snapshot")
         timeouts = sample["timeouts"]
         for timeout in timeouts:
             require(timeout["phase"] in ("handshake", *PHASES), "unknown PTO phase")
@@ -69,7 +86,8 @@ def protocol_trace(text, success):
             previous = samples[-1]
             require(sample["elapsed_ns"] >= previous["elapsed_ns"] and
                     sample["observed_unix_ns"] >= previous["observed_unix_ns"], "trace clocks decrease")
-            require(all(counts[k] >= previous["counts"][k] for k in COUNTS), "recovery counters decrease")
+            require(all(counts[k] >= previous["counts"][k] for k in comparable_counts),
+                    "recovery counters decrease")
             for key in ("phases", "timeouts"):
                 require(sample[key][:len(previous[key])] == previous[key], "event history changes")
         samples.append(sample)
@@ -90,7 +108,20 @@ def protocol_trace(text, success):
             "before_drain": terminal[0] if terminal else None, "last": samples[-1]}
 
 
-def trace_audit(shards):
+def trace_audit(shards, probe_executable=None):
+    require(bool(shards), "trace shards are absent")
+    probes = [shard.get("probe") for shard in shards]
+    selected = probe_identity(probe_executable) if probe_executable is not None else None
+    require(selected is not None or all(probe is not None for probe in probes),
+            "probe executable is required for archives without identity")
+    for probe in probes:
+        if probe is not None:
+            probe_runtime(probe)
+    resolved = [probe if probe is not None else selected for probe in probes]
+    require(all(probe == resolved[0] for probe in resolved), "mixed probe identities")
+    require(selected is None or selected == resolved[0],
+            "probe executable conflicts with archive identity")
+    probe = resolved[0]
     result = audit(shards)
     observed = any("engine_observation" in s for s in shards)
     if observed:
@@ -114,7 +145,7 @@ def trace_audit(shards):
         for role, responder in (("client", False), ("server", True)):
             verify(preflight["reports"][role], responder, 1, 24)
             require(preflight["reports"][role]["congestion_policy"] == "cubic", "preflight policy differs")
-            protocol_trace(diagnostics(preflight, role), True)
+            protocol_trace(diagnostics(preflight, role), True, probe)
             if observed:
                 state_trace(diagnostics(preflight, role))
     traces = []
@@ -125,7 +156,8 @@ def trace_audit(shards):
                                "repetition": record["repetition"], "streams": record["streams"],
                                "bytes": record["bytes"], "policy": flow["policy"],
                                "status": "failed" if "error" in flow else "passed",
-                               **{role: protocol_trace(diagnostics(flow, role), "error" not in flow)
+                               **{role: protocol_trace(diagnostics(flow, role), "error" not in flow,
+                                                       probe)
                                   for role in ("client", "server")}})
                 if observed:
                     result["engine_states"].append({
@@ -140,11 +172,12 @@ def trace_audit(shards):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("shards", nargs="+", type=Path)
+    parser.add_argument("--probe-executable", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     shards = [json.loads(gzip.decompress(p.read_bytes()) if p.suffix == ".gz" else p.read_bytes())
               for p in args.shards]
-    result = trace_audit(shards)
+    result = trace_audit(shards, args.probe_executable)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result["counts"], indent=2))
 

@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from quic_profiles import FRAME_BYTES, MESSAGES, PROFILES, REPETITIONS, STREAMS, verify
-from quic_recovery import POLICIES, main, matrix_cases, probe_identity
+from quic_recovery import POLICIES, main, matrix_cases, probe_identity, probe_runtime
 from quic_recovery_audit import audit, fraction, progress, queue_evidence, sampled_fairness
 from fractions import Fraction
 
@@ -126,12 +126,19 @@ class RecoveryContract(unittest.TestCase):
             network.assert_not_called()
 
     def test_probe_identity_is_derived_from_supported_executables(self):
-        self.assertEqual(probe_identity(Path('quic_load')),
-                         {'runtime': 'moirai', 'executable': 'quic_load'})
-        self.assertEqual(probe_identity(Path('quic_load_tokio.exe')),
-                         {'runtime': 'tokio', 'executable': 'quic_load_tokio.exe'})
+        moirai = {'runtime': 'moirai', 'executable': 'quic_load'}
+        tokio = {'runtime': 'tokio', 'executable': 'quic_load_tokio.exe'}
+        self.assertEqual(probe_identity(Path('quic_load')), moirai)
+        self.assertEqual(probe_identity(Path('quic_load_tokio.exe')), tokio)
+        self.assertEqual(probe_runtime(moirai), 'moirai')
+        self.assertEqual(probe_runtime(tokio), 'tokio')
         with self.assertRaisesRegex(ValueError, "unsupported probe executable 'quic_load_copy'"):
             probe_identity(Path('quic_load_copy'))
+        for invalid in ({'runtime': 'tokio', 'executable': 'quic_load'},
+                        {'runtime': 'unknown', 'executable': 'quic_load_unknown'},
+                        {'runtime': 'moirai'}, None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                probe_runtime(invalid)
 
     def test_failed_run_report_retains_selected_probe_identity(self):
         with tempfile.TemporaryDirectory() as directory:
