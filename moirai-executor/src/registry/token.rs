@@ -122,14 +122,13 @@ pub(crate) struct TaskLifecycleToken<L: StateLease = OwnedStateLease> {
 pub(crate) struct RunningTaskToken<L: StateLease = OwnedStateLease> {
     lease: Option<L>,
     pub(super) started_after_ns: u64,
-    pub(super) completed: bool,
 }
 
 // The async task state moves these tokens between polling threads through a
 // manual `Send` impl (`hybrid::async_state`). Both tokens hold only the lease,
-// a counter, and a flag, so they are `Send` for every lease; a field that is
-// not `Send` added to either token stops compiling here rather than becoming
-// unsound there.
+// and a counter, so they are `Send` for every lease; a field that is not `Send`
+// added to either token stops compiling here rather than becoming unsound
+// there.
 const _: [fn(); 2] = {
     const fn assert_send<T: Send>() {}
     fn tokens_are_send<L: StateLease>() {
@@ -243,7 +242,6 @@ impl<L: StateLease> TaskLifecycleToken<L> {
         RunningTaskToken {
             lease: self.lease.take(),
             started_after_ns,
-            completed: false,
         }
     }
 }
@@ -277,35 +275,24 @@ impl<L: StateLease> RunningTaskToken<L> {
     /// and completed, returning its pending waiter notification.
     #[inline]
     pub(crate) fn cancel(mut self) -> TaskCompletion {
-        let completion = self.publish_cancelled();
-        if let Some(lease) = self.lease.take() {
-            lease.retire();
-        }
+        let lease = self
+            .lease
+            .take()
+            .expect("invariant: running token retains its state lease");
+        let completion = lease.state().mark_cancelled();
+        lease.retire();
         completion
     }
 
     /// Publish completion exactly once and return the pending notification.
     #[inline]
     pub(crate) fn complete(mut self) -> TaskCompletion {
-        let execution_time = self
+        let lease = self
             .lease
-            .as_ref()
-            .expect("invariant: running token retains its state lease")
-            .state()
-            .mark_completed_since(self.started_after_ns);
-        self.completed = true;
-        execution_time
-    }
-
-    /// Record a task that never reported completion as cancelled.
-    fn publish_cancelled(&mut self) -> TaskCompletion {
-        let completion = self
-            .lease
-            .as_ref()
-            .expect("invariant: running token retains its state lease")
-            .state()
-            .mark_cancelled();
-        self.completed = true;
+            .take()
+            .expect("invariant: running token retains its state lease");
+        let completion = lease.state().mark_completed_since(self.started_after_ns);
+        lease.retire();
         completion
     }
 }
@@ -315,15 +302,9 @@ impl<L: StateLease> Drop for RunningTaskToken<L> {
         // Every path that finishes the body calls `complete`; reaching Drop
         // without it means the task was discarded mid-run, and its result
         // sender drops with it.
-        let completion = if self.completed {
-            None
-        } else {
-            Some(self.publish_cancelled())
-        };
         if let Some(lease) = self.lease.take() {
+            let completion = lease.state().mark_cancelled();
             lease.retire();
-        }
-        if let Some(completion) = completion {
             completion.notify();
         }
     }

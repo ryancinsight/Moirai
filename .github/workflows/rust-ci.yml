@@ -558,7 +558,7 @@ jobs:
         run: >-
           cargo miri test --locked -p moirai-executor --lib --
           hybrid:: schedule::job schedule::queue
-          schedule::runtime::tests::scope registry::tests:: registry::state registry::waiter_tests::
+          schedule::runtime::tests::scope registry::tests:: registry::state registry::waiter_tests:: registry::token_tests::
           -Zunstable-options --report-time --test-threads=1
 
       - name: Interpret the scheduler deque tests

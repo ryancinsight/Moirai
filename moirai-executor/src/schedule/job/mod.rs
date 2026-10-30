@@ -161,11 +161,13 @@ impl InlineJob {
 
 impl Drop for InlineJob {
     fn drop(&mut self) {
-        // Safety: storage contains the initialized closure until `execute`
-        // swaps this function pointer to `drop_consumed`.
-        unsafe {
-            (self.drop)(&mut self.storage);
-        }
+        // Lifecycle-token cleanup may notify arbitrary waiter code. Keep that
+        // callback inside the job boundary's guarded panic disposal path.
+        run_caught(|| {
+            // Safety: storage contains the initialized closure until `execute`
+            // swaps this function pointer to `drop_consumed`.
+            unsafe { (self.drop)(&mut self.storage) };
+        });
     }
 }
 
