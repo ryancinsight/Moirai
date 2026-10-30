@@ -538,6 +538,15 @@ jobs:
           rustc --version
           cargo miri --version
 
+      - name: Interpret PAL timer callback ownership
+        if: matrix.suite == 'foundation'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo miri test --locked -p moirai-pal --lib -- timer::tests:: \
+            -Zunstable-options --report-time --test-threads=1 | tee "$RUNNER_TEMP/pal-timer-miri.log"
+          grep -Fq 'test timer::tests::callbacks::pal_timer_waker_callbacks_run_outside_the_registry_lock ... ok' "$RUNNER_TEMP/pal-timer-miri.log"
+
       # Each group records its wall seconds as stacked-borrows / tree-borrows
       # and names its slowest tests.
       - name: Interpret the executor lease, scope, and queue tests
