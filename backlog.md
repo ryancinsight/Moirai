@@ -10,6 +10,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-QUIC-PROMOTION-001 — Promote verified native QUIC [minor]
 - status: todo
 - priority: feature
+- milestone: M-async-io-transport
 - outcome: Moirai 0.11.0 and moirai-quic 0.1.0 are available at the canonical provider revision; Metis resolves its Git lock from that published source. (0.10.0 was taken by main's clipboard release while this PR was in flight.)
 - acceptance: ADR 0075, real UDP interoperability/loss/bounds/cancellation tests, clean native diagnostics, compatibility checks and canonical Git lock pass before promotion. Windows/Linux transport evidence remains a platform gate.
 - scope: provider publication and consumer revision adoption; no credentials or trust-store configuration.
@@ -24,6 +25,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-QUIC-RECOVERY-001 — Evaluate congestion policy under measured loss [minor]
 - status: todo
 - priority: architecture
+- milestone: M-async-io-transport
 - outcome: The chosen production recovery policy supports the admitted message/stream domain with measured throughput, latency and competing-flow behavior.
 - acceptance: retain the same complete payloads, message counts, deadlines and real byte validation; compare supported congestion policies on matched profiles and document fairness, queue growth and failure bounds before changing defaults. Preserve one canonical transport API and a bounded policy abstraction if variation is required.
 - evidence: The 16-stream, 128-message, 65,560-byte 1% loss case exceeds 60 seconds in all three repetitions. Verified progress continues and all namespace UDP error deltas are zero; CUBIC recovery windows contract. No socket-buffer or spawner bypass closes this limit.
@@ -36,6 +38,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-MNEMOSYNE-010-CONSUMER — admit the compatible allocator cohort [patch]
 - status: todo
 - priority: correctness
+- milestone: M-core-execution
 - owner: Apollo provider-integration increment, exported base `2b189f0a`.
 - outcome: Moirai 0.9.3 accepts Mnemosyne-memory 0.10 without public API or Rust implementation changes.
 - acceptance: one canonical provider identity; locked all-feature Clippy, native values, API comparison, package verification and applicable CI.
