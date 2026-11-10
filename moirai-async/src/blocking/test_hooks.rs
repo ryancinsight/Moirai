@@ -51,11 +51,44 @@ pub(crate) struct Hooks {
 /// Marks one worker as inside a job for its lifetime.
 pub(crate) struct Running<'a>(&'a Hooks);
 
+/// One accepted test job that must settle before another exclusive case starts.
+pub(super) struct AcceptedJob;
+
 impl Drop for Running<'_> {
     fn drop(&mut self) {
         self.0.state().live -= 1;
         self.0.changed.notify_all();
     }
+}
+
+impl Drop for AcceptedJob {
+    fn drop(&mut self) {
+        let mut accepted = ACCEPTED.0.lock().unwrap_or_else(PoisonError::into_inner);
+        *accepted = accepted
+            .checked_sub(1)
+            .expect("invariant: every completed test job was accepted");
+        ACCEPTED.1.notify_all();
+    }
+}
+
+static ACCEPTED: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+/// Record a job before it enters a test pool's queue.
+pub(super) fn submitted() {
+    let mut accepted = ACCEPTED.0.lock().unwrap_or_else(PoisonError::into_inner);
+    *accepted = accepted
+        .checked_add(1)
+        .expect("invariant: bounded test pools cannot exhaust usize jobs");
+}
+
+/// Bind completion accounting to a worker-owned admission permit.
+pub(super) const fn accepted_job() -> AcceptedJob {
+    AcceptedJob
+}
+
+/// Roll back accounting after a queue rejects a submitted job.
+pub(super) fn submission_failed() {
+    drop(accepted_job());
 }
 
 impl Hooks {
@@ -152,5 +185,20 @@ impl Hooks {
 /// `cargo test` they share one process, and therefore every pool.
 pub(crate) fn exclusive() -> MutexGuard<'static, ()> {
     static EXCLUSIVE: Mutex<()> = Mutex::new(());
-    EXCLUSIVE.lock().unwrap_or_else(PoisonError::into_inner)
+    let exclusive = EXCLUSIVE.lock().unwrap_or_else(PoisonError::into_inner);
+    let (accepted, timeout) = ACCEPTED
+        .1
+        .wait_timeout_while(
+            ACCEPTED.0.lock().unwrap_or_else(PoisonError::into_inner),
+            STAGE_LIMIT,
+            |accepted| *accepted != 0,
+        )
+        .unwrap_or_else(PoisonError::into_inner);
+    assert_eq!(
+        *accepted,
+        0,
+        "accepted blocking-pool jobs did not settle before the exclusive test; timed out: {}",
+        timeout.timed_out()
+    );
+    exclusive
 }

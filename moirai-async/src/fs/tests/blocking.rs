@@ -207,6 +207,7 @@ fn dropped_write_still_lands_in_call_order() {
 fn poll_based_read_and_write_run_on_the_pool() {
     use crate::io::{AsyncRead, AsyncWrite};
 
+    let _exclusive = test_hooks::exclusive();
     let path = test_path("poll-based.bin");
     let mut file = block_on(File::open_with_options(
         &path,

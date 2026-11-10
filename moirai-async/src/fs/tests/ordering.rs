@@ -110,6 +110,7 @@ fn observers_always_see_queued_writes() {
 
 #[test]
 fn write_behind_failure_surfaces_on_flush() {
+    let _exclusive = test_hooks::exclusive();
     let path = test_path("deferred-flush.bin");
     std::fs::write(&path, b"read-only").expect("source write must succeed");
     let mut file = block_on(File::open(&path)).expect("open must succeed");

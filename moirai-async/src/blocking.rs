@@ -65,6 +65,29 @@ pub(crate) enum Abandoned {
 /// compile time, off the hot path).
 type Job = Box<dyn FnOnce() + Send>;
 
+#[cfg(test)]
+struct TrackedPermit {
+    permit: Option<SemaphorePermit<'static>>,
+    _accepted: test_hooks::AcceptedJob,
+}
+
+#[cfg(test)]
+impl TrackedPermit {
+    fn new(permit: SemaphorePermit<'static>) -> Self {
+        Self {
+            permit: Some(permit),
+            _accepted: test_hooks::accepted_job(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TrackedPermit {
+    fn drop(&mut self) {
+        drop(self.permit.take());
+    }
+}
+
 /// A fixed set of worker threads fed by a bounded queue.
 pub(crate) struct BlockingPool {
     /// Thread-name stem, also the pool's name in errors.
@@ -190,7 +213,11 @@ impl Admission {
     {
         let Self { pool, permit } = self;
         let (reply, receiver) = oneshot::channel();
+        #[cfg(test)]
+        test_hooks::submitted();
         let job: Job = Box::new(move || {
+            #[cfg(test)]
+            let permit = TrackedPermit::new(permit);
             if abandoned == Abandoned::Run || !reply.is_closed() {
                 #[cfg(test)]
                 let _running = pool.hooks.enter();
@@ -207,14 +234,24 @@ impl Admission {
                 pool: pool.name,
                 receiver,
             }),
-            Err(TrySendError::Full(_)) => unreachable!(
-                "invariant: the channel holds one slot per admission permit, so an \
-                 admitted job always finds a queue slot"
-            ),
-            Err(TrySendError::Disconnected(_)) => Err(io::Error::other(format!(
-                "the {} queue closed before the job was submitted",
-                pool.name
-            ))),
+            Err(TrySendError::Full(job)) => {
+                drop(job);
+                #[cfg(test)]
+                test_hooks::submission_failed();
+                unreachable!(
+                    "invariant: the channel holds one slot per admission permit, so an \
+                     admitted job always finds a queue slot"
+                )
+            }
+            Err(TrySendError::Disconnected(job)) => {
+                drop(job);
+                #[cfg(test)]
+                test_hooks::submission_failed();
+                Err(io::Error::other(format!(
+                    "the {} queue closed before the job was submitted",
+                    pool.name
+                )))
+            }
         }
     }
 }

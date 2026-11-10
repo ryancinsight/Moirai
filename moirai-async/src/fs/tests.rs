@@ -2,6 +2,7 @@ use super::*;
 
 mod blocking;
 mod ordering;
+use crate::blocking::test_hooks;
 use crate::io::{AsyncLength, AsyncReadAt};
 use std::io::SeekFrom;
 use std::path::PathBuf;
@@ -47,6 +48,7 @@ fn test_file_stats() {
 
 #[test]
 fn test_file_write_read_append_and_stats_values() {
+    let _exclusive = test_hooks::exclusive();
     let path = test_path("roundtrip.txt");
     futures::executor::block_on(async {
         write_str(&path, "alpha")
@@ -86,6 +88,7 @@ fn test_file_write_read_append_and_stats_values() {
 
 #[test]
 fn test_file_positioned_read_preserves_cursor_length_and_stream_stats() {
+    let _exclusive = test_hooks::exclusive();
     let path = test_path("positioned.bin");
     let expected = b"0123456789";
     std::fs::write(&path, expected).expect("positioned source write must succeed");
@@ -123,6 +126,7 @@ fn test_file_positioned_read_preserves_cursor_length_and_stream_stats() {
 
 #[test]
 fn test_file_positioned_read_reports_short_source() {
+    let _exclusive = test_hooks::exclusive();
     let path = test_path("positioned-short.bin");
     std::fs::write(&path, b"0123456789").expect("short positioned source write must succeed");
 
@@ -142,6 +146,7 @@ fn test_file_positioned_read_reports_short_source() {
 
 #[test]
 fn test_file_positioned_read_validates_empty_and_overflow_ranges() {
+    let _exclusive = test_hooks::exclusive();
     let path = test_path("positioned-range.bin");
     std::fs::write(&path, b"").expect("positioned source write must succeed");
 
@@ -169,6 +174,7 @@ fn test_file_positioned_read_validates_empty_and_overflow_ranges() {
 
 #[test]
 fn test_file_copy_and_directory_values() {
+    let _exclusive = test_hooks::exclusive();
     let dir = test_path("dir");
     let source = dir.join("source.bin");
     let dest = dir.join("dest.bin");
@@ -207,6 +213,7 @@ fn test_file_copy_and_directory_values() {
 
 #[test]
 fn test_recursive_directory_values() {
+    let _exclusive = test_hooks::exclusive();
     let root = test_path("recursive-dir");
     let leaf = root.join("a").join("b").join("c");
     let marker = leaf.join("marker.bin");

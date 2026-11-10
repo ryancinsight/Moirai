@@ -237,13 +237,10 @@ pub(super) fn timer_driver() -> &'static Arc<TimerDriver> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TimerDriver, timer_driver};
-    use crate::timer::Delay;
+    use super::TimerDriver;
     use crate::timer::registration::TimerRegistration;
-    use std::future::Future;
-    use std::pin::Pin;
     use std::sync::Arc;
-    use std::task::{Context, Waker};
+    use std::task::Waker;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -268,8 +265,7 @@ mod tests {
         assert_eq!(driver.notification_count(), scheduled_notifications + 1);
     }
 
-    #[test]
-    fn cancelled_timers_are_compacted_before_their_deadline() {
+    fn assert_cancelled_timers_are_compacted(initial: usize) {
         // Regression for unbounded retention: cancelled entries used to stay in
         // the heap until their deadline (removed only at the heap head), so the
         // dominant timeout(op) pattern — ms-scale cancels against 30-60 s
@@ -280,38 +276,64 @@ mod tests {
         // `live = 1` timer remaining, `len = live + dead = 1 + dead` gives
         // `dead <= 1`, hence `len <= 2`.
         //
-        // Pre-existing timer registrations are permitted, so the bound tracks
-        // the measured initial heap size instead of assuming process-global
-        // isolation from other timer coverage.
-        let mut cx = Context::from_waker(Waker::noop());
-
-        // Measure the driver's initial state; other tests may have left timers
-        // in the process-global driver, so all assertions are relative.
-        let initial_len = timer_driver().scheduled_len();
+        // A threadless driver gives the exact initial partition a stable owner;
+        // its production schedule, cancel, and compact methods remain unchanged.
+        let driver = TimerDriver::new();
         let far = Duration::from_secs(3600);
+        let deadline = Instant::now() + far;
+        let initial_registrations: Vec<_> = (0..initial)
+            .map(|_| TimerRegistration::new(Waker::noop().clone()))
+            .inspect(|registration| driver.schedule(deadline, Arc::clone(registration)))
+            .collect();
 
         // Add enough timers that cancelling all but one triggers compaction
-        // even when `initial_len` is non-zero.
-        let to_add = initial_len + 100;
-        let mut delays: Vec<Delay> = (0..to_add).map(|_| Delay::new(far)).collect();
-        for delay in &mut delays {
-            // First poll registers the delay with the driver.
-            assert!(Pin::new(delay).poll(&mut cx).is_pending());
-        }
-        assert_eq!(timer_driver().scheduled_len(), initial_len + to_add);
+        // when `initial` is non-zero.
+        let to_add = initial + 100;
+        let added: Vec<_> = (0..to_add)
+            .map(|_| TimerRegistration::new(Waker::noop().clone()))
+            .inspect(|registration| driver.schedule(deadline, Arc::clone(registration)))
+            .collect();
+        assert_eq!(driver.scheduled_len(), initial + to_add);
 
-        // Cancel all but one (Delay::drop routes through TimerDriver::cancel).
-        delays.truncate(1);
+        added.iter().skip(1).for_each(|registration| {
+            driver.cancel(registration);
+        });
 
-        let retained = timer_driver().scheduled_len();
+        let retained = driver.scheduled_len();
         assert!(
-            retained <= 2 * initial_len + 2,
+            retained <= 2 * initial + 2,
             "compaction must retain at most twice the live timer bound: retained {retained}, expected <= {}",
-            2 * initial_len + 2
+            2 * initial + 2
         );
+        let state = driver.state.lock().unwrap();
+        for registration in initial_registrations.iter().chain(added.first()) {
+            assert!(
+                state
+                    .timers
+                    .iter()
+                    .any(|timer| { Arc::ptr_eq(&timer.registration, registration) })
+            );
+            assert!(!registration.is_cancelled());
+            assert!(registration.is_in_heap());
+        }
+        drop(state);
 
-        // The surviving delay is still scheduled and pending.
-        assert!(Pin::new(&mut delays[0]).poll(&mut cx).is_pending());
-        assert!(timer_driver().scheduled_len() >= 1);
+        for registration in initial_registrations.iter().chain(added.first()) {
+            driver.cancel(registration);
+            driver.cancel(registration);
+        }
+        assert_eq!(driver.scheduled_len(), 0);
+        assert!(
+            initial_registrations
+                .iter()
+                .chain(&added)
+                .all(|registration| registration.is_cancelled())
+        );
+    }
+
+    #[test]
+    fn cancelled_timers_are_compacted_before_their_deadline() {
+        assert_cancelled_timers_are_compacted(0);
+        assert_cancelled_timers_are_compacted(3);
     }
 }
