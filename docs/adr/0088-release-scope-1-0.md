@@ -1,4 +1,4 @@
-# ADR 0021: Moirai release scope for 1.0
+# ADR 0088: Moirai release scope for 1.0
 
 - Status: Accepted
 - Date: 2026-11-10
