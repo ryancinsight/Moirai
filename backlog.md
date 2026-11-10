@@ -196,6 +196,16 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define one engine-neutral lifecycle scenario and make its trace deterministic before adding the matrix.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-PAL-WINDOWS-CI-001"></a>
+## MOI-PAL-WINDOWS-CI-001 — Run every Windows PAL test in CI
+- status: todo
+- priority: verification
+- outcome: Hosted Windows CI runs the native dialog and window tests, including pointer capture and capture re-entry, not only the WebView2 and window-destruction subsets.
+- acceptance: The `windows-webview.yml` nextest step (or a sibling Windows job) selects `windows::dialog::` and every `windows::window::tests::` module; `--no-tests fail` holds; a deliberately broken capture assertion fails the job on a draft PR before the fix lands; the job stays within its timeout.
+- scope: `.github/workflows/windows-webview.yml`, `.config/nextest.toml` test groups for tests that own a message pump or COM apartment; no test deletion or retry.
+- next step: Run `cargo nextest list -p moirai-pal --lib --no-default-features --features webview2` on Windows, classify which modules need a serial test group, then widen the filter expression.
+- basis: `8050f2daa157911d3f033e2e0f35403bd741b8cd`
+
 <a id="MOI-FORK-JOIN-LATENCY-2026-09-10"></a>
 ## MOI-FORK-JOIN-LATENCY-2026-09-10 — Attribute fork-join tail latency
 - status: todo
