@@ -30,6 +30,17 @@ transition, while the keyup snapshot is taken after the released transition,
 so a consumer can distinguish `Ctrl+O` from an unmodified `O` without sampling
 global keyboard state. Repeated-key status remains a separate value.
 
+Revision 2026-11-09: capture the mouse on button-down and release it on the
+button-up that leaves no button held, when this window still owns the capture,
+so a release outside the client area still produces its `PointerUp`. The event
+is queued before the capture call so messages the losing window sends back
+follow it; a capture failure is returned by the next `poll_events` or
+`wait_events` call, and the event arrives on the call after it. Every button-down requests the
+capture: a press reaches this window only when no peer holds it, and a press
+after the capture was lost mid-drag takes it back. The request returns early
+when this window already owns the capture, because `SetCapture` would send
+`WM_CAPTURECHANGED` to the window itself.
+
 Driver: MOI-WINDOW-WIN32-2026-09-08 (delivered; see repository history),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
@@ -51,7 +62,7 @@ because Win32 window procedures and message queues are thread-affine.
 
 `NativeWindow::poll_events` removes only messages addressed to its HWND and
 returns a bounded batch. The window procedure translates `WM_CLOSE`, focus
-changes, left-button and movement messages, `WM_MOUSEWHEEL`,
+changes, mouse-button and movement messages, `WM_MOUSEWHEEL`,
 `WM_MOUSEHWHEEL`, `WM_KEYDOWN`, `WM_CHAR`, `WM_SIZE` and `WM_DPICHANGED` into
 the provider's value events. `WM_SYSKEYDOWN` and `WM_SYSKEYUP` are recorded as
 keyboard events and then passed to `DefWindowProcW` so system menu and close
@@ -63,6 +74,15 @@ button-state word, while Alt and the Windows key come from modifier key
 transitions observed by this window. Generic modifier virtual keys use the
 scan-code and extended-key fields to preserve left/right state. Focus loss
 clears the tracked state, and the provider never samples global key state.
+A button-down message captures the mouse for the window and a button-up
+message whose button-state word holds no button releases it when this window
+still owns the capture; a capture held by another window is left alone. A
+release outside the client area therefore still produces its `PointerUp` with
+signed client coordinates. Every button-down requests the capture, so a press after the
+capture was lost mid-drag takes it back; a window that already owns the
+capture is not asked again, which would notify the window itself. A failed
+capture call is returned by the next `poll_events` or `wait_events` call and
+never replaces the button event, which arrives on the call after it.
 `WM_NCDESTROY` reports
 completed destruction. Surrogate pairs are combined before text delivery.
 `WM_IME_STARTCOMPOSITION`, `WM_IME_COMPOSITION` and `WM_IME_ENDCOMPOSITION`

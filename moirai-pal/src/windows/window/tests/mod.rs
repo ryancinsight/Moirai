@@ -1,11 +1,13 @@
 //! Value and native-host tests for the window provider.
 
+mod capture_reentry;
 mod destruction;
 mod global_hotkey;
 mod key_message_encoding;
 mod menu_bar;
 mod native_window_input;
 mod native_window_lifecycle;
+mod pointer_capture;
 mod popup_menu;
 mod present_region;
 mod state_ownership;
