@@ -28,6 +28,7 @@
 | [0018](0018-streaming-asynciterator-poll-next-to-remove-into-vec-block-on.md) | Streaming AsyncIterator (poll_next) to remove into_vec block_on | Proposed |
 | [0019](0019-help-while-waiting-scheduler-scope-nested-scope-soundness.md) | Help-while-waiting scheduler scope (nested-scope soundness) | Accepted |
 | [0020](0020-typed-work-stealing-capabilities.md) | Typed work-stealing capabilities | Accepted |
+| [0021](0021-release-scope-1-0.md) | Moirai release scope for 1.0 | Accepted |
 | [0021](0021-dedicated-bounded-lane-for-blocking-work.md) | Dedicated bounded lane for blocking work | Accepted |
 | [0022](0022-moirai-iter-nested-fork-join-runs-on-the-scheduler-scope.md) | moirai-iter nested fork-join runs on the scheduler scope | Accepted |
 | [0023](0023-delete-moirai-iter-s-threadpool.md) | Delete `moirai-iter`'s ThreadPool | Accepted |
