@@ -6,7 +6,7 @@
 
 ## Context
 
-Moirai (workspace 0.11.3, `moirai-runtime`) is a unified scheduler/router for
+Moirai (`moirai-runtime`) is a unified scheduler/router for
 Rust work placement with async, parallel, transport, and platform integrations.
 The backlog contains open items across execution, async I/O, QUIC, WebView, and
 verification, and no milestone ladder exists to 1.0.
