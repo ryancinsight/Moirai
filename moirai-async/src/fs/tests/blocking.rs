@@ -10,6 +10,7 @@ use crate::fs::{File, FileOpenOptions, metadata, pool};
 use futures::executor::block_on;
 use std::future::Future;
 use std::io::SeekFrom;
+use std::sync::mpsc::TryRecvError;
 use std::sync::{Arc, mpsc};
 use std::task::Context;
 use std::time::Duration;
@@ -28,6 +29,42 @@ const FILE_SYSTEM: Subject = Subject {
     pool,
     operation: stat_temp_dir,
 };
+
+#[test]
+fn quiescence_waits_for_disposal_publication() {
+    let _exclusive = test_hooks::exclusive();
+    let hooks = pool().hooks();
+    let baseline = hooks.progress();
+    hooks.set_disposal_closed(true);
+
+    let operation = std::thread::spawn(|| block_on(metadata(std::env::temp_dir())));
+    hooks.wait_until_disposal_waiting();
+
+    let (sender, quiescent) = mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        test_hooks::wait_until_quiescent();
+        sender
+            .send(())
+            .expect("the test retains the quiescence receiver");
+    });
+    test_hooks::wait_until_quiescence_waiting();
+    let before_disposal = quiescent.try_recv();
+
+    hooks.set_disposal_closed(false);
+    let after_disposal = quiescent.recv_timeout(test_hooks::STAGE_LIMIT);
+    let metadata_is_directory = operation
+        .join()
+        .expect("the metadata thread must not panic")
+        .expect("metadata must succeed")
+        .is_dir();
+    waiter.join().expect("the quiescence thread must not panic");
+    let progress = hooks.progress();
+
+    assert_eq!(before_disposal, Err(TryRecvError::Empty));
+    assert_eq!(after_disposal, Ok(()));
+    assert!(metadata_is_directory);
+    assert_eq!(progress.disposed, baseline.disposed + 1);
+}
 
 #[test]
 fn executor_runs_other_tasks_while_a_file_operation_is_held() {

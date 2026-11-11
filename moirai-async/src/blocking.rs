@@ -60,33 +60,40 @@ pub(crate) enum Abandoned {
     Run,
 }
 
+#[cfg(test)]
+struct Job {
+    work: Box<dyn FnOnce() + Send>,
+    accepted: test_hooks::AcceptedJob,
+}
+
+#[cfg(test)]
+impl Job {
+    fn new(work: impl FnOnce() + Send + 'static) -> Self {
+        Self {
+            work: Box::new(work),
+            accepted: test_hooks::accepted_job(),
+        }
+    }
+
+    fn run(self, hooks: &test_hooks::Hooks) {
+        let Self { work, accepted } = self;
+        let _contained = catch_unwind(AssertUnwindSafe(work));
+        hooks.disposed();
+        drop(accepted);
+    }
+
+    fn reject(self) {
+        let Self { work, accepted } = self;
+        drop(work);
+        drop(accepted);
+    }
+}
+
 /// A type-erased job. One queue serves callers of every result type, which a
 /// generic parameter cannot express (dyn exception: type erasure unknown at
 /// compile time, off the hot path).
+#[cfg(not(test))]
 type Job = Box<dyn FnOnce() + Send>;
-
-#[cfg(test)]
-struct TrackedPermit {
-    permit: Option<SemaphorePermit<'static>>,
-    _accepted: test_hooks::AcceptedJob,
-}
-
-#[cfg(test)]
-impl TrackedPermit {
-    fn new(permit: SemaphorePermit<'static>) -> Self {
-        Self {
-            permit: Some(permit),
-            _accepted: test_hooks::accepted_job(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl Drop for TrackedPermit {
-    fn drop(&mut self) {
-        drop(self.permit.take());
-    }
-}
 
 /// A fixed set of worker threads fed by a bounded queue.
 pub(crate) struct BlockingPool {
@@ -186,9 +193,10 @@ impl BlockingPool {
             // and the pool never shrinks. The unwind drops the job's reply
             // sender, which fails that job, and its admission permit, which
             // returns to the pool. The panic hook has already reported it.
-            let _contained = catch_unwind(AssertUnwindSafe(job));
             #[cfg(test)]
-            self.hooks.disposed();
+            job.run(&self.hooks);
+            #[cfg(not(test))]
+            let _contained = catch_unwind(AssertUnwindSafe(job));
         }
     }
 }
@@ -215,9 +223,7 @@ impl Admission {
         let (reply, receiver) = oneshot::channel();
         #[cfg(test)]
         test_hooks::submitted();
-        let job: Job = Box::new(move || {
-            #[cfg(test)]
-            let permit = TrackedPermit::new(permit);
+        let work = move || {
             if abandoned == Abandoned::Run || !reply.is_closed() {
                 #[cfg(test)]
                 let _running = pool.hooks.enter();
@@ -228,25 +234,31 @@ impl Admission {
                 drop(reply.send(result));
             }
             drop(permit);
-        });
+        };
+        #[cfg(test)]
+        let job = Job::new(work);
+        #[cfg(not(test))]
+        let job: Job = Box::new(work);
         match pool.jobs.try_send(job) {
             Ok(()) => Ok(Completion {
                 pool: pool.name,
                 receiver,
             }),
             Err(TrySendError::Full(job)) => {
-                drop(job);
                 #[cfg(test)]
-                test_hooks::submission_failed();
+                job.reject();
+                #[cfg(not(test))]
+                drop(job);
                 unreachable!(
                     "invariant: the channel holds one slot per admission permit, so an \
                      admitted job always finds a queue slot"
                 )
             }
             Err(TrySendError::Disconnected(job)) => {
-                drop(job);
                 #[cfg(test)]
-                test_hooks::submission_failed();
+                job.reject();
+                #[cfg(not(test))]
+                drop(job);
                 Err(io::Error::other(format!(
                     "the {} queue closed before the job was submitted",
                     pool.name
