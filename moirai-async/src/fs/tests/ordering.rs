@@ -2,7 +2,6 @@
 //! bytes carried by a dropped read stay in stream order on every path.
 
 use super::blocking::abandon_in_flight;
-use super::test_path;
 use crate::blocking::test_hooks;
 use crate::fs::file::request::test_hooks as stream_hooks;
 use crate::fs::{File, FileOpenOptions, pool};
@@ -46,8 +45,9 @@ const ROUNDS: usize = 2_000;
 #[test]
 fn positioned_read_waits_for_a_queued_write() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("observe-gated.bin");
-    let mut file = open_settled(&path);
+    let owned = super::TestEntry::create("observe-gated.bin");
+    let path = &owned.path;
+    let mut file = open_settled(path);
     let hooks = pool().hooks();
     let baseline = hooks.progress();
 
@@ -74,13 +74,13 @@ fn positioned_read_waits_for_a_queued_write() {
     );
     assert_eq!(&observed, b"fresh");
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn observers_always_see_queued_writes() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("observe-rounds.bin");
+    let owned = super::TestEntry::create("observe-rounds.bin");
+    let path = &owned.path;
     let mut file = block_on(File::open_with_options(
         &path,
         FileOpenOptions::read_write_truncate(),
@@ -105,13 +105,13 @@ fn observers_always_see_queued_writes() {
         );
     }
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn write_behind_failure_surfaces_on_flush() {
-    let path = test_path("deferred-flush.bin");
-    std::fs::write(&path, b"read-only").expect("source write must succeed");
+    let owned = super::TestEntry::create("deferred-flush.bin");
+    let path = &owned.path;
+    std::fs::write(path, b"read-only").expect("source write must succeed");
     let mut file = block_on(File::open(&path)).expect("open must succeed");
 
     assert_eq!(poll_write(&mut file, b"x"), 1, "the write is queued");
@@ -124,17 +124,17 @@ fn write_behind_failure_surfaces_on_flush() {
 
     drop(file);
     assert_eq!(
-        std::fs::read(&path).expect("read back must succeed"),
+        std::fs::read(path).expect("read back must succeed"),
         b"read-only"
     );
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn abandoned_operation_failure_surfaces_on_the_next_call() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("deferred-next.bin");
-    std::fs::write(&path, b"read-only").expect("source write must succeed");
+    let owned = super::TestEntry::create("deferred-next.bin");
+    let path = &owned.path;
+    std::fs::write(path, b"read-only").expect("source write must succeed");
     let mut file = block_on(File::open(&path)).expect("open must succeed");
     let hooks = pool().hooks();
     let baseline = hooks.progress();
@@ -150,14 +150,14 @@ fn abandoned_operation_failure_surfaces_on_the_next_call() {
         4
     );
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn queued_write_after_a_dropped_read_starts_at_the_undelivered_bytes() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("poll-write-rewind.bin");
-    std::fs::write(&path, b"abcdef").expect("source write must succeed");
+    let owned = super::TestEntry::create("poll-write-rewind.bin");
+    let path = &owned.path;
+    std::fs::write(path, b"abcdef").expect("source write must succeed");
     let mut file = block_on(File::open_with_options(
         &path,
         FileOpenOptions::read_write(),
@@ -175,17 +175,17 @@ fn queued_write_after_a_dropped_read_starts_at_the_undelivered_bytes() {
 
     drop(file);
     assert_eq!(
-        std::fs::read(&path).expect("read back must succeed"),
+        std::fs::read(path).expect("read back must succeed"),
         b"XYcdef"
     );
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn read_to_end_after_a_dropped_read_starts_with_its_bytes() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("read-to-end-carry.bin");
-    std::fs::write(&path, b"abcdef").expect("source write must succeed");
+    let owned = super::TestEntry::create("read-to-end-carry.bin");
+    let path = &owned.path;
+    std::fs::write(path, b"abcdef").expect("source write must succeed");
     let mut file = block_on(File::open(&path)).expect("open must succeed");
     let hooks = pool().hooks();
     let baseline = hooks.progress();
@@ -200,13 +200,13 @@ fn read_to_end_after_a_dropped_read_starts_with_its_bytes() {
         b"abcdef"
     );
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn dropped_write_all_is_one_job_written_in_full() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("write-all-once.bin");
+    let owned = super::TestEntry::create("write-all-once.bin");
+    let path = &owned.path;
     let mut file = block_on(File::create(&path)).expect("create must succeed");
     let hooks = pool().hooks();
     let baseline = hooks.progress();
@@ -225,16 +225,16 @@ fn dropped_write_all_is_one_job_written_in_full() {
     );
     drop(file);
     assert_eq!(
-        std::fs::read(&path).expect("read back must succeed"),
+        std::fs::read(path).expect("read back must succeed"),
         payload
     );
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn write_all_lands_in_full_when_single_writes_return_short() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("write-all-short.bin");
+    let owned = super::TestEntry::create("write-all-short.bin");
+    let path = &owned.path;
     let mut file = block_on(File::create(&path)).expect("create must succeed");
     let hooks = pool().hooks();
     let baseline = hooks.progress();
@@ -251,18 +251,18 @@ fn write_all_lands_in_full_when_single_writes_return_short() {
 
     drop(file);
     assert_eq!(
-        std::fs::read(&path).expect("read back must succeed"),
+        std::fs::read(path).expect("read back must succeed"),
         b"abcdefghij",
         "a submitted write_all must land in full"
     );
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn observer_waits_until_the_write_job_has_finished() {
     let _exclusive = test_hooks::exclusive();
-    let path = test_path("ticket-timing.bin");
-    let mut file = open_settled(&path);
+    let owned = super::TestEntry::create("ticket-timing.bin");
+    let path = &owned.path;
+    let mut file = open_settled(path);
     let reached = stream_hooks::reached();
 
     // Hold the write after its syscall and before it releases its ticket.
@@ -285,5 +285,4 @@ fn observer_waits_until_the_write_job_has_finished() {
     block_on(read_at).expect("positioned read must succeed");
     assert_eq!(&observed, b"fresh");
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
