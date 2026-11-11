@@ -281,6 +281,30 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-FS-TEST-GUARD-REMOVAL-001"></a>
+## MOI-FS-TEST-GUARD-REMOVAL-001 — Report failed removal in fs test guards
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- outcome: A fs test whose temp entry is missing or cannot be removed when its guard drops fails, and the three guards share one meaning of `create`.
+- acceptance: With a guard `Drop` body emptied, the fs suites of `moirai-async` and `moirai-pal` fail (at 8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8 32 fs tests pass and leave 22 entries); `TestEntry::create`, `TestFile::create` and `TestRoot::create` all create the entry, or the two that only compute a path are renamed; `cargo nextest list --workspace --all-features --run-ignored all` is unchanged (1524 tests).
+- scope: `moirai-async/src/fs/tests.rs`, `moirai-pal/src/fs/tests.rs`, `moirai-pal/src/fs/confined/tests.rs`.
+- next step: Decide how a guard reports a failed removal without a double panic (assert only when `std::thread::panicking()` is false), then delete the unreachable clearing in `test_path`, merge the two `impl TestFile` blocks, and drop the redundant `create_dir_all` in the FIFO test.
+- links: judge verdicts on PR 680 (F1, F3) and PR 679.
+- basis: `8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8`
+
+<a id="MOI-QUIC-NETEM-SOURCE-FETCH-001"></a>
+## MOI-QUIC-NETEM-SOURCE-FETCH-001 — Stop fetching the netem tool source on every run
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- outcome: The QUIC controlled-network jobs build their pinned `tc` without a live fetch from git.kernel.org on each run.
+- acceptance: With the fetch URL pointed at an unroutable address in a test run, the job still builds `tc` at the iproute2 commit the workflow pins, from a cache keyed on that commit and the runner image; a cache miss fails with the fetch error and never builds another revision.
+- scope: `.github/workflows/quic-transport.yml`, `.github/workflows/quic-recovery.yml`.
+- next step: Cache the fetched source and built `tc` under `$RUNNER_TEMP/quic-iproute2` with the pinned cache action; caches write on the default branch and restore elsewhere.
+- evidence: run 42942917121 attempts 1 and 2 on PR 680 failed 20 s in with `RPC failed; HTTP 502` from that fetch, 50 minutes apart, before any Moirai code ran; attempt 3 passed the step.
+- basis: `8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8`
+
 <a id="MOI-ASYNC-SEEK-001"></a>
 ## MOI-ASYNC-SEEK-001 — Define an async seek trait for Moirai I/O
 - status: todo
