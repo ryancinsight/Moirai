@@ -299,7 +299,7 @@ belong in [gap_audit.md](gap_audit.md).
 - priority: verification
 - milestone: M-core-execution
 - outcome: The QUIC controlled-network jobs build their pinned `tc` without a live fetch from git.kernel.org on each run.
-- acceptance: With the fetch URL pointed at an unroutable address in a test run, the job still builds `tc` at commit `d2a8ffe85ac64f91ee2aa7679a5046f321b54127` from a cache keyed on that commit and the runner image; a cache miss fails with the fetch error and never builds another revision.
+- acceptance: With the fetch URL pointed at an unroutable address in a test run, the job still builds `tc` at the iproute2 commit the workflow pins, from a cache keyed on that commit and the runner image; a cache miss fails with the fetch error and never builds another revision.
 - scope: `.github/workflows/quic-transport.yml`, `.github/workflows/quic-recovery.yml`.
 - next step: Cache the fetched source and built `tc` under `$RUNNER_TEMP/quic-iproute2` with the pinned cache action; caches write on the default branch and restore elsewhere.
 - evidence: run 42942917121 attempts 1 and 2 on PR 680 failed 20 s in with `RPC failed; HTTP 502` from that fetch, 50 minutes apart, before any Moirai code ran; attempt 3 passed the step.
