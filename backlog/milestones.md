@@ -1,4 +1,4 @@
-# Milestone ladder ([ADR 0021](../docs/adr/0021-release-scope-1-0.md))
+# Milestone ladder ([ADR 0088](../docs/adr/0088-release-scope-1-0.md))
 <a id="M-core-execution"></a> **M-core-execution** (0.12.0) needs: (none) — unified scheduler and parallel execution.
 - exit: run basic usage example (`cargo run -p moirai --example basic_usage --locked --all-features` exits successfully).
 - exit: run book task spawning example (`cargo run -p moirai --example book_task_spawning --locked --all-features` exits successfully).
