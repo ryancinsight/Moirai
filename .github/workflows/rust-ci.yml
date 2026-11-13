@@ -96,7 +96,9 @@ jobs:
   gate:
     name: Workspace gate
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
-    runs-on: ubuntu-latest
+    # The moirai-python cdylib links the host libpython3.12, which the
+    # ubuntu-26.04 image lacks (rust-lld: unable to find -lpython3.12).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout source
