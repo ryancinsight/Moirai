@@ -12,6 +12,7 @@ use super::super::{
     state::{SharedWindowState, WindowState, decode_composition},
     tray::TRAY_CALLBACK_MESSAGE,
 };
+use super::capture;
 use std::{ffi::c_void, io, mem::size_of};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::HDC;
@@ -103,15 +104,21 @@ pub(super) unsafe extern "system" fn window_proc(
             }
             WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
                 let (x, y) = point_from_lparam(lparam);
-                if let Some(button) = mouse_button(message, wparam) {
-                    state.with(|state| state.push(WindowEvent::PointerDown { x, y, button }));
-                }
+                let event = mouse_button(message, wparam).map(|button| WindowEvent::PointerDown {
+                    x,
+                    y,
+                    button,
+                });
+                push_button_event(hwnd, &state, message, wparam, event);
             }
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 let (x, y) = point_from_lparam(lparam);
-                if let Some(button) = mouse_button(message, wparam) {
-                    state.with(|state| state.push(WindowEvent::PointerUp { x, y, button }));
-                }
+                let event = mouse_button(message, wparam).map(|button| WindowEvent::PointerUp {
+                    x,
+                    y,
+                    button,
+                });
+                push_button_event(hwnd, &state, message, wparam, event);
             }
             WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
                 if let Some((delta_x, delta_y)) = wheel_deltas(message, wparam) {
@@ -203,6 +210,35 @@ pub(super) unsafe extern "system" fn window_proc(
             _ => return DefWindowProcW(hwnd, message, wparam, lparam),
         }
         LRESULT(0)
+    }
+}
+
+/// Queues the event of a button message, then applies its capture change.
+///
+/// The event is queued first so that anything the capture change sends back to
+/// this window follows the press or release that caused it. Both native calls
+/// run window procedures: `SetCapture` the one of the window losing capture,
+/// which can send messages to this window, and `ReleaseCapture` this window's
+/// own `WM_CAPTURECHANGED` handler. Either procedure can destroy this window:
+/// its `WM_NCDESTROY` returns the count the window holds on `state`, and the
+/// owning `NativeWindow` can be dropped from the same procedure, which returns
+/// the owner's count. The `state` argument is the uncounted view of the
+/// window's own count, so a counted clone keeps the allocation alive until the
+/// capture failure is recorded, and no state is lent across the capture call.
+/// A capture failure is recorded after the event, never in place of it.
+fn push_button_event(
+    hwnd: HWND,
+    state: &SharedWindowState,
+    message: u32,
+    wparam: WPARAM,
+    event: Option<WindowEvent>,
+) {
+    if let Some(event) = event {
+        state.with(|state| state.push(event));
+    }
+    let held = state.clone();
+    if let Err(error) = capture::apply(hwnd, message, wparam) {
+        held.with(|state| state.record_error(error));
     }
 }
 

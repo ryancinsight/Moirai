@@ -237,6 +237,12 @@ impl SharedWindowState {
     pub(super) fn holders(&self) -> usize {
         Rc::strong_count(&self.0)
     }
+
+    /// Non-owning handle for tests that observe when the last count goes.
+    #[cfg(test)]
+    pub(super) fn downgrade(&self) -> std::rc::Weak<RefCell<WindowState>> {
+        Rc::downgrade(&self.0)
+    }
 }
 
 pub(super) fn decode_composition(units: &[u16]) -> io::Result<String> {

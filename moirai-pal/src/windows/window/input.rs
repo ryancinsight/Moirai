@@ -4,6 +4,9 @@ use std::io;
 
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::ScreenToClient;
+use windows::Win32::System::SystemServices::{
+    MK_LBUTTON, MK_MBUTTON, MK_RBUTTON, MK_XBUTTON1, MK_XBUTTON2,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU,
     VK_RSHIFT, VK_RWIN, VK_SHIFT,
@@ -28,6 +31,36 @@ pub(super) fn mouse_button(message: u32, wparam: WPARAM) -> Option<MouseButton> 
             2 => Some(MouseButton::X2),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// Mouse capture change that one button message requires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CaptureTransition {
+    /// A button went down: the window receives the matching release wherever
+    /// the pointer is.
+    Acquire,
+    /// The last held button went up: capture ends.
+    Release,
+}
+
+/// Decides the capture change for a button message from its button-state word.
+///
+/// The low word of `wparam` carries the `MK_*` flags of the buttons held when
+/// the message was generated. A button-up message already excludes the button
+/// it reports, so an empty button set means that release was the last one.
+pub(super) fn capture_transition(message: u32, wparam: WPARAM) -> Option<CaptureTransition> {
+    const BUTTONS: u32 = MK_LBUTTON.0 | MK_RBUTTON.0 | MK_MBUTTON.0 | MK_XBUTTON1.0 | MK_XBUTTON2.0;
+    match message {
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
+            Some(CaptureTransition::Acquire)
+        }
+        WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
+            let flags = u32::try_from(wparam.0 & 0xffff)
+                .expect("invariant: the mask leaves only the low 16 bits");
+            (flags & BUTTONS == 0).then_some(CaptureTransition::Release)
+        }
         _ => None,
     }
 }

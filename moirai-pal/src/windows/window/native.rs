@@ -31,6 +31,7 @@ use super::state::{SharedWindowState, WindowState};
 use super::tray::OwnedIcon;
 
 mod callback;
+mod capture;
 use callback::window_proc;
 
 const WINDOW_CLASS_NAME: &[u16] = &[
@@ -258,8 +259,10 @@ impl NativeWindow {
     /// dispatching messages through a destroyed HWND.
     ///
     /// # Errors
-    /// Returns an error if the bounded event queue overflowed or a native pump
-    /// operation reports failure.
+    /// Returns an error if the bounded event queue overflowed, a native pump
+    /// operation reports failure, or a button message could not take or release
+    /// the mouse capture; the button event itself is still queued and returned by
+    /// the next call.
     pub fn poll_events(&mut self) -> io::Result<Vec<WindowEvent>> {
         let mut message = windows::Win32::UI::WindowsAndMessaging::MSG::default();
         for _ in 0..MAX_PUMP_MESSAGES {
@@ -311,7 +314,7 @@ impl NativeWindow {
     ///
     /// # Errors
     /// Returns an invalid-duration or native wait error, or the same queue
-    /// overflow error as [`Self::poll_events`].
+    /// overflow and mouse-capture errors as [`Self::poll_events`].
     pub fn wait_events(&mut self, timeout: Duration) -> io::Result<Vec<WindowEvent>> {
         if self.destroyed {
             return self.poll_events();

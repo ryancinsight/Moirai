@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   concurrent publication and consumption orderings remain unchanged. See the
   [migration guide](docs/migrations/task-results.md).
 
+## [0.11.4] - Unreleased
+
+### Changed
+
+- [patch] The filesystem tests of `moirai-async` and `moirai-pal` own their
+  temporary files and directories through a guard that removes them when the
+  test ends, including when an assertion fails mid-body. No public contract
+  changes; the version moves because these files are part of the published
+  0.11.3 packages.
+
 ## [0.11.3] - Unreleased
 
 ### Changed

@@ -1,6 +1,11 @@
-//! Bounded Windows common file and folder selection.
+//! Bounded Windows common file, folder and save-destination selection.
 
 use std::{io, path::PathBuf, slice};
+
+mod save;
+
+use save::{EncodedFilters, wide};
+pub use save::{FileFilter, SaveRequest};
 
 use windows::{
     Win32::{
@@ -11,51 +16,55 @@ use windows::{
             CoTaskMemFree, CoUninitialize,
         },
         UI::Shell::{
-            FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog,
-            SIGDN_FILESYSPATH,
+            FILEOPENDIALOGOPTIONS, FOS_FORCEFILESYSTEM, FOS_OVERWRITEPROMPT, FOS_PATHMUSTEXIST,
+            FOS_PICKFOLDERS, FileOpenDialog, FileSaveDialog, IFileDialog, SIGDN_FILESYSPATH,
         },
     },
     core::{HRESULT, PCWSTR, PWSTR},
 };
 
-/// Maximum UTF-16 code units accepted from one common-dialog path.
+/// Maximum UTF-16 code units accepted in one dialog text.
+///
+/// Bounds a path returned by the dialog, a suggested file name, and a filter
+/// label or pattern. It is the Windows extended path limit.
 pub const MAX_DIALOG_PATH_UNITS: usize = 32_767;
 
-/// Kind of native filesystem object returned by [`pick`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Maximum file-type entries in one save dialog.
+///
+/// The native list is a combo box the user reads; no documented limit exists,
+/// so the bound is a resource limit far above any list of export formats. It
+/// also keeps the count inside the `u32` that `SetFileTypes` takes.
+pub const MAX_DIALOG_FILTERS: usize = 1_024;
+
+/// Kind of native filesystem object chosen through [`pick`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DialogSelection {
-    /// Select one regular file.
+    /// Select one existing regular file.
     File,
     /// Select one directory containing application input files.
     Folder,
+    /// Choose the destination path of a file to write, which need not exist.
+    Save(SaveRequest),
 }
 
 /// Opens the Windows common dialog and returns the user's filesystem selection.
 ///
 /// Cancellation is an expected result and returns `Ok(None)`. The returned path
 /// is only a user selection; callers still own validation, authorization and
-/// bounded reading. WebAssembly and non-Windows targets do not expose this
-/// module, so browser consumers use the DOM file provider instead.
+/// bounded reading or writing. [`DialogSelection::Save`] returns the chosen
+/// destination after the dialog has asked the user to confirm replacing an
+/// existing file; the caller creates or writes the file.
+/// WebAssembly and non-Windows targets do not expose this module, so browser
+/// consumers use the DOM file provider instead.
 ///
 /// # Errors
-/// Returns an operating-system or COM error when the dialog cannot be created,
-/// shown or converted to a bounded UTF-8 path.
+/// Returns an operating-system or COM error when the dialog cannot be created
+/// or configured (options, suggested name, file types), shown, or when its
+/// result cannot be converted to a bounded UTF-8 path.
 pub fn pick(selection: DialogSelection) -> io::Result<Option<PathBuf>> {
     let _apartment = ComApartment::initialize()?;
-    // SAFETY: COM is initialized on this thread and the dialog interface is
-    // released before the apartment guard leaves scope.
-    let dialog: IFileOpenDialog =
-        unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }
-            .map_err(windows_error)?;
-
-    let mut options = unsafe { dialog.GetOptions() }.map_err(windows_error)?;
-    options |= FOS_FORCEFILESYSTEM;
-    if selection == DialogSelection::Folder {
-        options |= FOS_PICKFOLDERS;
-    }
-    // SAFETY: `dialog` is a live COM interface owned by this scope and the
-    // option value contains only documented common-dialog flags.
-    unsafe { dialog.SetOptions(options) }.map_err(windows_error)?;
+    let dialog = configure(&selection)?;
 
     // SAFETY: the modal dialog retains no owner handle or Rust pointer after
     // this synchronous call returns.
@@ -74,6 +83,70 @@ pub fn pick(selection: DialogSelection) -> io::Result<Option<PathBuf>> {
     // immediately wrapped by `TaskMemoryPath` and freed on every exit path.
     let raw_path = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }.map_err(windows_error)?;
     TaskMemoryPath::new(raw_path).to_path().map(Some)
+}
+
+/// Creates the dialog for `selection` and applies everything but `Show`.
+///
+/// The calling thread must hold an initialized COM apartment.
+fn configure(selection: &DialogSelection) -> io::Result<IFileDialog> {
+    let class = match selection {
+        DialogSelection::Save(_) => &FileSaveDialog,
+        DialogSelection::File | DialogSelection::Folder => &FileOpenDialog,
+    };
+    // SAFETY: COM is initialized on this thread. Releasing the returned
+    // interface before the apartment guard drops is the caller's obligation:
+    // `pick` holds the guard and the interface in one scope, and the tests
+    // declare the guard first.
+    let dialog: IFileDialog =
+        unsafe { CoCreateInstance(class, None, CLSCTX_INPROC_SERVER) }.map_err(windows_error)?;
+
+    // SAFETY: `dialog` is a live COM interface owned by this scope.
+    let base = unsafe { dialog.GetOptions() }.map_err(windows_error)?;
+    // SAFETY: the option value contains only documented common-dialog flags.
+    unsafe { dialog.SetOptions(dialog_options(base, selection)) }.map_err(windows_error)?;
+
+    if let DialogSelection::Save(request) = selection {
+        apply_save_request(&dialog, request)?;
+    }
+    Ok(dialog)
+}
+
+/// Options for `selection` on top of those the dialog starts with.
+///
+/// Save adds the overwrite confirmation and requires the parent directory of
+/// the chosen path to exist.
+fn dialog_options(
+    base: FILEOPENDIALOGOPTIONS,
+    selection: &DialogSelection,
+) -> FILEOPENDIALOGOPTIONS {
+    let options = base | FOS_FORCEFILESYSTEM;
+    match selection {
+        DialogSelection::File => options,
+        DialogSelection::Folder => options | FOS_PICKFOLDERS,
+        DialogSelection::Save(_) => options | FOS_OVERWRITEPROMPT | FOS_PATHMUSTEXIST,
+    }
+}
+
+fn apply_save_request(dialog: &IFileDialog, request: &SaveRequest) -> io::Result<()> {
+    if !request.file_name().is_empty() {
+        let name = wide(request.file_name());
+        // SAFETY: `name` is a NUL-terminated UTF-16 buffer that stays valid
+        // for the duration of this call.
+        unsafe { dialog.SetFileName(PCWSTR(name.as_ptr())) }.map_err(windows_error)?;
+    }
+    // `SetFileTypeIndex` fails with E_FAIL while no file types are set, so an
+    // empty list leaves both calls out.
+    if !request.filters().is_empty() {
+        let encoded = EncodedFilters::new(request.filters());
+        let specs = encoded.specs();
+        // SAFETY: every specification points into `encoded`, which stays valid
+        // for the duration of this call.
+        unsafe { dialog.SetFileTypes(&specs) }.map_err(windows_error)?;
+        // SAFETY: `dialog` is a live COM interface borrowed for this call.
+        // File-type indices are one-based and the list is non-empty.
+        unsafe { dialog.SetFileTypeIndex(1) }.map_err(windows_error)?;
+    }
+    Ok(())
 }
 
 struct ComApartment {
@@ -174,43 +247,4 @@ fn windows_error(error: windows::core::Error) -> io::Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use windows::Win32::System::Com::CoTaskMemAlloc;
-
-    #[test]
-    fn selection_kinds_are_explicit() {
-        assert_ne!(DialogSelection::File, DialogSelection::Folder);
-    }
-
-    #[test]
-    fn a_task_memory_path_decodes_to_the_buffer_it_owns() {
-        let expected = PathBuf::from("C:\\Moirai\\\u{e9}t\u{e9}.txt");
-        let units: Vec<u16> = expected
-            .to_str()
-            .expect("the fixture is UTF-8")
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        // SAFETY: the allocation holds `units.len()` code units, is written in
-        // full before use, and is handed to `TaskMemoryPath`, which frees it
-        // with `CoTaskMemFree`.
-        let buffer = unsafe { CoTaskMemAlloc(units.len() * size_of::<u16>()) }.cast::<u16>();
-        assert!(!buffer.is_null());
-        // SAFETY: `buffer` has room for `units.len()` code units.
-        unsafe { std::ptr::copy_nonoverlapping(units.as_ptr(), buffer, units.len()) };
-        let owner = TaskMemoryPath::new(PWSTR(buffer));
-        assert_eq!(owner.to_path().expect("valid path"), expected);
-        assert_eq!(
-            owner
-                .to_path()
-                .expect("decoding leaves the buffer readable"),
-            expected
-        );
-    }
-
-    #[test]
-    fn cancellation_uses_the_windows_hresult() {
-        assert_eq!(HRESULT::from_win32(ERROR_CANCELLED.0).0 as u32, 0x8007_04c7);
-    }
-}
+mod tests;

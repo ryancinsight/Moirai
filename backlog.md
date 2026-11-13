@@ -10,6 +10,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-QUIC-PROMOTION-001 — Promote verified native QUIC [minor]
 - status: todo
 - priority: feature
+- milestone: M-async-io-transport
 - outcome: Moirai 0.11.0 and moirai-quic 0.1.0 are available at the canonical provider revision; Metis resolves its Git lock from that published source. (0.10.0 was taken by main's clipboard release while this PR was in flight.)
 - acceptance: ADR 0075, real UDP interoperability/loss/bounds/cancellation tests, clean native diagnostics, compatibility checks and canonical Git lock pass before promotion. Windows/Linux transport evidence remains a platform gate.
 - scope: provider publication and consumer revision adoption; no credentials or trust-store configuration.
@@ -24,6 +25,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-QUIC-RECOVERY-001 — Evaluate congestion policy under measured loss [minor]
 - status: todo
 - priority: architecture
+- milestone: M-async-io-transport
 - outcome: The chosen production recovery policy supports the admitted message/stream domain with measured throughput, latency and competing-flow behavior.
 - acceptance: retain the same complete payloads, message counts, deadlines and real byte validation; compare supported congestion policies on matched profiles and document fairness, queue growth and failure bounds before changing defaults. Preserve one canonical transport API and a bounded policy abstraction if variation is required.
 - evidence: The 16-stream, 128-message, 65,560-byte 1% loss case exceeds 60 seconds in all three repetitions. Verified progress continues and all namespace UDP error deltas are zero; CUBIC recovery windows contract. No socket-buffer or spawner bypass closes this limit.
@@ -36,6 +38,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-MNEMOSYNE-010-CONSUMER — admit the compatible allocator cohort [patch]
 - status: todo
 - priority: correctness
+- milestone: M-core-execution
 - owner: Apollo provider-integration increment, exported base `2b189f0a`.
 - outcome: Moirai 0.9.3 accepts Mnemosyne-memory 0.10 without public API or Rust implementation changes.
 - acceptance: one canonical provider identity; locked all-feature Clippy, native values, API comparison, package verification and applicable CI.
@@ -47,6 +50,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
 - status: todo
 - priority: correctness
+- milestone: M-core-execution
 - outcome: `installed_runtime_captures_rendered_preview` completes in every full parallel ignored-test run.
 - acceptance: Thirty consecutive `moirai-pal --features webview2 --run-ignored all` runs have zero capture timeouts with the 30-second deadline unchanged.
 - scope: `moirai-pal/src/windows/webview/{host/view.rs,tests.rs}`; navigation, visibility, and shared user-data-folder synchronization.
@@ -57,6 +61,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24 — Remove unnecessary notifier fences
 - status: todo
 - priority: correctness
+- milestone: M-core-execution
 - outcome: Bounded MPMC and hybrid pushes avoid a `SeqCst` fence when no parked receiver depends on it without admitting a lost wakeup.
 - acceptance: The two-producer Loom model admits no lost wakeup, pinned-core 4/8-producer rows beat the fenced baseline, and the multiset regression passes 1,000 consecutive runs.
 - scope: queue ring, MPMC/hybrid channel notifiers, communication ring buffer, Loom model, and paired benchmark.
@@ -78,6 +83,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-NATIVE-REACTOR-001 — Complete native readiness and completion backends
 - status: todo
 - priority: architecture
+- milestone: M-async-io-transport
 - outcome: Native file and socket operations reach task wakers through their operating system readiness or completion mechanism without a busy poll.
 - acceptance: Windows pins overlapped operations, binds handles once, and maps completions to wakers without thread contention or heap allocation in the poll loop; Linux/BSD register edge-triggered interests, wake exact tasks, and translate hangup/error flags to typed I/O errors.
 - scope: Windows completion backend, epoll/kqueue readiness, descriptor registration, and typed event translation.
@@ -89,6 +95,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-WASM-COOPERATIVE-EXECUTOR-001 — Bound browser executor turns
 - status: todo
 - priority: architecture
+- milestone: M-core-execution
 - outcome: Browser tasks run cooperatively without blocking rendering or input handling.
 - acceptance: Immediate work enters through microtasks, no executor turn blocks the main thread beyond 16 milliseconds per frame, budget exhaustion yields through a browser macro-task, and a trace proves task progress while frame and input callbacks continue.
 - scope: WASM executor dispatch and browser event-loop scheduling; no native driver thread.
@@ -99,6 +106,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-WASM-WORKERS-001 — Schedule shared-memory work across Web Workers
 - status: todo
 - priority: architecture
+- milestone: M-core-execution
 - outcome: Thread-capable browsers can execute Moirai work through a bounded worker pool without spinning the main thread.
 - acceptance: Workers share the admitted memory instance, route bounded messages or ring entries, steal through atomics, and park with `Atomics.wait`/`notify`; unsupported browsers return a typed capability result.
 - scope: Web Worker lifecycle, shared-memory routing, work stealing, parking, and capability detection.
@@ -109,6 +117,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-FUTURES-IO-COMPAT-001 — Move the futures-io wrappers into the compatibility module
 - status: todo
 - priority: architecture
+- milestone: M-async-io-transport
 - outcome: One wrapper family in `moirai-async::io::compat` maps Moirai I/O onto every external trait family it supports, and `moirai-tls` consumes it.
 - acceptance: `ToFuturesIo` and `ToMoiraiIo` leave `moirai-tls`; the replacement wrappers are `#[repr(transparent)]`, forward the task context and vectored writes, and pass the duplex, wake, EOF, and large-transfer scenarios of `io/compat/tests.rs`.
 - scope: `moirai-tls/src/lib.rs` wrappers, `moirai-async/src/io/compat.rs`, their callers, and ADR 0006.
@@ -119,6 +128,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-WASM-PROMISE-FUTURE-001 — Own Promise-to-Future callback lifetimes
 - status: todo
 - priority: architecture
+- milestone: M-async-io-transport
 - outcome: JavaScript Promise resolution and rejection wake one Rust future without leaking callbacks or requiring cross-thread access.
 - acceptance: An owned callback guard maps resolve/reject to typed results, updates the current waker, cancels registration on drop, and passes lifecycle tests for completion, rejection, replacement, and cancellation.
 - scope: general Promise bridge and bounded event handoff; existing specialized file/timer ownership remains authoritative.
@@ -129,6 +139,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-WEBVIEW-RUST-PROVIDER-ACCEPTANCE-2026-10-13 — Verify Rust page provider ownership [minor]
 - status: todo
 - priority: verification
+- milestone: M-core-execution
 - outcome: Real Windows WebView2 verifies Rust bridge handoff, repeated native DENY and fresh-profile browser exit with current source/tool/module identities.
 - acceptance: Run the installed repeated geolocation-denial fixture and actual four-kind consumer probe; every required native event and browser outcome matches. Verify explicit listener close, bounded reported guards through stop/remount, actual BrowserProcessExited and subsequent caller-owned directory cleanup. All diagnostics, existing tests and minor API compatibility gates pass within their unchanged budgets.
 - scope: `moirai-pal/src/wasm/{webview,permissions}`, DOM event owners, native WebView2 profile/shutdown and the consumer-owned Rust page. Metis owns schema, page policy and packaged acceptance.
@@ -150,6 +161,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## ISSUE-004 — Establish current workspace coverage
 - status: todo
 - priority: verification
+- milestone: M-core-execution
 - outcome: Moirai has a current line and branch coverage baseline and a concrete list of uncovered correctness-critical paths.
 - acceptance: The configured coverage tool runs against the complete workspace test suite, records reproducible results, and files value-semantic tests for uncovered public behavior without weakening assertions.
 - scope: coverage configuration, test execution, and resulting focused tests; no percentage claim from the historical 50-test snapshot.
@@ -160,6 +172,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-SPAWN-GLOBAL-MUTEX-REVIEW-001 — Review the sharded task registry decision
 - status: todo
 - priority: verification
+- milestone: M-core-execution
 - outcome: The landed sharded registry either receives independent approval or a forward correction grounded in ADR 0005 and current measurements.
 - acceptance: Review the single-producer regression, multi-producer scaling, task-scheduling control, dense-block ownership, and cleanup interaction; record a verdict and any correction in ADR 0005.
 - scope: landed registry architecture and its measurement contracts; no history rewrite.
@@ -170,6 +183,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-ASYNC-IO-COMPARISON-001 — Verify native and compatibility I/O contracts
 - status: todo
 - priority: verification
+- milestone: M-async-io-transport
 - outcome: Native Moirai I/O and its Tokio compatibility path have measured, value-equivalent loopback behavior.
 - acceptance: Heavy cancellation tests preserve buffers, registration/unregistration overhead is recorded, and native versus compat TCP loopback rows compare throughput and latency with identical values.
 - scope: async network/file integration tests and `async_tcp_comparison` benchmark rows.
@@ -180,6 +194,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## ISSUE-005 — Audit unsafe-code obligations
 - status: todo
 - priority: verification
+- milestone: M-core-execution
 - outcome: Every reachable unsafe operation has a current safety argument and the strongest executable check its platform permits.
 - acceptance: Inventory current unsafe sites, verify each `SAFETY` obligation against its safe caller boundary, run Miri where supported and sanitizer/targeted substitutes elsewhere, and file any unsound or uncovered unit as a correctness item.
 - scope: workspace unsafe blocks, public safe wrappers, FFI/platform boundaries, and their memory-safety tests; no stale 2024 count as a completion claim.
@@ -190,16 +205,29 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-WASM-HEADLESS-TRACE-001 — Run browser lifecycle verification
 - status: todo
 - priority: verification
+- milestone: M-core-execution
 - outcome: Real browser engines verify WASM task progress, wakeups, and callback cleanup.
 - acceptance: Headless Chromium, Firefox, and WebKit traces exercise cooperative tasks, event wakes, cancellation, and callback release with bounded artifacts and value assertions.
 - scope: WASM browser tests and hosted trace workflow; no synthetic-only success claim.
 - next step: Define one engine-neutral lifecycle scenario and make its trace deterministic before adding the matrix.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-PAL-WINDOWS-CI-001"></a>
+## MOI-PAL-WINDOWS-CI-001 — Run every Windows PAL test in CI
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- outcome: Hosted Windows CI runs the native dialog and window tests, including pointer capture and capture re-entry, not only the WebView2 and window-destruction subsets.
+- acceptance: The `windows-webview.yml` nextest step (or a sibling Windows job) selects `windows::dialog::` and every `windows::window::tests::` module; `--no-tests fail` holds; a deliberately broken capture assertion fails the job on a draft PR before the fix lands; the job stays within its timeout.
+- scope: `.github/workflows/windows-webview.yml`, `.config/nextest.toml` test groups for tests that own a message pump or COM apartment; no test deletion or retry.
+- next step: Run `cargo nextest list -p moirai-pal --lib --no-default-features --features webview2` on Windows, classify which modules need a serial test group, then widen the filter expression.
+- basis: `8050f2daa157911d3f033e2e0f35403bd741b8cd`
+
 <a id="MOI-FORK-JOIN-LATENCY-2026-09-10"></a>
 ## MOI-FORK-JOIN-LATENCY-2026-09-10 — Attribute fork-join tail latency
 - status: todo
 - priority: tightening
+- milestone: M-core-execution
 - outcome: Repeated small fork-joins use the available worker pool without the observed wake-latency tail.
 - acceptance: The 64-task microbenchmark separates wake order, per-worker wake cost, caller participation, and spin policy across worker counts; the selected correction reduces p90 without regressing hot-path controls or idle CPU budget.
 - scope: indexed fork-join submission, worker park/wake, caller-help policy, Criterion attribution, and consumer-sized confirmation.
@@ -210,6 +238,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## ISSUE-010 — Attribute remaining result-handoff variance
 - status: todo
 - priority: tightening
+- milestone: M-core-execution
 - outcome: Remaining public result-slot and oversized-job variance is attributed to one measured production mechanism.
 - acceptance: Profiles and paired Criterion runs identify the mechanism, preserve lifecycle timing and panic semantics, add no lock to the handoff path, and show no significant control-path regression.
 - scope: result-slot ownership, oversized inline trampoline handoff, scheduler submission, and existing diagnostic benchmarks; rejected raw-pointer, relaxed-timestamp, and catch-removal variants remain rejected.
@@ -220,6 +249,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-PARKED-POOL-FIRST-REGION-2026-09-17 — Reduce first-region wake cost
 - status: todo
 - priority: tightening
+- milestone: M-core-execution
 - outcome: A data-parallel region submitted after workers park approaches the hot-pool execution time.
 - acceptance: A paired benchmark records hot and 0.1/1/10-millisecond idle-gap distributions, attributes wake order, per-worker wake cost, and caller work, and accepts a change only when latency falls within a stated idle-CPU budget.
 - scope: worker park/wake policy, submitter participation, and the fixed-region benchmark; no unmeasured spin extension.
@@ -252,6 +282,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-TOKIO-PARITY-STAGE-B1 — Complete bounded local-runtime parity
 - status: todo
 - priority: feature
+- milestone: M-async-io-transport
 - outcome: Moirai supplies select ergonomics, IPv6, and a graceful shutdown signal through its bounded local runtime surface.
 - acceptance: Each surface has typed cancellation and backpressure behavior, value-semantic integration tests, and comparison coverage against the corresponding Tokio behavior; HTTP/2 remains excluded without a named consumer.
 - scope: select-equivalent ergonomics, IPv6 network paths, shutdown signaling, tests, and documentation.
@@ -262,16 +293,42 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-WASM-NETWORK-FACADE-001 — Add bounded browser fetch and networking
 - status: todo
 - priority: feature
+- milestone: M-async-io-transport
 - outcome: WASM applications use owned bounded browser fetch and network operations without compiling the native network module.
 - acceptance: Request, response, redirect, body, queue, deadline, and callback lifetimes are bounded; failures are typed; browser traces cover success, rejection, cancellation, and exhaustion.
 - scope: browser `fetch` and the general browser network facade; native sockets remain separate.
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-FS-TEST-GUARD-REMOVAL-001"></a>
+## MOI-FS-TEST-GUARD-REMOVAL-001 — Report failed removal in fs test guards
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- outcome: A fs test whose temp entry is missing or cannot be removed when its guard drops fails, and the three guards share one meaning of `create`.
+- acceptance: With a guard `Drop` body emptied, the fs suites of `moirai-async` and `moirai-pal` fail (at 8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8 32 fs tests pass and leave 22 entries); `TestEntry::create`, `TestFile::create` and `TestRoot::create` all create the entry, or the two that only compute a path are renamed; `cargo nextest list --workspace --all-features --run-ignored all` is unchanged (1524 tests).
+- scope: `moirai-async/src/fs/tests.rs`, `moirai-pal/src/fs/tests.rs`, `moirai-pal/src/fs/confined/tests.rs`.
+- next step: Decide how a guard reports a failed removal without a double panic (assert only when `std::thread::panicking()` is false), then delete the unreachable clearing in `test_path`, merge the two `impl TestFile` blocks, and drop the redundant `create_dir_all` in the FIFO test.
+- links: judge verdicts on PR 680 (F1, F3) and PR 679.
+- basis: `8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8`
+
+<a id="MOI-QUIC-NETEM-SOURCE-FETCH-001"></a>
+## MOI-QUIC-NETEM-SOURCE-FETCH-001 — Stop fetching the netem tool source on every run
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- outcome: The QUIC controlled-network jobs build their pinned `tc` without a live fetch from git.kernel.org on each run.
+- acceptance: With the fetch URL pointed at an unroutable address in a test run, the job still builds `tc` at the iproute2 commit the workflow pins, from a cache keyed on that commit and the runner image; a cache miss fails with the fetch error and never builds another revision.
+- scope: `.github/workflows/quic-transport.yml`, `.github/workflows/quic-recovery.yml`.
+- next step: Cache the fetched source and built `tc` under `$RUNNER_TEMP/quic-iproute2` with the pinned cache action; caches write on the default branch and restore elsewhere.
+- evidence: run 42942917121 attempts 1 and 2 on PR 680 failed 20 s in with `RPC failed; HTTP 502` from that fetch, 50 minutes apart, before any Moirai code ran; attempt 3 passed the step.
+- basis: `8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8`
+
 <a id="MOI-ASYNC-SEEK-001"></a>
 ## MOI-ASYNC-SEEK-001 — Define an async seek trait for Moirai I/O
 - status: todo
 - priority: feature
+- milestone: M-async-io-transport
 - outcome: Moirai files and in-memory cursors seek through a poll-based trait that maps onto `tokio::io::AsyncSeek`.
 - acceptance: `File::seek` is reachable through the trait, the compat wrappers forward `start_seek` and `poll_complete` with the caller's task context, and a seek in flight survives a re-poll under a new waker.
 - scope: `moirai-async::io::traits`, `moirai-async::fs::file`, `io/compat.rs`, and ADR 0006.
@@ -282,6 +339,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-SPIN-BACKOFF-CONSOLIDATION-2026-09-30 — One spin-then-yield schedule for bounded-wait sites
 - status: todo
 - priority: tightening
+- milestone: M-core-execution
 - outcome: The spin-then-yield schedules in `LockFreeQueue::enqueue`, the SPSC ring (`SPSC_BLOCK_SPINS`), the MPMC channel (`backoff_step`), `ResultCell`, and the task-handle waits derive from one schedule type whose spin budget is a const-generic parameter, and the change deletes more lines than it adds.
 - acceptance: A unit test pins the schedule (spin rounds, then yield); each site keeps its measured budget; a benchmark smoke run passes; `git grep -n "spin_loop()"` lists only the shared schedule and true lock spins. `enqueue` keeps its current retry count unless a benchmark shows otherwise.
 - scope: `moirai-utils/src/queue/ring.rs`, `moirai-utils/src/result_cell.rs`, `moirai-core/src/channel/{spsc/ring.rs,mpmc/block.rs,mpmc/channel.rs}`, `moirai-core/src/task/handle.rs`; not the Chase-Lev `ContentionWait` or the NUMA backoff without a recorded reason.
@@ -314,6 +372,7 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-APPLE-HOST-EVIDENCE-001 — Apple host runtime evidence [minor]
 - status: todo
 - priority: verification
+- milestone: M-core-execution
 - outcome: verify the shared WKWebView resource provider on native macOS, iPhone and iPad.
 - acceptance: real Rust/WASM input/output, geometry, scene reconnect and bounded shutdown; permission denial is a separate host contract.
 - evidence: six resource byte/MIME/traversal/symlink/socket/FIFO/bound tests pass; Metis macOS/device/simulator apps compile; macOS/iPhone/iPad native hosts deliver all seven assets including real WASM.

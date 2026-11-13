@@ -8,17 +8,49 @@ fn test_path(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!(
+    let path = std::env::temp_dir().join(format!(
         "moirai_pal_file_{name}_{}_{}",
         std::process::id(),
         nonce
-    ))
+    ));
+    // Nonce-named yet created without `create_new`: pid reuse plus a stale
+    // file from a crashed run can collide, so remove any leftover first —
+    // best-effort, since a passed run must not fail on a contended temp dir.
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+/// RAII owner for a `test_path` file: the file is removed when the guard
+/// drops, so a test that fails or panics mid-body cannot leak its temp file.
+struct TestFile {
+    path: PathBuf,
+}
+
+impl TestFile {
+    fn create(name: &str) -> Self {
+        Self {
+            path: test_path(name),
+        }
+    }
+}
+
+impl Drop for TestFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+impl TestFile {
+    fn path(&self) -> &PathBuf {
+        &self.path
+    }
 }
 
 #[test]
 fn file_roundtrip_seek_and_metadata_are_value_semantic() {
-    let path = test_path("roundtrip.bin");
-    let file = File::open_with(&path, FileOpenOptions::read_write_truncate())
+    let owned = TestFile::create("roundtrip.bin");
+    let path = owned.path();
+    let file = File::open_with(path, FileOpenOptions::read_write_truncate())
         .expect("file create must succeed");
     let written = file.write(b"alpha-beta").expect("write must succeed");
     assert_eq!(written, 10);
@@ -34,16 +66,16 @@ fn file_roundtrip_seek_and_metadata_are_value_semantic() {
     let metadata = file.metadata().expect("metadata must succeed");
     assert_eq!(metadata.len(), 10);
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn file_read_to_end_preserves_source_bytes() {
-    let path = test_path("source.bin");
+    let owned = TestFile::create("source.bin");
+    let path = owned.path();
     let expected: Vec<u8> = (0_u8..=31).map(|value| value.wrapping_mul(3)).collect();
-    std::fs::write(&path, &expected).expect("source write must succeed");
+    std::fs::write(path, &expected).expect("source write must succeed");
 
-    let file = File::open_with(&path, FileOpenOptions::read_only()).expect("open must succeed");
+    let file = File::open_with(path, FileOpenOptions::read_only()).expect("open must succeed");
     let mut actual = Vec::new();
     let read = file
         .read_to_end(&mut actual)
@@ -52,15 +84,15 @@ fn file_read_to_end_preserves_source_bytes() {
     assert_eq!(actual, expected);
 
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
 
 #[test]
 fn file_positioned_read_preserves_stream_cursor() {
-    let path = test_path("positioned.bin");
-    std::fs::write(&path, b"0123456789").expect("positioned source write must succeed");
+    let owned = TestFile::create("positioned.bin");
+    let path = owned.path();
+    std::fs::write(path, b"0123456789").expect("positioned source write must succeed");
 
-    let file = File::open_with(&path, FileOpenOptions::read_only()).expect("open must succeed");
+    let file = File::open_with(path, FileOpenOptions::read_only()).expect("open must succeed");
     let position = file
         .seek(SeekFrom::Start(2))
         .expect("initial seek must succeed");
@@ -84,7 +116,6 @@ fn file_positioned_read_preserves_stream_cursor() {
     assert_eq!(&stream, b"23");
 
     drop(file);
-    std::fs::remove_file(&path).expect("positioned file cleanup must succeed");
 }
 
 #[test]
@@ -92,11 +123,12 @@ fn concurrent_positioned_reads_never_move_the_stream_cursor() {
     // Positioned reads on one thread and stream reads on another share a
     // handle, as they do across blocking-pool workers. On Windows the cursor
     // lock keeps every stream read at the cursor the previous one left.
-    let path = test_path("concurrent.bin");
+    let owned = TestFile::create("concurrent.bin");
+    let path = owned.path();
     let content: Vec<u8> = (0..=255_u8).collect();
-    std::fs::write(&path, &content).expect("source write must succeed");
+    std::fs::write(path, &content).expect("source write must succeed");
     let file = std::sync::Arc::new(
-        File::open_with(&path, FileOpenOptions::read_only()).expect("open must succeed"),
+        File::open_with(path, FileOpenOptions::read_only()).expect("open must succeed"),
     );
 
     let positioned = {
@@ -119,5 +151,4 @@ fn concurrent_positioned_reads_never_move_the_stream_cursor() {
 
     assert_eq!(streamed, content, "a stream read observed a moved cursor");
     drop(file);
-    std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
