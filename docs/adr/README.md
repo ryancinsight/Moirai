@@ -88,5 +88,6 @@
 | [0080](0080-recovery-trace-evidence.md) | Recovery trace evidence | Accepted |
 | [0081](0081-applied-udp-socket-configuration.md) | Applied UDP socket configuration | Accepted |
 | [0082](0082-recovery-state-observation.md) | Recovery state observation | Accepted |
+| [0085](0085-result-state-access.md) | Result state access | Accepted |
 | [0087](0087-task-lifecycle-release.md) | Task lifecycle release boundary | Accepted |
 | [0088](0088-release-scope-1-0.md) | Moirai release scope for 1.0 | Accepted |

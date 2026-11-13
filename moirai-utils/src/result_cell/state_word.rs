@@ -22,8 +22,7 @@ use super::RESULT_PENDING;
 ///   they are given (at least as strong as the requested one), because the
 ///   cell publishes and consumes its result and waiter through those edges;
 /// - `load` returns only values a `store` or successful `compare_exchange`
-///   wrote, or [`pending`](Self::pending)'s initial value, and `get_mut`
-///   exposes that same cell.
+///   wrote, or [`pending`](Self::pending)'s initial value.
 ///
 /// A state word that reports `READY` before the result was written, or that
 /// drops the release/acquire edge, makes the cell read uninitialized memory.
@@ -42,7 +41,6 @@ use super::RESULT_PENDING;
 ///     fn load(&self, _: Ordering) -> u8 { 4 }
 ///     fn store(&self, _: u8, _: Ordering) {}
 ///     fn compare_exchange(&self, c: u8, _: u8, _: Ordering, _: Ordering) -> Result<u8, u8> { Ok(c) }
-///     fn get_mut(&mut self) -> &mut u8 { &mut self.0 }
 /// }
 /// ```
 pub unsafe trait StateWord: Send + Sync {
@@ -63,9 +61,6 @@ pub unsafe trait StateWord: Send + Sync {
         success: Ordering,
         failure: Ordering,
     ) -> Result<u8, u8>;
-
-    /// Exclusive access for `Drop`, which needs no atomicity.
-    fn get_mut(&mut self) -> &mut u8;
 }
 
 // SAFETY: `AtomicU8` is the atomic `u8` cell the contract describes, and each
@@ -96,11 +91,6 @@ unsafe impl StateWord for AtomicU8 {
     ) -> Result<u8, u8> {
         Self::compare_exchange(self, current, new, success, failure)
     }
-
-    #[inline]
-    fn get_mut(&mut self) -> &mut u8 {
-        Self::get_mut(self)
-    }
 }
 
 // SAFETY: the wrapper only pads the `AtomicU8` it forwards every call to, with
@@ -130,10 +120,5 @@ unsafe impl StateWord for crate::cache::CacheAligned<AtomicU8> {
         failure: Ordering,
     ) -> Result<u8, u8> {
         self.0.compare_exchange(current, new, success, failure)
-    }
-
-    #[inline]
-    fn get_mut(&mut self) -> &mut u8 {
-        self.0.get_mut()
     }
 }

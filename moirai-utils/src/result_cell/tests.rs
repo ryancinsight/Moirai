@@ -35,6 +35,17 @@ impl Waiter for DropCountingWaiter {
     }
 }
 
+struct TrackedResult {
+    payload: &'static str,
+    drops: Arc<AtomicUsize>,
+}
+
+impl Drop for TrackedResult {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 #[test]
 fn take_observes_the_published_result_exactly_once() {
     let cell = ResultCell::<u32, Waker>::new();
@@ -121,22 +132,71 @@ fn a_thread_waiter_is_unparked_across_the_hand_off() {
 #[test]
 fn drop_releases_the_untaken_result_and_the_parked_waiter() {
     let dropped = Arc::new(AtomicUsize::new(0));
-
-    struct Tracked(Arc<AtomicUsize>);
-
-    impl Drop for Tracked {
-        fn drop(&mut self) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    let cell = ResultCell::<Tracked, Waker>::new();
+    let cell = ResultCell::<TrackedResult, Waker>::new();
     // SAFETY: this test thread is the cell's only consumer.
     unsafe { cell.register(&Waker::noop().clone()) };
-    cell.complete(Tracked(Arc::clone(&dropped)));
+    cell.complete(TrackedResult {
+        payload: "untaken",
+        drops: Arc::clone(&dropped),
+    });
     drop(cell);
 
     assert_eq!(dropped.load(Ordering::SeqCst), 1, "untaken result leaked");
+}
+
+#[test]
+fn final_owner_cross_thread_disposes_untaken_and_preserves_consumed_result() {
+    let untaken_drops = Arc::new(AtomicUsize::new(0));
+    let untaken = Arc::new(ResultCell::<TrackedResult, Waker>::new());
+    let producer_cell = Arc::clone(&untaken);
+    let producer = thread::spawn({
+        let untaken_drops = Arc::clone(&untaken_drops);
+        move || {
+            producer_cell.complete(TrackedResult {
+                payload: "untaken",
+                drops: untaken_drops,
+            });
+        }
+    });
+    producer
+        .join()
+        .expect("invariant: producer thread returns normally");
+    thread::spawn(move || drop(untaken))
+        .join()
+        .expect("invariant: final owner thread returns normally");
+    assert_eq!(untaken_drops.load(Ordering::SeqCst), 1);
+
+    let consumed_drops = Arc::new(AtomicUsize::new(0));
+    let consumed = Arc::new(ResultCell::<TrackedResult, Waker>::new());
+    let producer_cell = Arc::clone(&consumed);
+    let producer = thread::spawn({
+        let consumed_drops = Arc::clone(&consumed_drops);
+        move || {
+            producer_cell.complete(TrackedResult {
+                payload: "consumed",
+                drops: consumed_drops,
+            });
+        }
+    });
+    producer
+        .join()
+        .expect("invariant: producer thread returns normally");
+    let result = consumed
+        .try_take_ready()
+        .expect("invariant: joined producer published the result");
+    assert_eq!(result.payload, "consumed");
+    assert_eq!(consumed_drops.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        consumed.try_take_ready().map(|result| result.payload),
+        None,
+        "result was returned twice"
+    );
+    thread::spawn(move || drop(consumed))
+        .join()
+        .expect("invariant: final owner thread returns normally");
+    assert_eq!(consumed_drops.load(Ordering::SeqCst), 0);
+    drop(result);
+    assert_eq!(consumed_drops.load(Ordering::SeqCst), 1);
 }
 
 #[test]
