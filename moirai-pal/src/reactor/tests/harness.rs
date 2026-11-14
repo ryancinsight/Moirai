@@ -222,17 +222,3 @@ pub(super) fn assert_direct_injected_error(error: &std::io::Error, expected: u32
         .expect("direct iteration error preserves its typed payload");
     assert_eq!(injected.0, expected);
 }
-
-#[cfg(windows)]
-pub(super) fn bind_reusing_socket(fd: crate::RawFd) -> UdpSocket {
-    const REUSE_ATTEMPTS: usize = 256;
-    let mut held = Vec::with_capacity(REUSE_ATTEMPTS);
-    for _ in 0..REUSE_ATTEMPTS {
-        let socket = UdpSocket::bind("127.0.0.1:0").expect("replacement socket bind");
-        if socket_to_raw(&socket) == fd {
-            return socket;
-        }
-        held.push(socket);
-    }
-    panic!("Winsock did not reuse the retired socket value within {REUSE_ATTEMPTS} allocations");
-}

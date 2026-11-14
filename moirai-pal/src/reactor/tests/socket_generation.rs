@@ -2,7 +2,7 @@
 //! raw-socket generation ordering, and the closed-after-snapshot race.
 
 use super::super::core::{FdKey, IoReactor};
-use super::harness::{WakeCount, bind_reusing_socket, socket_to_raw};
+use super::harness::{WakeCount, socket_to_raw};
 use crate::Interest;
 use std::net::UdpSocket;
 use std::sync::Arc;
@@ -80,10 +80,12 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
     assert!(!reactor.platform_reactor.has_registration(fd));
     assert_eq!(retired_wake_count.0.load(Ordering::Relaxed), 0);
 
-    let current_socket = bind_reusing_socket(fd);
-    current_socket
-        .set_nonblocking(true)
-        .expect("current socket nonblocking");
+    // Registration keys are raw socket values, and Windows does not specify
+    // when a closed value is issued to a new socket. Registration never
+    // touches the socket, so the registry sees a reused socket only as a
+    // second registration of the same key while the first invalidation is
+    // unhandled. Registering the still-closed value drives the same
+    // generation transitions without depending on that reissue.
     let write_waker = Waker::from(Arc::clone(&current_wake_count));
     reactor
         .register_waker(fd, Interest::WRITABLE, write_waker.clone())
@@ -93,7 +95,6 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
         1,
         "replacing an invalidated registration must wake its retired waiter"
     );
-    drop(current_socket);
     let current_event = reactor
         .platform_reactor
         .poll_registered_events(Some(Duration::from_millis(50)))
