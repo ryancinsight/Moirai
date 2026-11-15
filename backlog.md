@@ -34,17 +34,6 @@ belong in [gap_audit.md](gap_audit.md).
 - [patch] Focused handshake evidence: all six early Linux competing failures retain 634 queued client Handshake CRYPTO bytes, zero Handshake flight and Data PTOs; the server consumes 2246/2880 bytes. A real maximum-workload single-datagram-loss experiment completes 17/27 baseline versus 27/27 with a focused experimental recovery patch; all 23 native QUIC tests pass against the isolated candidate. The patch remains an artifact, not the canonical dependency. Its full Linux policy/fairness/latency/queue matrix and a reviewed supported production path remain required. Established throughput remains separate.
 - next step: measure the focused handshake candidate across the full Linux domain and competing flows and establish a supported reviewed production path before adoption. Continue the distinct established-session throughput investigation using the archived flight/flow-credit/pacing timelines. Retain all complete, unsuccessful and canceled studies; preserve original deadlines and the independent full CUBIC promotion gate. No tolerance, window enlargement or unreviewed upstream fix establishes acceptance.
 - [patch] Security prerequisite verified: required CI reports four Rustls 0.23.45 advisories (RUSTSEC-2026-0346/0347/0348/0349). The shared dependency and independently consumed QUIC provider require released 0.23.46; both locks update only Rustls's external identity. The fresh complete policy/shared-queue study and independent original CUBIC gate retain separate source inventories. Every applicable non-performance CI job passes, including Linux/Windows, workspace, supply-chain and lockfile integrity; the original CUBIC performance gate still fails.
-<a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
-## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
-- status: todo
-- priority: correctness
-- milestone: M-core-execution
-- outcome: `installed_runtime_captures_rendered_preview` completes in every full parallel ignored-test run.
-- acceptance: Thirty consecutive `moirai-pal --features webview2 --run-ignored all` runs have zero capture timeouts with the 30-second deadline unchanged.
-- scope: `moirai-pal/src/windows/webview/{host/view.rs,tests.rs}`; navigation, visibility, and shared user-data-folder synchronization.
-- next step: Determine whether navigation, hidden-document state, or sibling-host profile sharing holds or drops `CapturePreview` completion.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24"></a>
 ## MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24 — Remove unnecessary notifier fences
 - status: todo
@@ -144,6 +133,18 @@ belong in [gap_audit.md](gap_audit.md).
 - blocker: No consented positive-grant/device fixture is recorded. Permission requests and native outcome data cannot be replaced with fabricated grants or emulated streams.
 - re-open trigger: Explicit fixture consent and real device/browser prerequisites are available.
 - basis: `17a680ffebda11bf344fd06138dfc58c73c745be`; [ADR 0077](docs/adr/0077-rust-page-provider-ownership.md).
+
+<a id="MOI-WEBVIEW-PARALLEL-HOST-STARVATION-2026-11-15"></a>
+## MOI-WEBVIEW-PARALLEL-HOST-STARVATION-2026-11-15 — Keep the mapped-folder host alive beside the stress tests
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- outcome: `installed_runtime_loads_module_page_from_mapped_folder` passes in the full parallel `--run-ignored all` run, where it passes alone in 0.5-0.7 s.
+- acceptance: Thirty consecutive `moirai-pal --features webview2 --run-ignored all` runs report the test passing with its 10-second host wait unchanged, and the preview-capture tests still pass with the 30-second deadline unchanged.
+- evidence: At `48bacb853214716de8104d6ef4a1ee0e81afe0b7` the test fails in 30 of 30 full runs with `TimedOut` from `WebViewHost::new` (12.4-13.1 s in the first five). Excluding the two 100-controller `reshow_concurrently` tests it passes in 3 of 3 runs, which points at those tests as the starvation source (hypothesis; the mechanism is unmeasured). The single-host preview capture passes 30 of 30 but takes 28.6-37.6 s of wall time in the full run. The bridge and startup tests fail without the CI-supplied producer selection.
+- scope: `moirai-pal/src/windows/webview/tests.rs`, `tests/preview.rs`, and a named nextest test group over the shared WebView2 runtime.
+- next step: Bound controller concurrency across the installed-runtime tests with a `[test-groups]` entry, then rerun the thirty-run acceptance.
+- basis: `48bacb853214716de8104d6ef4a1ee0e81afe0b7`
 
 <a id="ISSUE-004"></a>
 ## ISSUE-004 — Establish current workspace coverage
