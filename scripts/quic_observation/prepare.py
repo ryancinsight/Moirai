@@ -45,6 +45,11 @@ def registry_source(root):
     return valid[0], package['checksum']
 
 
+def relative_patch_path(path, root):
+    """Express a source-relative path in the patch inventory namespace."""
+    return path.relative_to(root).as_posix()
+
+
 def patch_source(source, destination, root):
     patch = root/'scripts/quic_observation/engine.patch'
     raw = patch.read_text()
@@ -54,10 +59,10 @@ def patch_source(source, destination, root):
     if changed != ALLOWED:
         raise ValueError('unexpected instrumentation file inventory')
     shutil.copytree(source, destination)
-    subprocess.run(['git', 'apply', '--check', str(patch)], cwd=destination, check=True)
-    subprocess.run(['git', 'apply', str(patch)], cwd=destination, check=True)
+    subprocess.run(['git', '-c', 'core.autocrlf=false', 'apply', '--check', str(patch)], cwd=destination, check=True)
+    subprocess.run(['git', '-c', 'core.autocrlf=false', 'apply', str(patch)], cwd=destination, check=True)
     for original in source.rglob('*'):
-        if original.is_file() and str(original.relative_to(source)) not in changed:
+        if original.is_file() and relative_patch_path(original, source) not in changed:
             if original.read_bytes() != (destination/original.relative_to(source)).read_bytes():
                 raise ValueError('instrumentation changes an unrelated source file')
     return {'engine': ENGINE, 'version': VERSION, 'patch_sha256': digest(patch.read_bytes()),
