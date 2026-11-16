@@ -3,8 +3,6 @@
 use std::{
     io,
     io::Cursor,
-    sync::{Arc, Barrier},
-    thread,
     time::{Duration, Instant},
 };
 
@@ -12,6 +10,10 @@ use super::{
     NativeWindow, TestPackage, WebViewConfig, WebViewEvent, WebViewHost, WebViewHostEvent,
     WindowConfig, WindowVisibility,
 };
+
+mod start_line;
+
+use start_line::run_from_common_start;
 
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
@@ -70,53 +72,41 @@ enum NavigationTiming {
 }
 
 fn run_concurrent_reshow_capture(navigation_timing: NavigationTiming) {
-    let start = Arc::new(Barrier::new(101));
-    thread::scope(|scope| {
-        let attempts = (0..100)
-            .map(|host_index| {
-                let start = Arc::clone(&start);
-                scope.spawn(move || {
-                    let initial = marker_color(host_index, 0);
-                    let expected = marker_color(host_index, 1);
-                    let package = TestPackage::create_with_script(&marker_page(
-                        &format!("host-{host_index}-initial"),
-                        initial,
-                    ));
-                    let reshown_uri = write_page(
-                        &package,
-                        "reshown.html",
-                        &marker_page(&format!("host-{host_index}-reshown"), expected),
-                    );
-                    // CapturePreview does not complete when its parent HWND
-                    // lacks WS_VISIBLE (WebView2Feedback #579).
-                    let mut host = preview_host(
-                        &package,
-                        &format!("Moirai WebView2 re-show test {host_index}"),
-                        WindowVisibility::Visible,
-                    );
-                    if matches!(navigation_timing, NavigationTiming::BeforeHide) {
-                        host.navigate(reshown_uri.clone())
-                            .expect("navigate before hide");
-                        wait_for_navigation(&mut host);
-                    }
-                    start.wait();
-                    host.set_visible(false).expect("hide controller");
-                    if matches!(navigation_timing, NavigationTiming::WhileHidden) {
-                        host.navigate(reshown_uri).expect("navigate while hidden");
-                    }
-                    host.set_visible(true).expect("show rendered controller");
-                    if matches!(navigation_timing, NavigationTiming::WhileHidden) {
-                        wait_for_navigation(&mut host);
-                    }
-                    let png = host.capture_preview_png().expect("capture after re-show");
-                    assert_rendered_page(&png, expected);
-                })
-            })
-            .collect::<Vec<_>>();
-        start.wait();
-        for attempt in attempts {
-            attempt.join().expect("re-show capture thread");
+    run_from_common_start(100, |host_index, start| {
+        let initial = marker_color(host_index, 0);
+        let expected = marker_color(host_index, 1);
+        let package = TestPackage::create_with_script(&marker_page(
+            &format!("host-{host_index}-initial"),
+            initial,
+        ));
+        let reshown_uri = write_page(
+            &package,
+            "reshown.html",
+            &marker_page(&format!("host-{host_index}-reshown"), expected),
+        );
+        // CapturePreview does not complete when its parent HWND
+        // lacks WS_VISIBLE (WebView2Feedback #579).
+        let mut host = preview_host(
+            &package,
+            &format!("Moirai WebView2 re-show test {host_index}"),
+            WindowVisibility::Visible,
+        );
+        if matches!(navigation_timing, NavigationTiming::BeforeHide) {
+            host.navigate(reshown_uri.clone())
+                .expect("navigate before hide");
+            wait_for_navigation(&mut host);
         }
+        start.arrive().expect("every host reached the start line");
+        host.set_visible(false).expect("hide controller");
+        if matches!(navigation_timing, NavigationTiming::WhileHidden) {
+            host.navigate(reshown_uri).expect("navigate while hidden");
+        }
+        host.set_visible(true).expect("show rendered controller");
+        if matches!(navigation_timing, NavigationTiming::WhileHidden) {
+            wait_for_navigation(&mut host);
+        }
+        let png = host.capture_preview_png().expect("capture after re-show");
+        assert_rendered_page(&png, expected);
     });
 }
 
