@@ -433,3 +433,9 @@ remain. Pending-reset isolation leaves the new mount unchanged.
 The bounded HTTP consumer evidence item is complete. These observations do
 not count provider-private allocations or establish cross-engine/hardware
 equivalence; broader networking and permission acceptance remains open.
+
+<a id="MOI-GAP-WEBVIEW2-BROWSER-FOLDER-ABORT-001"></a>
+## MOI-GAP-WEBVIEW2-BROWSER-FOLDER-ABORT-001 — A missing WebView2 browser folder may abort the test binary
+- risk: Reported residual of [PR 697](https://github.com/ryancinsight/Moirai/pull/697), not reproduced in this filing: with `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` naming a missing folder, the base WebView2 test binary aborts with 0xC0000409 after the first panics and reports no per-test failures. Moirai source does not read the variable; the WebView2 loader does.
+- evidence: none retained in the repository; the PR text carries no record of the run. Impact if true: a misconfigured host reads as a crash, not as failing tests.
+- re-open trigger: A run with the variable set to a missing folder reproduces the abort, then the host-creation path surfaces a typed error instead of panicking, or the claim is retracted.
