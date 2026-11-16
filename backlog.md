@@ -303,18 +303,6 @@ belong in [gap_audit.md](gap_audit.md).
 - links: judge verdicts on PR 680 (F1, F3) and PR 679.
 - basis: `8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8`
 
-<a id="MOI-QUIC-NETEM-SOURCE-FETCH-001"></a>
-## MOI-QUIC-NETEM-SOURCE-FETCH-001 — Stop fetching the netem tool source on every run
-- status: todo
-- priority: verification
-- milestone: M-core-execution
-- outcome: The QUIC controlled-network jobs build their pinned `tc` without a live fetch from git.kernel.org on each run.
-- acceptance: With the fetch URL pointed at an unroutable address in a test run, the job still builds `tc` at the iproute2 commit the workflow pins, from a cache keyed on that commit and the runner image; a cache miss fails with the fetch error and never builds another revision.
-- scope: `.github/workflows/quic-transport.yml`, `.github/workflows/quic-recovery.yml`.
-- next step: Cache the fetched source and built `tc` under `$RUNNER_TEMP/quic-iproute2` with the pinned cache action; caches write on the default branch and restore elsewhere.
-- evidence: run 42942917121 attempts 1 and 2 on PR 680 failed 20 s in with `RPC failed; HTTP 502` from that fetch, 50 minutes apart, before any Moirai code ran; attempt 3 passed the step.
-- basis: `8a5bf9c1dfa71da2eaba990412f9ea6e0b63cef8`
-
 <a id="MOI-ASYNC-SEEK-001"></a>
 ## MOI-ASYNC-SEEK-001 — Define an async seek trait for Moirai I/O
 - status: todo

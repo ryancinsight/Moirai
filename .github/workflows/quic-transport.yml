@@ -51,6 +51,8 @@ jobs:
     env:
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
+      QUIC_IPROUTE2_URL: https://git.kernel.org/pub/scm/network/iproute2/iproute2.git
+      QUIC_IPROUTE2_COMMIT: d2a8ffe85ac64f91ee2aa7679a5046f321b54127
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -59,13 +61,33 @@ jobs:
         with:
           toolchain: 1.97.0
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc
+      - name: Key the pinned seeded-netem tool cache on its commit and runner image
+        id: iproute2-key
+        run: echo "key=quic-iproute2-${RUNNER_OS}-${ImageOS:?}-${ImageVersion:?}-${QUIC_IPROUTE2_COMMIT}" >> "$GITHUB_OUTPUT"
+      - name: Restore the pinned seeded-netem tool
+        id: iproute2-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/quic-iproute2
+          key: ${{ steps.iproute2-key.outputs.key }}
       - name: Build the pinned seeded-netem tool
+        if: steps.iproute2-cache.outputs.cache-hit != 'true'
         run: |
           git init "$RUNNER_TEMP/quic-iproute2"
-          git -C "$RUNNER_TEMP/quic-iproute2" remote add origin https://git.kernel.org/pub/scm/network/iproute2/iproute2.git
-          git -C "$RUNNER_TEMP/quic-iproute2" fetch --depth=1 origin d2a8ffe85ac64f91ee2aa7679a5046f321b54127
+          git -C "$RUNNER_TEMP/quic-iproute2" remote add origin "$QUIC_IPROUTE2_URL"
+          git -C "$RUNNER_TEMP/quic-iproute2" fetch --depth=1 origin "$QUIC_IPROUTE2_COMMIT"
           git -C "$RUNNER_TEMP/quic-iproute2" checkout --detach FETCH_HEAD
           make -C "$RUNNER_TEMP/quic-iproute2" -j2
+      - name: Verify the seeded-netem tool is the pinned revision
+        run: |
+          test "$(git -C "$RUNNER_TEMP/quic-iproute2" rev-parse HEAD)" = "$QUIC_IPROUTE2_COMMIT"
+          test -x "$RUNNER_TEMP/quic-iproute2/tc/tc"
+      - name: Save the pinned seeded-netem tool
+        if: steps.iproute2-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/quic-iproute2
+          key: ${{ steps.iproute2-key.outputs.key }}
       - name: Build the actual optimized transport probe
         run: cargo build --locked --release -p moirai-quic --example quic_load
       - name: Measure verified exchanges in task-owned namespaces
