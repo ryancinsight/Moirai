@@ -39,6 +39,7 @@ belong in [gap_audit.md](gap_audit.md).
 - status: todo
 - priority: correctness
 - milestone: M-core-execution
+- needs: none
 - outcome: The six default-profile WebView2 tests (four preview, mapped-folder, packaged-bridge) complete in every full parallel `--run-ignored all` run.
 - acceptance: Thirty consecutive runs in each of `--no-default-features --features webview2` (CI set) and `--features webview2` have zero `TimedOut` from host creation, frame waits or capture in those tests and none past the 30 s SLOW mark, every deadline unchanged.
 - evidence (base `48bacb85`): every nextest process shares one `<exe>.WebView2` browser. CI set, judge: re-show tests failed 1/30 (47 `TimedOut` frame waits at `preview.rs:107`), test wall time 31.3-52.4 s, 2-4 SLOW per run; mapped-folder failed 29/30 (passed only the fresh-profile run 1), alone 0.66-5.3 s. Here a fresh profile per run still failed it 5/5. Three concurrent processes, equal CPU load: shared folder gives re-show 44.1-49.2 s and mapped-folder 5/5 `TimedOut`; distinct folders 27.3-29.7 s and 5/5 pass.
@@ -54,13 +55,14 @@ belong in [gap_audit.md](gap_audit.md).
 - status: blocked
 - priority: correctness
 - milestone: M-core-execution
+- needs: none
 - outcome: Bounded MPMC and hybrid pushes avoid a `SeqCst` fence when no parked receiver depends on it without admitting a lost wakeup.
-- acceptance: Under re-specification: the two-producer Loom model admits no lost wakeup and the multiset regression passes 1,000 consecutive runs. The pinned-core 4/8-producer clause is falsified.
-- evidence: [PR 698](https://github.com/ryancinsight/Moirai/pull/698) (closed unmerged, `refs/pull/698/head`) A/B-measured the fence-free upper bound: no 4/8-producer gain (11 of 12 intervals include zero; best -2.9%); the receiver and the tail CAS bind. The item's head-only notify gate strands a second parked receiver. `HybridSender` is single-producer, so the producer-count clause does not apply to it. Loom positive models exceed the 600 s budget.
+- acceptance: The two-producer Loom model admits no lost wakeup, pinned-core 4/8-producer rows measured on isolated cores beat the fenced baseline, and the multiset regression passes 1,000 consecutive runs. The loaded-host measurement below leaves the 4/8-producer clause unsupported, not falsified.
+- evidence: [PR 698](https://github.com/ryancinsight/Moirai/pull/698) (closed unmerged, `refs/pull/698/head`) A/B-timed the fence-free upper bound in 12 cells (wall time; host about 65% busy; interval widths up to about 54 points): 11 of 12 intervals include zero, 9 of 12 median deltas are gains (best -7.5%, E-cores p8_c4096, CI [-45.5, +8.1]%), and one interval resolves a gain (E-cores p4_c1, -2.9%, CI [-5.8, -0.1]%). PR 698's reading that the receiver and the tail CAS bind is a hypothesis; no profile was taken. Derived there, not model-checked: the head-only notify gate strands a second parked receiver. `HybridSender` is single-producer. Loom positive models exceed the 600 s budget.
 - scope: queue ring, MPMC/hybrid channel notifiers, communication ring buffer, Loom model, and paired benchmark.
-- blocker: The acceptance oracle needs re-specification: no push-side change can meet clause 2 on the named benchmark.
-- re-open trigger: A rewritten oracle names either a simplification judged by a terminating Loom model plus the multiset regression, or a benchmark row where the notifier fence is on the critical path.
-- next step: Re-specify the oracle, then extend `DrainRing` with a second producer and prove the receiver-head condition before changing production ordering.
+- blocker: The measurement instrument: wall time on a loaded host cannot resolve the 4/8-producer clause, and instruction counters would not show a fence's latency.
+- re-open trigger: A fence-free A/B on isolated cores (affinity, lowered contender priority) or under a host bench lease resolves the 4/8-producer rows, or the oracle is rewritten to a simplification judged by a terminating Loom model plus the multiset regression.
+- next step: Re-run the paired benchmark on isolated cores; if a gain resolves, extend `DrainRing` with a second producer and prove the receiver-head condition before changing production ordering.
 - basis: `cd3c569e791acbe21527b4cc88a1cc562ddae6c4`
 
 <a id="MOI-SEC-077"></a>
