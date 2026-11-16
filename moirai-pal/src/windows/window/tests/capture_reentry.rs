@@ -21,8 +21,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SendMessageW, WINDOW_EX_STYLE,
-    WM_CAPTURECHANGED, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WNDCLASSW, WS_OVERLAPPED,
+    WM_CANCELMODE, WM_CAPTURECHANGED, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN,
+    WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
 };
 use windows::core::w;
 
@@ -188,6 +188,68 @@ fn a_release_on_one_window_leaves_the_capture_of_another() {
     );
     first.close().expect("destroy");
     second.close().expect("destroy");
+}
+
+#[test]
+fn a_peer_taking_capture_emits_pointer_capture_lost() {
+    let mut window = hidden_window("Moirai capture loss event");
+    let peer = PeerWindow::new();
+    send(
+        &window,
+        WM_LBUTTONDOWN,
+        button_wparam(MK_LBUTTON.0, 0),
+        10,
+        20,
+    );
+    assert_eq!(capture_owner(), window.hwnd, "the press captures");
+
+    // SAFETY: both windows are live and owned by this test thread.
+    unsafe { SetCapture(peer.hwnd) };
+    assert_eq!(capture_owner(), peer.hwnd, "the peer takes capture");
+    assert_eq!(
+        window.poll_events().expect("capture loss event"),
+        vec![
+            WindowEvent::PointerDown {
+                x: 10,
+                y: 20,
+                button: MouseButton::Left,
+            },
+            WindowEvent::PointerCaptureLost,
+        ]
+    );
+
+    // SAFETY: the calling thread owns the peer capture.
+    unsafe { ReleaseCapture() }.expect("release the peer capture");
+    window.close().expect("destroy");
+}
+
+#[test]
+fn cancel_mode_releases_capture_and_emits_one_pointer_capture_lost() {
+    let mut window = hidden_window("Moirai cancel mode capture");
+    send(
+        &window,
+        WM_LBUTTONDOWN,
+        button_wparam(MK_LBUTTON.0, 0),
+        10,
+        20,
+    );
+    assert_eq!(capture_owner(), window.hwnd, "the press captures");
+
+    send(&window, WM_CANCELMODE, button_wparam(0, 0), 0, 0);
+    assert!(capture_owner().is_invalid(), "cancel mode releases capture");
+    assert_eq!(
+        window.poll_events().expect("cancel mode event"),
+        vec![
+            WindowEvent::PointerDown {
+                x: 10,
+                y: 20,
+                button: MouseButton::Left,
+            },
+            WindowEvent::PointerCaptureLost,
+        ]
+    );
+
+    window.close().expect("destroy");
 }
 
 /// Presses a button on `window` while `peer` holds the capture and takes it
