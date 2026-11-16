@@ -1,3 +1,23 @@
 [profile.default]
 # Report a slow test at 30 seconds and terminate it at 60 seconds.
 slow-timeout = { period = "30s", terminate-after = 2 }
+
+# WebView2 runs one browser process per user-data folder. A host created
+# without a profile uses the default `<exe>.WebView2` folder, which every
+# nextest process of the test binary shares, so these tests share one
+# browser process. Run concurrently, the two 100-host re-show tests starve
+# it: host creation and re-show frame waits then exceed their finite
+# deadlines. Tests with an exclusively owned profile run their own browser
+# and stay parallel.
+[test-groups]
+webview2-default-profile = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = '''
+package(moirai-pal) & (
+    test(=windows::webview::tests::installed_runtime_loads_packaged_page_and_bridge)
+    | test(=windows::webview::tests::installed_runtime_loads_module_page_from_mapped_folder)
+    | test(/^windows::webview::tests::preview::installed_runtime_/)
+)
+'''
+test-group = 'webview2-default-profile'

@@ -39,11 +39,14 @@ belong in [gap_audit.md](gap_audit.md).
 - status: todo
 - priority: correctness
 - milestone: M-core-execution
-- outcome: `installed_runtime_captures_rendered_preview` completes in every full parallel ignored-test run.
-- acceptance: Thirty consecutive `moirai-pal --features webview2 --run-ignored all` runs have zero capture timeouts with the 30-second deadline unchanged.
-- scope: `moirai-pal/src/windows/webview/{host/view.rs,tests.rs}`; navigation, visibility, and shared user-data-folder synchronization.
-- next step: Determine whether navigation, hidden-document state, or sibling-host profile sharing holds or drops `CapturePreview` completion.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+- outcome: The six default-profile WebView2 tests (four preview, mapped-folder, packaged-bridge) complete in every full parallel `--run-ignored all` run.
+- acceptance: Thirty consecutive runs in each of `--no-default-features --features webview2` (CI set) and `--features webview2` have zero `TimedOut` from host creation, frame waits or capture in those tests and none past the 30 s SLOW mark, every deadline unchanged.
+- evidence (base `48bacb85`): every nextest process shares one `<exe>.WebView2` browser. CI set, judge: re-show tests failed 1/30 (47 `TimedOut` frame waits at `preview.rs:107`), test wall time 31.3-52.4 s, 2-4 SLOW per run; mapped-folder failed 29/30 (passed only the fresh-profile run 1), alone 0.66-5.3 s. Here a fresh profile per run still failed it 5/5. Three concurrent processes, equal CPU load: shared folder gives re-show 44.1-49.2 s and mapped-folder 5/5 `TimedOut`; distinct folders 27.3-29.7 s and 5/5 pass.
+- evidence (`webview2-default-profile` test group, max-threads 1): CI set 29/30 clean, mapped-folder 30/30 in 0.8-6.3 s, re-show median 17.4/17.8 s, SLOW in 1/30. Run 9: all 100 immediate-re-show host creations `TimedOut` (`preview.rs:128`) straight after the 100-host settled test, then the start `Barrier` hung until the 60 s kill; unrelated tests ran 2-3x slower in that run. Default set: 30/30 clean, zero `TimedOut`, no SLOW; re-show 10.4-18.1 s, mapped-folder 0.8-4.5 s.
+- scope: `.config/nextest.toml`; `moirai-pal/src/windows/webview/{host,tests.rs,tests/preview.rs}`.
+- next step: Spike (2 h): run the two re-show tests back to back and list live `msedgewebview2.exe` on the default folder at the second start, testing whether environment creation stalls while the prior browser exits; fix that cause, then reach the start `Barrier` on setup failure so a creation panic fails instead of hanging.
+- links: released [PR 626](https://github.com/ryancinsight/Moirai/pull/626) (`refs/pull/626/head`) holds 5 unlanded commits under this ID; its merge-tree landed-work proof against `48bacb85` conflicts in 5 files.
+- basis: `48bacb853214716de8104d6ef4a1ee0e81afe0b7`
 
 <a id="MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24"></a>
 ## MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24 — Remove unnecessary notifier fences
