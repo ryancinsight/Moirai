@@ -195,6 +195,23 @@ mod tests {
     }
 
     #[test]
+    fn the_run_resumes_the_failing_partys_panic_not_a_peers_start_line_panic() {
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            run_from_common_start(5, |index, party| {
+                assert!(index != 3, "setup failed on party 3");
+                // Parties 0-2 precede the failing party in thread order and
+                // panic here, so the root cause is not the first panic.
+                party.arrive().expect("every party reached the start line");
+            });
+        }));
+        let payload = outcome.expect_err("the failed setup fails the run");
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some("setup failed on party 3")
+        );
+    }
+
+    #[test]
     fn a_party_that_never_arrives_ends_the_wait_with_timed_out() {
         let line = StartLine::new(2);
         let waiting = thread::scope(|scope| {
