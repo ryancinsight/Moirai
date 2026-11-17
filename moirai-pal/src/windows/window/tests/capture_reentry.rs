@@ -21,8 +21,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SendMessageW, WINDOW_EX_STYLE,
-    WM_CANCELMODE, WM_CAPTURECHANGED, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
+    WM_CANCELMODE, WM_CAPTURECHANGED, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    WM_RBUTTONDOWN, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
 };
 use windows::core::w;
 
@@ -348,6 +348,12 @@ fn a_peer_reentering_during_capture_loss_fails_the_capture_without_losing_events
 
 #[test]
 fn a_peer_destroying_the_window_during_capture_loss_leaves_the_state_alive_for_the_error() {
+    for message in [WM_LBUTTONDOWN, WM_LBUTTONDBLCLK] {
+        assert_capture_state_survives_reentry(message);
+    }
+}
+
+fn assert_capture_state_survives_reentry(message: u32) {
     let window = hidden_window("Moirai capture destroyed");
     let hwnd = window.hwnd;
     let peer = PeerWindow::new();
@@ -364,7 +370,7 @@ fn a_peer_destroying_the_window_during_capture_loss_leaves_the_state_alive_for_t
     unsafe {
         SendMessageW(
             hwnd,
-            WM_LBUTTONDOWN,
+            message,
             Some(button_wparam(MK_LBUTTON.0, 0)),
             Some(pointer_lparam(10, 20)),
         )

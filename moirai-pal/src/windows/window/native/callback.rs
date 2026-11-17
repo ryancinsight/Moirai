@@ -137,14 +137,15 @@ pub(super) unsafe extern "system" fn window_proc(
             }
             WM_LBUTTONDBLCLK | WM_RBUTTONDBLCLK | WM_MBUTTONDBLCLK | WM_XBUTTONDBLCLK => {
                 let (x, y) = point_from_lparam(lparam);
-                let button = mouse_button(message, wparam);
-                let event = button.map(|button| WindowEvent::PointerDown { x, y, button });
-                push_button_event(hwnd, &state, message, wparam, event);
-                if let Some(button) = button {
-                    state.with(|state| {
-                        state.push(WindowEvent::PointerDoubleClick { x, y, button });
+                let events = mouse_button(message, wparam)
+                    .into_iter()
+                    .flat_map(|button| {
+                        [
+                            WindowEvent::PointerDown { x, y, button },
+                            WindowEvent::PointerDoubleClick { x, y, button },
+                        ]
                     });
-                }
+                push_button_event(hwnd, &state, message, wparam, events);
             }
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 let (x, y) = point_from_lparam(lparam);
@@ -248,9 +249,9 @@ pub(super) unsafe extern "system" fn window_proc(
     }
 }
 
-/// Queues the event of a button message, then applies its capture change.
+/// Queues the button message events before applying capture changes.
 ///
-/// The event is queued first so that anything the capture change sends back to
+/// Events are queued first so that anything the capture change sends back to
 /// this window follows the press or release that caused it. Both native calls
 /// run window procedures: `SetCapture` the one of the window losing capture,
 /// which can send messages to this window, and `ReleaseCapture` this window's
@@ -266,7 +267,7 @@ fn push_button_event(
     state: &SharedWindowState,
     message: u32,
     wparam: WPARAM,
-    event: Option<WindowEvent>,
+    events: impl IntoIterator<Item = WindowEvent>,
 ) {
     let release_pending = matches!(
         capture_transition(message, wparam),
@@ -275,9 +276,11 @@ fn push_button_event(
     if release_pending {
         state.with(|state| state.capture_release_pending = true);
     }
-    if let Some(event) = event {
-        state.with(|state| state.push(event));
-    }
+    state.with(|state| {
+        for event in events {
+            state.push(event);
+        }
+    });
     let held = state.clone();
     if let Err(error) = capture::apply(hwnd, message, wparam) {
         held.with(|state| state.record_error(error));
