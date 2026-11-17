@@ -5,8 +5,8 @@ use super::super::{
     config::{MAX_COMPOSITION_UNITS, allocation_error},
     event::{CompositionPhase, WindowEvent},
     input::{
-        client_point_from_wheel_lparam, extent_from_lparam, mouse_button, point_from_lparam,
-        wheel_deltas,
+        CaptureTransition, capture_transition, client_point_from_wheel_lparam, extent_from_lparam,
+        mouse_button, point_from_lparam, wheel_deltas,
     },
     present::{paint, paint_frame},
     state::{SharedWindowState, WindowState, decode_composition},
@@ -19,13 +19,15 @@ use windows::Win32::Graphics::Gdi::HDC;
 use windows::Win32::UI::Input::Ime::{
     GCS_COMPSTR, GCS_RESULTSTR, ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::GetCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, GWLP_USERDATA, GetWindowLongPtrW, SetWindowLongPtrW, WM_CHAR, WM_CLOSE,
-    WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_IME_COMPOSITION,
-    WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT, WM_PRINTCLIENT, WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    DefWindowProcW, GWLP_USERDATA, GetWindowLongPtrW, SetWindowLongPtrW, WM_CANCELMODE,
+    WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
+    WM_HOTKEY, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT,
+    WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
 pub(super) unsafe extern "system" fn window_proc(
@@ -98,6 +100,27 @@ pub(super) unsafe extern "system" fn window_proc(
                 state.clear_modifiers();
                 state.push(WindowEvent::FocusLost);
             }),
+            WM_CAPTURECHANGED => state.with(|state| {
+                if state.capture_owned && !state.capture_release_pending {
+                    state.push(WindowEvent::PointerCaptureLost);
+                }
+                state.capture_owned = false;
+                state.capture_release_pending = false;
+            }),
+            WM_CANCELMODE => {
+                state.with(|state| {
+                    if state.capture_owned {
+                        state.push(WindowEvent::PointerCaptureLost);
+                    }
+                    state.capture_owned = false;
+                    state.capture_release_pending = false;
+                });
+                // The default procedure releases native capture and performs
+                // the remaining cancellation work. The state borrow ended
+                // before this call because the default path can re-enter with
+                // WM_CAPTURECHANGED.
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            }
             WM_MOUSEMOVE => {
                 let (x, y) = point_from_lparam(lparam);
                 state.with(|state| state.push(WindowEvent::PointerMove { x, y }));
@@ -233,6 +256,13 @@ fn push_button_event(
     wparam: WPARAM,
     event: Option<WindowEvent>,
 ) {
+    let release_pending = matches!(
+        capture_transition(message, wparam),
+        Some(CaptureTransition::Release)
+    );
+    if release_pending {
+        state.with(|state| state.capture_release_pending = true);
+    }
     if let Some(event) = event {
         state.with(|state| state.push(event));
     }
@@ -240,6 +270,12 @@ fn push_button_event(
     if let Err(error) = capture::apply(hwnd, message, wparam) {
         held.with(|state| state.record_error(error));
     }
+    held.with(|state| {
+        // SAFETY: the callback runs on the window's input thread, where
+        // `GetCapture` reads only that thread's capture owner.
+        state.capture_owned = unsafe { GetCapture() } == hwnd;
+        state.capture_release_pending = false;
+    });
 }
 
 fn cancel_composition(state: &mut WindowState) {

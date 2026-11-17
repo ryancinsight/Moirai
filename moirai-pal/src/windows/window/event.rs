@@ -164,6 +164,8 @@ pub enum WindowEvent {
         /// Released button.
         button: MouseButton,
     },
+    /// The host took pointer capture away without delivering a button release.
+    PointerCaptureLost,
     /// A wheel rotated at client coordinates.
     ///
     /// Win32 reports wheel movement in signed multiples of `WHEEL_DELTA`;

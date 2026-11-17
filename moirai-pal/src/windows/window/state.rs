@@ -33,6 +33,8 @@ pub(super) struct WindowState {
     pending_high_surrogate: Option<u16>,
     pub(super) composition_active: bool,
     pub(super) modifiers: ModifierState,
+    pub(super) capture_owned: bool,
+    pub(super) capture_release_pending: bool,
     pub(super) overflowed: bool,
     pub(super) error: Option<io::Error>,
 }
@@ -64,6 +66,8 @@ impl WindowState {
             pending_high_surrogate: None,
             composition_active: false,
             modifiers: ModifierState::NONE,
+            capture_owned: false,
+            capture_release_pending: false,
             overflowed: false,
             error: None,
         })
