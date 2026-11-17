@@ -33,8 +33,11 @@
 //! fallback and proves nothing about the converted path — the coverage gap the
 //! terminal rework found in the pre-existing tests.
 
-use moirai_iter::parallel::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+use moirai_iter::{
+    base::tree_reduce,
+    parallel::{
+        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+    },
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -90,6 +93,17 @@ fn allocated_bytes<T>(operation: impl Fn() -> T) -> (T, usize) {
     let after = ALLOCATED_BYTES.load(Ordering::Relaxed);
 
     (value, after.saturating_sub(before))
+}
+
+#[test]
+fn tree_reduction_allocates_only_the_input_and_one_half_sized_buffer() {
+    const COUNT: usize = 4096;
+    let (sum, bytes) = allocated_bytes(|| tree_reduce((0..COUNT).collect(), |a, b| a + b));
+    assert_eq!(sum, Some(COUNT * (COUNT - 1) / 2));
+    assert_eq!(
+        bytes,
+        (COUNT + COUNT.div_ceil(2)) * std::mem::size_of::<usize>()
+    );
 }
 
 /// A chain over a borrowed source must not materialize its logical stream.
