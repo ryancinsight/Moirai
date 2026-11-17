@@ -7,13 +7,10 @@
 //! partial prefix during unwinding, while the outer owner drops completed peer
 //! ranges.
 
-use std::mem;
+use std::{mem, num::NonZeroUsize};
 
 use super::{CACHE_CHUNK_SIZE, CACHE_LINE_SIZE, prefetch_read_data};
-use crate::{
-    base::SendPtr,
-    parallel::output::{ChunkWriter, MapOutput, output_chunk_range},
-};
+use crate::{base::SendPtr, parallel::output::MapOutput};
 
 /// Default scheduler batch capacity used by the cache fan-out gate.
 pub(super) const DEFAULT_RING_BUFFER_CAPACITY: usize = 1_024;
@@ -110,34 +107,18 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             return self.data.iter().map(&func).collect();
         }
 
-        let mut output = MapOutput::new(self.data.len(), self.chunk_size);
+        let chunk_size = NonZeroUsize::new(self.chunk_size)
+            .expect("invariant: selected cache chunks are nonempty");
+        let mut output = MapOutput::new(self.data.len(), chunk_size);
         let num_chunks = output.chunk_count();
-        let data_ptr = SendPtr(self.data.as_ptr().cast_mut().cast::<()>());
-        let output_ptr = SendPtr(output.values_ptr().cast::<()>());
-        let completed_ptr = SendPtr(output.completed_ptr().cast::<()>());
-        let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
-
-        let map_chunk = |chunk_index: usize| {
-            // SAFETY: chunk_index identifies one in-bounds input/output range
-            // and one completion slot. Ranges are pairwise disjoint, and the
-            // joined fan-out keeps every pointer target alive.
-            unsafe {
-                let chunk_range = output_chunk_range(self.data.len(), self.chunk_size, chunk_index);
-                let chunk = std::slice::from_raw_parts(
-                    data_ptr.as_ptr().cast::<T>().add(chunk_range.start),
-                    chunk_range.len(),
-                );
-                let func_ref = &*(func_ptr.as_ptr() as *const F);
-                let mut writer = ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_range);
-                for item in chunk {
-                    writer.push(func_ref(item));
-                }
-                completed_ptr
-                    .as_ptr()
-                    .cast::<usize>()
-                    .add(chunk_index)
-                    .write(writer.finish());
-            }
+        let chunks = output.chunks();
+        let map_chunk = |index| {
+            let range = chunks
+                .range(index)
+                .expect("invariant: the executor visits only configured chunks");
+            let values = self.data[range].iter().map(&func);
+            // SAFETY: joined indexed fan-out gives each index one writer.
+            unsafe { chunks.write_chunk(index, values) };
         };
 
         let run_on_global = moirai_executor::global()

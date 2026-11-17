@@ -7,28 +7,13 @@
 //!
 //! # Fan-out safety
 //!
-//! Both operations hand workers raw pointers wrapped in `SendPtr` because the
-//! borrow checker cannot see that the chunks partition the input and output.
-//! What makes that sound:
+//! Mapping borrows the source and closure until the scheduler joins every
+//! job. Each job owns one output range. The chunk guard drops a partial
+//! prefix on panic, and the result owner drops completed peers.
 //!
-//! - **Disjoint writes.** Map worker `idx` writes only the output range matching
-//!   its input chunk and its own completion slot. Reduce worker `idx` writes
-//!   only `results[idx]`. No two workers touch the same output slot.
-//! - **Shared reads only.** The closure and the chunk are reached as `&F` and
-//!   `&[T]`; nothing is written through them. The `F: Sync` and `T: Sync` bounds
-//!   are what let several workers hold those references at once. The
-//!   `*const _ as *mut _` casts are an artifact of erasing the type through
-//!   `SendPtr`, not a claim of unique access.
-//! - **Lifetime.** Every pointer refers to a local of this frame — the vector,
-//!   the closure, the results — and the fan-out joins every lane before it
-//!   returns. No lane outlives what it points at.
-//! - **Completion.** A map worker publishes its range only after initializing
-//!   every slot. Its local guard drops an initialized prefix if the mapper
-//!   panics; the outer guard drops peer ranges after the fan-out joins. The
-//!   final conversion checks contiguous full coverage first. Reduce outputs
-//!   remain `None` per chunk until complete. `sequential_fallback_permitted`
-//!   panics on partial execution and re-runs the whole domain only when no lane
-//!   ran.
+//! Reduction uses SendPtr to give each job one distinct result slot. All
+//! pointers remain valid until the joined fan-out returns. A sequential
+//! replay is possible only after the scheduler reports that no job ran.
 //!
 //! # Dispatch threshold
 //!
@@ -39,8 +24,10 @@
 //! dependent — tests that need to cover it construct the iterator with an
 //! explicit chunk size rather than relying on the core count.
 
-use crate::base::SendPtr;
-use crate::parallel::output::{ChunkWriter, MapOutput, output_chunk_range};
+use std::num::NonZeroUsize;
+
+use crate::{base::SendPtr, parallel::output::MapOutput};
+
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
@@ -83,35 +70,18 @@ impl<T: Send + Sync> ParallelIter<T> {
             return data.iter().map(&f).collect();
         }
 
+        let chunk_size = NonZeroUsize::new(chunk_size)
+            .expect("invariant: selected iterator chunks are nonempty");
         let mut output = MapOutput::new(data.len(), chunk_size);
         let num_chunks = output.chunk_count();
-        let data_ptr = SendPtr(data.as_ptr().cast_mut().cast::<()>());
-        let output_ptr = SendPtr(output.values_ptr().cast::<()>());
-        let completed_ptr = SendPtr(output.completed_ptr().cast::<()>());
-        let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
-
-        let map_chunk = |idx: usize| {
-            // SAFETY: `idx < num_chunks` identifies one in-bounds input/output
-            // range and one completion slot. The ranges are disjoint, and the
-            // fan-out joins before the input, output, or shared closure drops.
-            unsafe {
-                let chunk_range = output_chunk_range(data.len(), chunk_size, idx);
-                let chunk_slice = std::slice::from_raw_parts(
-                    data_ptr.as_ptr().cast::<T>().add(chunk_range.start),
-                    chunk_range.len(),
-                );
-                let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                let mut writer = ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_range);
-                for item in chunk_slice {
-                    writer.push(f_ref(item));
-                }
-                let completed = writer.finish();
-                completed_ptr
-                    .as_ptr()
-                    .cast::<usize>()
-                    .add(idx)
-                    .write(completed);
-            }
+        let chunks = output.chunks();
+        let map_chunk = |index| {
+            let range = chunks
+                .range(index)
+                .expect("invariant: the executor visits only configured chunks");
+            let values = data[range].iter().map(&f);
+            // SAFETY: joined indexed fan-out gives each index one writer.
+            unsafe { chunks.write_chunk(index, values) };
         };
 
         let run_on_global = moirai_executor::global()

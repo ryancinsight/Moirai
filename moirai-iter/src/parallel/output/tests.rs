@@ -1,4 +1,8 @@
-use super::{ChunkWriter, MapOutput, output_chunk_range};
+use super::{ChunkWriter, MapOutput, NonZeroUsize, output_chunk_range};
+
+const fn size(value: usize) -> NonZeroUsize {
+    NonZeroUsize::new(value).expect("invariant: fixture chunks are nonempty")
+}
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Tracked<'a>(&'a AtomicUsize);
@@ -11,7 +15,7 @@ impl Drop for Tracked<'_> {
 
 #[test]
 fn completed_chunks_transfer_the_original_allocation() {
-    let mut output = MapOutput::new(5, 3);
+    let mut output = MapOutput::new(5, size(3));
     let values = output.values_ptr();
     let completed = output.completed_ptr();
 
@@ -47,7 +51,7 @@ fn completed_chunks_transfer_the_original_allocation() {
 #[test]
 fn unfinished_writer_drops_only_its_initialized_prefix() {
     let drops = AtomicUsize::new(0);
-    let mut output = MapOutput::new(4, 4);
+    let mut output = MapOutput::new(4, size(4));
 
     // SAFETY: the writer owns the complete live four-slot allocation and
     // is dropped before the allocation itself.
@@ -68,7 +72,7 @@ fn unfinished_writer_drops_only_its_initialized_prefix() {
 #[test]
 fn mapper_panic_drops_current_prefix_and_completed_peers_once() {
     let drops = AtomicUsize::new(0);
-    let mut output = MapOutput::new(6, 3);
+    let mut output = MapOutput::new(6, size(3));
     let values = output.values_ptr();
     let completed = output.completed_ptr();
 
@@ -115,7 +119,7 @@ fn mapper_panic_drops_current_prefix_and_completed_peers_once() {
 
 #[test]
 fn zero_sized_outputs_retain_their_logical_length() {
-    let mut output = MapOutput::new(3, 3);
+    let mut output = MapOutput::new(3, size(3));
     let values = output.values_ptr();
     let completed = output.completed_ptr();
 
@@ -147,4 +151,24 @@ fn output_chunk_range_reaches_the_usize_limit_without_overflow() {
         (usize::MAX - 1_023)..usize::MAX
     );
     assert_eq!(output_chunk_range(usize::MAX, usize::MAX, 0), 0..usize::MAX);
+}
+
+#[test]
+fn borrowed_chunks_transfer_the_original_allocation_in_order() {
+    let mut output = MapOutput::<u32>::new(5, size(2));
+    let address = output.values.as_ptr().cast::<u32>();
+    let chunks = &output.chunks();
+
+    std::thread::scope(|scope| {
+        for (index, values) in [(2, &[5][..]), (0, &[1, 2]), (1, &[3, 4])] {
+            scope.spawn(move || {
+                // SAFETY: each scoped job has a distinct chunk index.
+                unsafe { chunks.write_chunk(index, values.iter().copied()) };
+            });
+        }
+    });
+
+    let values = output.into_vec();
+    assert_eq!(values, [1, 2, 3, 4, 5]);
+    assert_eq!(values.as_ptr(), address);
 }

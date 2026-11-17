@@ -1,17 +1,15 @@
 //! Panic-safe direct initialization for ordered parallel map output.
 
-use std::{
+use core::{
+    marker::PhantomData,
     mem::{self, ManuallyDrop, MaybeUninit},
+    num::NonZeroUsize,
     ops::Range,
     ptr,
 };
 
 /// Derive one in-bounds output range without overflowing at the slice limit.
-pub(crate) fn output_chunk_range(
-    len: usize,
-    chunk_size: usize,
-    chunk_index: usize,
-) -> Range<usize> {
+fn output_chunk_range(len: usize, chunk_size: usize, chunk_index: usize) -> Range<usize> {
     assert!(
         chunk_size > 0,
         "invariant: parallel map chunk size must be positive"
@@ -38,11 +36,8 @@ pub(crate) struct MapOutput<T> {
 
 impl<T> MapOutput<T> {
     /// Allocate the final output and initialized completion slots.
-    pub(crate) fn new(len: usize, chunk_size: usize) -> Self {
-        assert!(
-            chunk_size > 0,
-            "invariant: parallel map chunk size must be positive"
-        );
+    pub(crate) fn new(len: usize, chunk_size: NonZeroUsize) -> Self {
+        let chunk_size = chunk_size.get();
         let mut values = Vec::with_capacity(len);
         // SAFETY: `MaybeUninit<T>` has no initialization validity requirement,
         // and the vector has capacity for exactly `len` logical slots.
@@ -52,7 +47,7 @@ impl<T> MapOutput<T> {
 
         Self {
             values,
-            completed: vec![0; len.div_ceil(chunk_size)],
+            completed: core::iter::repeat_n(0, len.div_ceil(chunk_size)).collect(),
             chunk_size,
         }
     }
@@ -63,16 +58,35 @@ impl<T> MapOutput<T> {
     }
 
     /// Return the final-storage pointer used by disjoint chunk writers.
-    pub(crate) fn values_ptr(&mut self) -> *mut MaybeUninit<T> {
+    #[cfg(test)]
+    fn values_ptr(&mut self) -> *mut MaybeUninit<T> {
         self.values.as_mut_ptr()
     }
 
     /// Return the per-chunk completion pointer.
-    pub(crate) fn completed_ptr(&mut self) -> *mut usize {
+    #[cfg(test)]
+    fn completed_ptr(&mut self) -> *mut usize {
         self.completed.as_mut_ptr()
     }
 
+    /// Borrow the output and completion slots for indexed initialization.
+    pub(crate) fn chunks(&mut self) -> MapOutputChunks<'_, T> {
+        let len = self.values.len();
+        MapOutputChunks {
+            values: self.values.as_mut_ptr(),
+            completed: self.completed.as_mut_ptr(),
+            len,
+            chunk_size: self.chunk_size,
+            borrow: PhantomData,
+        }
+    }
+
     /// Convert the fully initialized storage without allocating or copying.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any chunk has not completely initialized its slots.
+    #[track_caller]
     pub(crate) fn into_vec(mut self) -> Vec<T> {
         let mut next_start = 0;
         for (chunk_index, &completed_end) in self.completed.iter().enumerate() {
@@ -132,8 +146,71 @@ impl<T> Drop for MapOutput<T> {
     }
 }
 
+/// A borrowed view used by jobs that own disjoint output chunk indices.
+pub(crate) struct MapOutputChunks<'a, T> {
+    values: *mut MaybeUninit<T>,
+    completed: *mut usize,
+    len: usize,
+    chunk_size: usize,
+    borrow: PhantomData<&'a mut MapOutput<T>>,
+}
+
+// SAFETY: the borrow keeps both allocations alive and writes are exclusive
+// by chunk index. T: Send permits owned values to cross lanes.
+unsafe impl<T: Send> Send for MapOutputChunks<'_, T> {}
+// SAFETY: shared use exposes only layout and disjoint writes under the
+// exclusive-index contract. No shared references to T are exposed.
+unsafe impl<T: Send> Sync for MapOutputChunks<'_, T> {}
+
+impl<T> MapOutputChunks<'_, T> {
+    /// Return the logical element range for an output chunk.
+    pub(crate) fn range(&self, index: usize) -> Option<Range<usize>> {
+        (index < self.len.div_ceil(self.chunk_size))
+            .then(|| output_chunk_range(self.len, self.chunk_size, index))
+    }
+
+    /// Initialize one chunk and transfer its values to the result owner.
+    ///
+    /// # Safety
+    ///
+    /// The caller must give this write exclusive access to its index,
+    /// including against writes through other shared references.
+    ///
+    /// # Panics
+    ///
+    /// Panics for an invalid index, a completed chunk, or an iterator whose
+    /// yield count differs from the chunk length. A panicking iterator leaves
+    /// no values owned by the chunk.
+    #[track_caller]
+    pub(crate) unsafe fn write_chunk(&self, index: usize, values: impl IntoIterator<Item = T>) {
+        let range = self
+            .range(index)
+            .expect("invariant: indexed work is within the output layout");
+        // SAFETY: the validated index gives an in-bounds completion slot and
+        // range. The caller guarantees exclusive access to that index.
+        let (completed, mut writer) = unsafe {
+            (
+                &mut *self.completed.add(index),
+                ChunkWriter::new(self.values, range),
+            )
+        };
+        assert_eq!(*completed, 0, "invariant: the chunk is unpublished");
+
+        for value in values {
+            assert!(
+                writer.initialized < writer.len,
+                "invariant: the mapper yields at most one value per output slot"
+            );
+            // SAFETY: the writer retains an uninitialized slot and owns its range.
+            unsafe { writer.push(value) };
+        }
+
+        *completed = writer.finish();
+    }
+}
+
 /// Owns cleanup for one chunk until that chunk publishes completion.
-pub(crate) struct ChunkWriter<T> {
+struct ChunkWriter<T> {
     /// Pointer to the first slot owned by this writer.
     values: *mut MaybeUninit<T>,
     len: usize,
@@ -149,7 +226,7 @@ impl<T> ChunkWriter<T> {
     ///
     /// `values` must remain valid for the complete range until this writer is
     /// dropped. No other writer may access that range.
-    pub(crate) unsafe fn new(values: *mut MaybeUninit<T>, range: Range<usize>) -> Self {
+    unsafe fn new(values: *mut MaybeUninit<T>, range: Range<usize>) -> Self {
         let len = range
             .end
             .checked_sub(range.start)
@@ -173,7 +250,7 @@ impl<T> ChunkWriter<T> {
     /// The writer must contain at least one uninitialized slot. Each call
     /// consumes exactly one such slot.
     #[inline]
-    pub(crate) unsafe fn push(&mut self, value: T) {
+    unsafe fn push(&mut self, value: T) {
         debug_assert!(self.initialized < self.len);
         // SAFETY: the caller guarantees an uninitialized slot remains, and
         // this writer has exclusive access to its local range.
@@ -186,7 +263,7 @@ impl<T> ChunkWriter<T> {
     }
 
     /// Publish ownership of a completely initialized chunk range.
-    pub(crate) fn finish(mut self) -> usize {
+    fn finish(mut self) -> usize {
         assert_eq!(
             self.initialized, self.len,
             "invariant: parallel map chunk initialized every output slot"
