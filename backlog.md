@@ -76,6 +76,45 @@ belong in [gap_audit.md](gap_audit.md).
 - re-open trigger: A maintained safe implementation is available or the dependent protocol is removed.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-PARALLEL-COLLECT-DROP-001"></a>
+## MOI-PARALLEL-COLLECT-DROP-001 — Drop partial parallel map output
+- status: todo
+- priority: correctness
+- milestone: M-core-execution
+- needs: none
+- outcome: Each completed output drops exactly once when a parallel map unwinds.
+- acceptance: Plain, indexed, mutable and partitioned map tests catch a mapper panic and match per-output creation and drop counts. Success preserves ordered output and one final output allocation.
+- evidence: The safety docs in `moirai-parallel/src/ops.rs` describe the leak. Its three map paths and the partition mapper in `melinoe_ext.rs` abandon initialized output in `MaybeUninit`.
+- scope: `moirai-parallel/src/{ops.rs,melinoe_ext.rs}`, the panic-safe output owner in `moirai-iter/src/parallel/output.rs`, and affected caller and ownership tests.
+- next step: Add exact-once drop witnesses without assuming a specific scheduling order, then share the initialized-prefix ownership mechanism.
+- basis: `b0e0dd95daf8f6982dea3f60b6ef3c6016bc6e0c`
+
+<a id="MOI-RESOURCE-POOL-BOUNDS-001"></a>
+## MOI-RESOURCE-POOL-BOUNDS-001 — Enforce resource pool retention limits
+- status: todo
+- priority: correctness
+- milestone: M-core-execution
+- needs: none
+- outcome: Recycle respects the configured count and byte limits across capacity boundaries and concurrent bin admissions.
+- acceptance: A zero-count pool retains no items. Force two recyclers in different bins of one shard to contend at its count and byte limits and assert the drained item count and sizes stay within both bounds.
+- evidence: `ShardedResourcePool::new` forces every shard count to at least one. `recycle` publishes after an over-budget eviction scan makes no progress, including when a pending recycler holds the only eviction bin.
+- scope: `moirai-sync/src/sync/resource_pool.rs`, pool interleaving tests and the existing recycle/take benchmark.
+- next step: Reproduce zero capacity and a cross-bin admission conflict before changing reservations.
+- basis: `b0e0dd95daf8f6982dea3f60b6ef3c6016bc6e0c`
+
+<a id="MOI-PAL-TIMER-FANOUT-001"></a>
+## MOI-PAL-TIMER-FANOUT-001 — Share native timer workers
+- status: todo
+- priority: tightening
+- milestone: M-async-io-transport
+- needs: none
+- outcome: Native PAL timers share bounded worker resources across deadline fanout.
+- acceptance: Concurrent pending timers use a constant worker count and preserve the existing deadline, cancellation and waker replacement outcomes under native runtime tests.
+- evidence: `TimerState::spawn_sleeper` in `moirai-pal/src/timer.rs` spawns a detached thread per pending timer. The async layer already owns a shared native heap driver in `moirai-async/src/timer/driver.rs`.
+- scope: PAL native timer driver, async timer ownership and existing PAL timer contracts.
+- next step: Measure worker and retained registration counts over pending fanout, then determine a shared owner without a PAL-to-async dependency.
+- basis: `b0e0dd95daf8f6982dea3f60b6ef3c6016bc6e0c`
+
 <a id="MOI-NATIVE-REACTOR-001"></a>
 ## MOI-NATIVE-REACTOR-001 — Complete native readiness and completion backends
 - status: todo
