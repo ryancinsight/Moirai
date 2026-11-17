@@ -14,9 +14,12 @@
 //! Applications that call Melinoe's `partition_*` functions directly should
 //! call [`moirai_executor::initialize`] during startup first.
 
+use std::{iter, num::NonZeroUsize};
+
 use super::policy::{ExecutionPolicy, Parallel};
 use melinoe::cell::MelinoeCell;
 use melinoe::region::WriterShard;
+use moirai_core::memory::MapOutput;
 use moirai_executor::{SyncTask, global, initialize};
 
 /// Split `cells` into disjoint shards of `chunk_size` and run `f` on each in parallel.
@@ -144,31 +147,18 @@ where
     // Refresh the bridge before entering Melinoe. This keeps the wrapper safe
     // after a test or integration has cleared Melinoe's process-global slot.
     initialize();
-    let mut out: Vec<core::mem::MaybeUninit<R>> = Vec::with_capacity(num_chunks);
-    // SAFETY: capacity is `num_chunks`; every slot is written exactly once below.
-    unsafe {
-        out.set_len(num_chunks);
-    }
+    let mut output = MapOutput::new(num_chunks, NonZeroUsize::MIN);
+    let chunks = output.chunks();
     let cells_partitions = WriterShard::new(cells).par_chunks(chunk_size);
-    // `out` holds one slot per chunk, so it is partitioned one slot per index.
-    let out_partitions =
-        WriterShard::new(MelinoeCell::from_mut_slice(out.as_mut_slice())).par_chunks(1);
-    let f = &f;
     global()
-        .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            // SAFETY: each chunk index is visited exactly once, for both the cells
-            // chunk and the output slot at `c`. The two regions are distinct, and
-            // distinct indices name disjoint ranges in each, so no two tasks
-            // alias.
-            let shard = unsafe { cells_partitions.get_unchecked_chunk(c) };
-            let mut out_shard = unsafe { out_partitions.get_unchecked_chunk(c) };
-            let result = f(c * chunk_size, shard);
-            if let Some(slot) = out_shard.get_mut(0) {
-                slot.write(result);
-            }
+        .for_each_indexed::<SyncTask, _>(num_chunks, |index| {
+            // SAFETY: each indexed job owns a disjoint input shard.
+            let shard = unsafe { cells_partitions.get_unchecked_chunk(index) };
+            let value = iter::once_with(|| f(index * chunk_size, shard));
+            // SAFETY: each input shard owns one distinct output slot, and
+            // every indexed job joins before the parent takes the output.
+            unsafe { chunks.write_chunk(index, value) };
         })
-        .expect("moirai global executor: par_partition_map");
-    // SAFETY: every slot initialized above; `MaybeUninit<R>` shares `R`'s layout.
-    let mut out = core::mem::ManuallyDrop::new(out);
-    unsafe { Vec::from_raw_parts(out.as_mut_ptr().cast::<R>(), num_chunks, out.capacity()) }
+        .expect("invariant: partition map collection completed");
+    output.into_vec()
 }
