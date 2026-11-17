@@ -116,7 +116,11 @@ fn remote_task_client_server_executes_sum_roundtrip() {
 #[test]
 fn remote_task_client_server_executes_echo_roundtrip() {
     let server_address = loopback_remote_address();
-    let reply_address = loopback_remote_address();
+    let reply_address = RemoteAddress {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        service: "moirai-remote-task".to_string(),
+    };
     let server = RemoteTaskServer::new(server_address.clone());
     let server_thread = std::thread::spawn(move || server.serve_one().unwrap());
     let client = RemoteTaskClient::new(server_address, reply_address);

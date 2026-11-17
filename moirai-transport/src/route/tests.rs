@@ -234,7 +234,11 @@ fn routed_remote_task_client_executes_selected_server_route() {
 #[test]
 fn routed_process_task_client_executes_selected_process_route() {
     let server_address = loopback_remote_address();
-    let reply_address = loopback_remote_address();
+    let reply_address = RemoteAddress {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        service: "moirai-route".to_string(),
+    };
     let router = HybridRouter::<HybridRoutePolicy>::new(topology(0));
     let (sequence, process) = process_route_sequence(&router);
     let task_id = RemoteTaskId::new(53);
