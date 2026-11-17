@@ -82,32 +82,33 @@ impl<T> SendPtr<T> {
     }
 }
 
-/// Efficient tree reduction algorithm that works across all execution contexts.
-/// This reduces O(n) sequential operations to O(log n) parallel operations.
-pub fn tree_reduce<T, F>(mut items: Vec<T>, func: F) -> Option<T>
+/// Reduce owned items by combining adjacent pairs from left to right at each level.
+///
+/// An unpaired item advances unchanged. The reduction runs on the caller's
+/// thread and reuses the input allocation plus one scratch buffer. Empty input
+/// returns `None`.
+pub fn tree_reduce<T, F>(mut items: Vec<T>, mut func: F) -> Option<T>
 where
-    T: Send + Clone,
-    F: Fn(T, T) -> T + Send + Sync + Clone,
+    F: FnMut(T, T) -> T,
 {
-    if items.is_empty() {
-        return None;
+    if items.len() <= 1 {
+        return items.pop();
     }
 
+    let mut next = Vec::with_capacity(items.len().div_ceil(2));
     while items.len() > 1 {
-        let mut next = Vec::with_capacity(items.len().div_ceil(2));
-
-        for chunk in items.chunks(2) {
-            if chunk.len() == 2 {
-                next.push(func(chunk[0].clone(), chunk[1].clone()));
-            } else {
-                next.push(chunk[0].clone());
-            }
+        let mut level = items.drain(..);
+        while let Some(left) = level.next() {
+            let combined = match level.next() {
+                Some(right) => func(left, right),
+                None => left,
+            };
+            next.push(combined);
         }
-
-        items = next;
+        drop(level);
+        std::mem::swap(&mut items, &mut next);
     }
-
-    items.into_iter().next()
+    items.pop()
 }
 
 /// Batch processing for improved cache locality.

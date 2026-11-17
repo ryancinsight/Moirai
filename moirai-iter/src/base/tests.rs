@@ -12,6 +12,26 @@ fn test_tree_reduce() {
 }
 
 #[test]
+fn tree_reduce_moves_nonclone_values_in_level_order() {
+    struct Operand(i32);
+
+    let input = [8, 3, 6, 2, 1].into_iter().map(Operand).collect();
+    let mut pairs = Vec::new();
+    let result = tree_reduce(input, |Operand(left), Operand(right)| {
+        pairs.push((left, right));
+        Operand(left - right)
+    });
+
+    assert_eq!(result.map(|value| value.0), Some(0));
+    assert_eq!(pairs, [(8, 3), (6, 2), (5, 4), (1, 1)]);
+    assert_eq!(
+        tree_reduce(vec![Operand(7)], |_, _| panic!("a singleton has no pairs"))
+            .map(|value| value.0),
+        Some(7)
+    );
+}
+
+#[test]
 fn test_process_in_batches() {
     let items = vec![1, 2, 3, 4, 5, 6, 7, 8];
     let result = process_in_batches(items, 3, |chunk| vec![chunk.iter().sum::<i32>()]);
