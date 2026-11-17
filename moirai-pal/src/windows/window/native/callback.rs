@@ -24,9 +24,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, GWLP_USERDATA, GetWindowLongPtrW, SetWindowLongPtrW, WM_CANCELMODE,
     WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
     WM_HOTKEY, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT,
-    WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
+    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE,
+    WM_NCDESTROY, WM_PAINT, WM_PRINT, WM_PRINTCLIENT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
+    WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDBLCLK,
     WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
@@ -134,6 +135,18 @@ pub(super) unsafe extern "system" fn window_proc(
                 });
                 push_button_event(hwnd, &state, message, wparam, event);
             }
+            WM_LBUTTONDBLCLK | WM_RBUTTONDBLCLK | WM_MBUTTONDBLCLK | WM_XBUTTONDBLCLK => {
+                let (x, y) = point_from_lparam(lparam);
+                let events = mouse_button(message, wparam)
+                    .into_iter()
+                    .flat_map(|button| {
+                        [
+                            WindowEvent::PointerDown { x, y, button },
+                            WindowEvent::PointerDoubleClick { x, y, button },
+                        ]
+                    });
+                push_button_event(hwnd, &state, message, wparam, events);
+            }
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 let (x, y) = point_from_lparam(lparam);
                 let event = mouse_button(message, wparam).map(|button| WindowEvent::PointerUp {
@@ -236,9 +249,9 @@ pub(super) unsafe extern "system" fn window_proc(
     }
 }
 
-/// Queues the event of a button message, then applies its capture change.
+/// Queues the button message events before applying capture changes.
 ///
-/// The event is queued first so that anything the capture change sends back to
+/// Events are queued first so that anything the capture change sends back to
 /// this window follows the press or release that caused it. Both native calls
 /// run window procedures: `SetCapture` the one of the window losing capture,
 /// which can send messages to this window, and `ReleaseCapture` this window's
@@ -254,7 +267,7 @@ fn push_button_event(
     state: &SharedWindowState,
     message: u32,
     wparam: WPARAM,
-    event: Option<WindowEvent>,
+    events: impl IntoIterator<Item = WindowEvent>,
 ) {
     let release_pending = matches!(
         capture_transition(message, wparam),
@@ -263,9 +276,11 @@ fn push_button_event(
     if release_pending {
         state.with(|state| state.capture_release_pending = true);
     }
-    if let Some(event) = event {
-        state.with(|state| state.push(event));
-    }
+    state.with(|state| {
+        for event in events {
+            state.push(event);
+        }
+    });
     let held = state.clone();
     if let Err(error) = capture::apply(hwnd, message, wparam) {
         held.with(|state| state.record_error(error));

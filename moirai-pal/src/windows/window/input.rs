@@ -12,8 +12,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_RSHIFT, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
-    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
 use super::event::{
@@ -23,10 +24,10 @@ use super::event::{
 
 pub(super) fn mouse_button(message: u32, wparam: WPARAM) -> Option<MouseButton> {
     match message {
-        WM_LBUTTONDOWN | WM_LBUTTONUP => Some(MouseButton::Left),
-        WM_RBUTTONDOWN | WM_RBUTTONUP => Some(MouseButton::Right),
-        WM_MBUTTONDOWN | WM_MBUTTONUP => Some(MouseButton::Middle),
-        WM_XBUTTONDOWN | WM_XBUTTONUP => match ((wparam.0 >> 16) & 0xffff) as u16 {
+        WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP => Some(MouseButton::Left),
+        WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP => Some(MouseButton::Right),
+        WM_MBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP => Some(MouseButton::Middle),
+        WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => match (wparam.0 >> 16) & 0xffff {
             1 => Some(MouseButton::X1),
             2 => Some(MouseButton::X2),
             _ => None,
@@ -53,7 +54,8 @@ pub(super) enum CaptureTransition {
 pub(super) fn capture_transition(message: u32, wparam: WPARAM) -> Option<CaptureTransition> {
     const BUTTONS: u32 = MK_LBUTTON.0 | MK_RBUTTON.0 | MK_MBUTTON.0 | MK_XBUTTON1.0 | MK_XBUTTON2.0;
     match message {
-        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
+        WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_MBUTTONDBLCLK | WM_MBUTTONDOWN
+        | WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_XBUTTONDBLCLK | WM_XBUTTONDOWN => {
             Some(CaptureTransition::Acquire)
         }
         WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {

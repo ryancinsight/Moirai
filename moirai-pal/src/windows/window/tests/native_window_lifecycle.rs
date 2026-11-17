@@ -17,9 +17,65 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_MENU, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
-    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEHWHEEL,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
+
+#[test]
+#[cfg(windows)]
+fn native_window_reports_double_click_after_second_press() {
+    let config =
+        WindowConfig::with_visibility("Moirai double click", 64, 64, WindowVisibility::Hidden)
+            .expect("config");
+    let mut window = NativeWindow::new(&config).expect("native window");
+    let lparam = LPARAM((24_isize << 16) | 16);
+    // SAFETY: every message targets the live HWND owned by this test and
+    // carries only immediate scalar parameters.
+    unsafe {
+        PostMessageW(Some(window.hwnd), WM_LBUTTONDOWN, WPARAM(0), lparam).expect("first down");
+        PostMessageW(Some(window.hwnd), WM_LBUTTONUP, WPARAM(0), lparam).expect("first up");
+        PostMessageW(Some(window.hwnd), WM_LBUTTONDBLCLK, WPARAM(0), lparam)
+            .expect("native double-click marker");
+        PostMessageW(Some(window.hwnd), WM_LBUTTONUP, WPARAM(0), lparam).expect("second up");
+    }
+    let events = window.poll_events().expect("native messages");
+    let buttons: Vec<_> = events
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event,
+                WindowEvent::PointerDown { .. }
+                    | WindowEvent::PointerUp { .. }
+                    | WindowEvent::PointerDoubleClick { .. }
+            )
+        })
+        .collect();
+    let down = WindowEvent::PointerDown {
+        x: 16,
+        y: 24,
+        button: MouseButton::Left,
+    };
+    let up = WindowEvent::PointerUp {
+        x: 16,
+        y: 24,
+        button: MouseButton::Left,
+    };
+    assert_eq!(
+        buttons,
+        [
+            down.clone(),
+            up.clone(),
+            down,
+            WindowEvent::PointerDoubleClick {
+                x: 16,
+                y: 24,
+                button: MouseButton::Left
+            },
+            up,
+        ]
+    );
+    window.close().expect("destroy");
+}
 
 #[test]
 #[cfg(windows)]
@@ -40,14 +96,14 @@ fn native_window_lifecycle_and_frame_round_trip() {
             Some(window.hwnd),
             WM_LBUTTONDOWN,
             WPARAM(0),
-            LPARAM(((24_u32 << 16) | 16) as isize),
+            LPARAM((24_isize << 16) | 16),
         )
         .expect("pointer down");
         PostMessageW(
             Some(window.hwnd),
             WM_LBUTTONUP,
             WPARAM(0),
-            LPARAM(((24_u32 << 16) | 16) as isize),
+            LPARAM((24_isize << 16) | 16),
         )
         .expect("pointer up");
         let mut wheel_point = windows::Win32::Foundation::POINT { x: 16, y: 24 };
