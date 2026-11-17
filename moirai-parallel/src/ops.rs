@@ -19,15 +19,10 @@
 //!   `&mut` to the same element. Multi-buffer operators additionally rely on the
 //!   caller's distinct `&mut [_]` arguments being non-aliasing (guaranteed by
 //!   the borrow checker at the call site).
-//! - **All-or-error collect.** The `map_collect_*` helpers build a
-//!   `Vec<MaybeUninit<R>>`, `set_len` it (sound — `MaybeUninit` needs no
-//!   initialization), fill every slot through the disjoint-partition contract,
-//!   then reinterpret it as `Vec<R>`. `for_each_indexed` returns `Ok` only after
-//!   writing every index, so the reinterpretation is reached only when all slots
-//!   are initialized; a task panic instead surfaces as `Err`, which `.expect()`
-//!   turns into a propagating panic that unwinds with the buffer still typed
-//!   `MaybeUninit<R>` (its contents are not dropped — a leak of the written
-//!   values on panic, never a use of uninitialized memory).
+//! - **All-or-error collect.** Indexed output uses the chunk owner in
+//!   moirai-core. A panicking mapper drops its initialized prefix in its worker.
+//!   The parent drops completed chunks after joining all jobs. Success takes
+//!   the same initialized allocation in index order.
 
 use crate::policy::ExecutionPolicy;
 use melinoe::MelinoeCell;

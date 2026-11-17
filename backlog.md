@@ -76,19 +76,6 @@ belong in [gap_audit.md](gap_audit.md).
 - re-open trigger: A maintained safe implementation is available or the dependent protocol is removed.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-PARALLEL-COLLECT-DROP-001"></a>
-## MOI-PARALLEL-COLLECT-DROP-001 — Drop partial parallel map output
-- status: todo
-- priority: correctness
-- milestone: M-core-execution
-- needs: none
-- outcome: Each completed output drops exactly once when a parallel map unwinds.
-- acceptance: Plain, indexed, mutable and partitioned map tests catch a mapper panic and match per-output creation and drop counts. Success preserves ordered output and one final output allocation.
-- evidence: The safety docs in `moirai-parallel/src/ops.rs` describe the leak. Its three map paths and the partition mapper in `melinoe_ext.rs` abandon initialized output in `MaybeUninit`.
-- scope: `moirai-parallel/src/{ops.rs,melinoe_ext.rs}`, the panic-safe output owner in `moirai-iter/src/parallel/output.rs`, and affected caller and ownership tests.
-- next step: Add exact-once drop witnesses without assuming a specific scheduling order, then share the initialized-prefix ownership mechanism.
-- basis: `b0e0dd95daf8f6982dea3f60b6ef3c6016bc6e0c`
-
 <a id="MOI-RESOURCE-POOL-BOUNDS-001"></a>
 ## MOI-RESOURCE-POOL-BOUNDS-001 — Enforce resource pool retention limits
 - status: todo
