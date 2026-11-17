@@ -154,6 +154,10 @@ pub struct RemoteTaskClient {
 
 impl RemoteTaskClient {
     /// Construct a remote task client.
+    ///
+    /// A reply address with port `0` requests an operating-system-assigned
+    /// reply port. The client publishes that bound port in each task envelope;
+    /// nonzero ports retain their explicit binding and failure behavior.
     pub fn new(server: RemoteAddress, reply_to: RemoteAddress) -> Self {
         Self { server, reply_to }
     }
@@ -167,9 +171,18 @@ impl RemoteTaskClient {
         // The receiver must exist before publishing its address. Binding after
         // send races a fast server reply and can exhaust connection attempts.
         let reply = NetworkTransport {}.listen(&self.reply_to)?;
+        let reply_to = if self.reply_to.port == 0 {
+            RemoteAddress {
+                host: self.reply_to.host.clone(),
+                port: reply.local_port()?,
+                service: self.reply_to.service.clone(),
+            }
+        } else {
+            self.reply_to.clone()
+        };
         let envelope = RemoteTaskEnvelope {
             task_id,
-            reply_to: self.reply_to.clone(),
+            reply_to,
             operation,
         };
 

@@ -25,6 +25,13 @@ pub struct NetworkListener {
 }
 
 impl NetworkListener {
+    pub(crate) fn local_port(&self) -> TransportResult<u16> {
+        self.listener
+            .local_addr()
+            .map(|address| address.port())
+            .map_err(|_| TransportError::Closed)
+    }
+
     /// Receive one frame from the bound endpoint.
     ///
     /// The listener accepts one connection and then consumes itself. The
