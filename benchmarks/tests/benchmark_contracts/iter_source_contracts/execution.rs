@@ -70,7 +70,11 @@ fn iter_ops_parallel_iter_uses_scoped_borrowed_chunks() {
 #[test]
 fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
     let source = read_benchmark("../moirai-iter/src/cache.rs");
-    let output = read_benchmark("../moirai-iter/src/parallel/output.rs");
+    let output = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-core/src/memory/map_output.rs"),
+        read_benchmark("../moirai-core/src/memory/map_output/tests.rs")
+    );
     let benchmark = read_benchmark("benches/cache_iterator_comparison.rs");
     let manifest = read_benchmark("Cargo.toml");
 
@@ -81,12 +85,9 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
         "DEFAULT_RING_BUFFER_CAPACITY",
         "should_execute_scoped_cache::<T>(self.data.len(), self.chunk_size)",
         "return self.data.iter().map(&func).collect();",
-        "let chunk_range = output_chunk_range(self.data.len(), self.chunk_size, chunk_index);",
-        "ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_range)",
-        "for item in chunk",
-        "writer.push(func_ref(item))",
-        ".write(writer.finish())",
-        "func_ref(item)",
+        "let chunks = output.chunks();",
+        "let values = self.data[range].iter().map(&func);",
+        "chunks.write_chunk(index, values)",
         "zero_copy_map_borrows_data_and_closure",
         "zero_copy_map_matches_sequential_values",
         "fn reduce_owned_pairs<T, F>(items: Vec<T>, func: &F) -> Vec<T>",
@@ -102,13 +103,13 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
     }
 
     for required in [
-        "pub(crate) fn output_chunk_range(",
+        "fn output_chunk_range(",
         ".checked_mul(chunk_size)",
         ".checked_sub(start)",
         "let chunk_len = remaining.min(chunk_size);",
         ".checked_add(chunk_len)",
-        "pub(crate) struct MapOutput<T>",
-        "pub(crate) struct ChunkWriter<T>",
+        "pub struct MapOutput<T>",
+        "struct ChunkWriter<T>",
         "impl<T> Drop for ChunkWriter<T>",
         "ptr::drop_in_place",
         "Vec::from_raw_parts",
