@@ -4,6 +4,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::sync::spin_lock::SpinLock;
 
+const SHARD_COUNT: usize = 4;
+const BIN_COUNT: usize = 64;
+
 /// A resource with a queryable byte size or capacity.
 pub trait SizeBounded {
     /// The size or capacity of the resource in bytes.
@@ -17,46 +20,83 @@ fn bin_index(size: u64) -> usize {
         0
     } else {
         // Subtract 1 so that exact powers of two fall into the exact bin,
-        // e.g. 1024 -> 10, 1025 -> 11.
-        64 - (size - 1).leading_zeros() as usize
+        // e.g. 1024 -> 10, 1025 -> 11. The final bin also contains sizes
+        // above 2^63; exact-size filtering preserves retrieval semantics.
+        usize::try_from(64 - (size - 1).leading_zeros())
+            .expect("invariant: bin index fits in usize")
+            .min(BIN_COUNT - 1)
     }
 }
 
+#[inline]
+fn active_shard_count(max_buffers: usize, max_bytes: u64) -> usize {
+    let byte_limited_shards = usize::try_from(max_bytes)
+        .unwrap_or(SHARD_COUNT)
+        .clamp(1, SHARD_COUNT);
+    max_buffers.clamp(1, SHARD_COUNT).min(byte_limited_shards)
+}
+
 struct Shard<T> {
-    // 64 bins, representing power-of-two size classes (2^0 to 2^63).
+    // 64 bins representing power-of-two size classes. The final bin widens to
+    // every size above 2^62 so the fixed layout covers the full u64 range.
     // SpinLock is cache-line aligned, preventing false sharing.
-    bins: [SpinLock<VecDeque<T>>; 64],
+    bins: [SpinLock<VecDeque<T>>; BIN_COUNT],
     retained_bytes: AtomicU64,
     retained_count: AtomicUsize,
 }
 
 impl<T> Shard<T> {
     fn new() -> Self {
-        let mut bins_vec = Vec::with_capacity(64);
-        for _ in 0..64 {
-            bins_vec.push(SpinLock::new(VecDeque::new()));
-        }
-        let bins: [SpinLock<VecDeque<T>>; 64] = bins_vec
-            .try_into()
-            .unwrap_or_else(|_| panic!("invariant: failed to convert vector of 64 bins"));
-
         Self {
-            bins,
+            bins: std::array::from_fn(|_| SpinLock::new(VecDeque::new())),
             retained_bytes: AtomicU64::new(0),
             retained_count: AtomicUsize::new(0),
         }
+    }
+
+    fn try_reserve(&self, size: u64, max_buffers: usize, max_bytes: u64) -> bool {
+        // Each update rejects before crossing its cap. If the byte reservation
+        // fails, the count rollback removes the only partial reservation.
+        if self
+            .retained_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                count.checked_add(1).filter(|next| *next <= max_buffers)
+            })
+            .is_err()
+        {
+            return false;
+        }
+
+        if self
+            .retained_bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |bytes| {
+                bytes.checked_add(size).filter(|next| *next <= max_bytes)
+            })
+            .is_err()
+        {
+            self.retained_count.fetch_sub(1, Ordering::Release);
+            return false;
+        }
+
+        true
+    }
+
+    fn release(&self, size: u64) {
+        self.retained_bytes.fetch_sub(size, Ordering::Release);
+        self.retained_count.fetch_sub(1, Ordering::Release);
     }
 }
 
 /// A sharded, binned resource pool designed for high-concurrency reuse of transient allocations.
 ///
-/// Resources are partitioned by thread affinity across 4 shards to minimize lock contention,
-/// and internally binned into 64 power-of-two size classes. Pop operations use a non-blocking
-/// stealing fallback across shards.
+/// Resources are partitioned by thread affinity across up to four active shards to minimize lock
+/// contention, and internally binned into 64 power-of-two size classes. The configured limits are
+/// divided exactly across the active shards. Pop operations use a non-blocking stealing fallback
+/// across shards. The final size class covers the full range through [`u64::MAX`].
 pub struct ShardedResourcePool<T> {
-    shards: [Shard<T>; 4],
-    shard_max_buffers: usize,
-    shard_max_bytes: u64,
+    shards: [Shard<T>; SHARD_COUNT],
+    max_buffers: usize,
+    max_bytes: u64,
     #[cfg(test)]
     test_hook: test_support::Hook,
 }
@@ -64,8 +104,12 @@ pub struct ShardedResourcePool<T> {
 impl<T> std::fmt::Debug for ShardedResourcePool<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ShardedResourcePool")
-            .field("shard_max_buffers", &self.shard_max_buffers)
-            .field("shard_max_bytes", &self.shard_max_bytes)
+            .field("max_buffers", &self.max_buffers)
+            .field("max_bytes", &self.max_bytes)
+            .field(
+                "active_shards",
+                &active_shard_count(self.max_buffers, self.max_bytes),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -75,9 +119,9 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
     #[must_use]
     pub fn new(max_buffers: usize, max_bytes: u64) -> Self {
         Self {
-            shards: [Shard::new(), Shard::new(), Shard::new(), Shard::new()],
-            shard_max_buffers: (max_buffers / 4).max(1),
-            shard_max_bytes: max_bytes / 4,
+            shards: std::array::from_fn(|_| Shard::new()),
+            max_buffers,
+            max_bytes,
             #[cfg(test)]
             test_hook: test_support::Hook::new(),
         }
@@ -85,31 +129,35 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
     /// Retrieve the thread-local shard index.
     #[inline]
-    fn get_shard_index() -> usize {
+    fn get_shard_index(&self) -> usize {
         thread_local! {
             // clippy 1.97.0 false positive: initialiser is already
             // `const { Cell::new(None) }`. Retire when toolchain advances
             // past the regression (ATLAS-MNEMOSYNE-CI-1).
             #[allow(clippy::missing_const_for_thread_local)]
-            static THREAD_SHARD_INDEX: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+            static THREAD_HASH: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
         }
-        THREAD_SHARD_INDEX.with(|cell| {
-            if let Some(idx) = cell.get() {
-                idx
+        THREAD_HASH.with(|cell| {
+            let hash = if let Some(hash) = cell.get() {
+                hash
             } else {
                 let thread_id = std::thread::current().id();
                 let mut hasher = DefaultHasher::new();
                 thread_id.hash(&mut hasher);
-                let idx = (hasher.finish() as usize) % 4;
-                cell.set(Some(idx));
-                idx
-            }
+                let hash = hasher.finish();
+                cell.set(Some(hash));
+                hash
+            };
+            let active_shards = u64::try_from(active_shard_count(self.max_buffers, self.max_bytes))
+                .expect("invariant: active shard count fits in u64");
+            usize::try_from(hash % active_shards)
+                .expect("invariant: reduced shard index fits in usize")
         })
     }
 
     /// Retrieve a resource of size >= `size` from the pool, or return `None`.
     pub fn take_at_least(&self, size: u64) -> Option<T> {
-        let local_idx = Self::get_shard_index();
+        let local_idx = self.get_shard_index();
         let start_bin = bin_index(size);
 
         // Try local shard first
@@ -122,33 +170,30 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
             {
                 let mut guard = local_shard.bins[start_bin].lock();
                 if let Some(pos) = guard.iter().rposition(|item| item.size() >= size) {
-                    let item = guard.remove(pos).expect("element exists at pos");
+                    let item = guard
+                        .remove(pos)
+                        .expect("invariant: position came from the same guarded bin");
                     let item_size = item.size();
-                    local_shard
-                        .retained_bytes
-                        .fetch_sub(item_size, Ordering::Release);
-                    local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                    local_shard.release(item_size);
                     return Some(item);
                 }
             }
 
             // 2. Search larger bins (all elements in larger bins are guaranteed to be >= size)
-            for b in (start_bin + 1)..64 {
+            for b in (start_bin + 1)..BIN_COUNT {
                 let mut guard = local_shard.bins[b].lock();
                 if let Some(item) = guard.pop_back() {
                     let item_size = item.size();
-                    local_shard
-                        .retained_bytes
-                        .fetch_sub(item_size, Ordering::Release);
-                    local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                    local_shard.release(item_size);
                     return Some(item);
                 }
             }
         }
 
         // Steal from other shards using non-blocking try_lock
-        for i in 1..4 {
-            let other_idx = (local_idx + i) % 4;
+        let active_shards = active_shard_count(self.max_buffers, self.max_bytes);
+        for i in 1..active_shards {
+            let other_idx = (local_idx + i) % active_shards;
             let other_shard = &self.shards[other_idx];
 
             // Fast path check: if the other shard does not have any items or does not have enough bytes, skip it.
@@ -162,25 +207,21 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
             if let Some(mut guard) = other_shard.bins[start_bin].try_lock()
                 && let Some(pos) = guard.iter().rposition(|item| item.size() >= size)
             {
-                let item = guard.remove(pos).expect("element exists at pos");
+                let item = guard
+                    .remove(pos)
+                    .expect("invariant: position came from the same guarded bin");
                 let item_size = item.size();
-                other_shard
-                    .retained_bytes
-                    .fetch_sub(item_size, Ordering::Release);
-                other_shard.retained_count.fetch_sub(1, Ordering::Release);
+                other_shard.release(item_size);
                 return Some(item);
             }
 
             // 2. Search larger bins of other shard
-            for b in (start_bin + 1)..64 {
+            for b in (start_bin + 1)..BIN_COUNT {
                 if let Some(mut guard) = other_shard.bins[b].try_lock()
                     && let Some(item) = guard.pop_back()
                 {
                     let item_size = item.size();
-                    other_shard
-                        .retained_bytes
-                        .fetch_sub(item_size, Ordering::Release);
-                    other_shard.retained_count.fetch_sub(1, Ordering::Release);
+                    other_shard.release(item_size);
                     return Some(item);
                 }
             }
@@ -191,12 +232,23 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
     /// Recycle a resource back into the pool.
     pub fn recycle(&self, item: T) {
+        self.recycle_in_shard(item, self.get_shard_index());
+    }
+
+    fn recycle_in_shard(&self, item: T, local_idx: usize) {
+        let active_shards = active_shard_count(self.max_buffers, self.max_bytes);
+        let active_shards_u64 =
+            u64::try_from(active_shards).expect("invariant: active shard count fits in u64");
+        let local_idx_u64 = u64::try_from(local_idx).expect("invariant: shard index fits in u64");
+        let shard_max_buffers = self.max_buffers / active_shards
+            + usize::from(local_idx < self.max_buffers % active_shards);
+        let shard_max_bytes = self.max_bytes / active_shards_u64
+            + u64::from(local_idx_u64 < self.max_bytes % active_shards_u64);
         let size = item.size();
-        if size > self.shard_max_bytes || self.shard_max_buffers == 0 {
+        if size > shard_max_bytes || shard_max_buffers == 0 {
             return;
         }
 
-        let local_idx = Self::get_shard_index();
         let local_shard = &self.shards[local_idx];
         let bin_idx = bin_index(size);
 
@@ -205,72 +257,42 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         // cannot publish a zero-counter state between these two mutations.
         let mut target_guard = local_shard.bins[bin_idx].lock();
 
-        // Reserve this item's count and bytes up front, before inserting, so the
-        // eviction decision below sees a total that already includes this item
-        // *and* every other concurrent recycler's in-flight contribution. The
-        // prior load-decide-insert sequence read the counters, decided no
-        // eviction was needed, then inserted — allowing N concurrent recyclers to
-        // each skip eviction and overshoot the shard cap by up to N-1 buffers
-        // (and exceed the byte budget). `fetch_add` returns the pre-add value, so
-        // `+ 1` / `+ size` is this shard's total with our reservation applied.
-        let mut current_count = local_shard.retained_count.fetch_add(1, Ordering::AcqRel) + 1;
-        let mut current_bytes = local_shard.retained_bytes.fetch_add(size, Ordering::AcqRel) + size;
-
-        // Evict oldest items (FIFO) until the shard — counting our reserved item —
-        // is within both limits, or no further eviction is possible. The local
-        // `current_*` counters are decremented per eviction (rather than
-        // re-loaded) so the loop terminates under sustained concurrent recycling
-        // instead of chasing a moving atomic snapshot; a single item always fits
-        // because `size <= shard_max_bytes` and `shard_max_buffers >= 1`.
         let mut evicted = Vec::new();
-        while current_count > self.shard_max_buffers || current_bytes > self.shard_max_bytes {
-            let mut progress = false;
-            for b in 0..64 {
+        loop {
+            if local_shard.try_reserve(size, shard_max_buffers, shard_max_bytes) {
+                #[cfg(test)]
+                self.test_hook.pause_after_reservation(local_idx, bin_idx);
+
+                target_guard.push_back(item);
+                drop(target_guard);
+                drop(evicted);
+                return;
+            }
+
+            let mut removed = None;
+            // Locked bins may contain in-flight reservations. Skipping them
+            // avoids a lock cycle; failure to find an evictable item rejects the
+            // new item rather than exceeding either retention limit.
+            for b in 0..BIN_COUNT {
                 if b == bin_idx {
-                    if let Some(removed) = target_guard.pop_front() {
-                        let removed_size = removed.size();
-                        // Decrements remove already-inserted items, never our
-                        // reservation, so the net total keeps counting our item.
-                        local_shard.retained_count.fetch_sub(1, Ordering::Release);
-                        local_shard
-                            .retained_bytes
-                            .fetch_sub(removed_size, Ordering::Release);
-                        current_count -= 1;
-                        current_bytes = current_bytes.saturating_sub(removed_size);
-                        evicted.push(removed);
-                        progress = true;
-                        break;
-                    }
-                } else if let Some(mut guard) = local_shard.bins[b].try_lock()
-                    && let Some(removed) = guard.pop_front()
-                {
-                    let removed_size = removed.size();
-                    // Decrements remove already-inserted items, never our
-                    // reservation, so the net total keeps counting our item.
-                    local_shard.retained_count.fetch_sub(1, Ordering::Release);
-                    local_shard
-                        .retained_bytes
-                        .fetch_sub(removed_size, Ordering::Release);
-                    current_count -= 1;
-                    current_bytes = current_bytes.saturating_sub(removed_size);
-                    evicted.push(removed);
-                    progress = true;
+                    removed = target_guard.pop_front();
+                } else if let Some(mut guard) = local_shard.bins[b].try_lock() {
+                    removed = guard.pop_front();
+                }
+                if removed.is_some() {
                     break;
                 }
             }
-            if !progress {
-                break;
-            }
+
+            let Some(removed) = removed else {
+                drop(target_guard);
+                drop(evicted);
+                drop(item);
+                return;
+            };
+            local_shard.release(removed.size());
+            evicted.push(removed);
         }
-
-        #[cfg(test)]
-        self.test_hook.pause_after_reservation(local_idx, bin_idx);
-
-        // The counters already account for this item (reserved above); inserting
-        // it makes the bin contents consistent with the published totals.
-        target_guard.push_back(item);
-        drop(target_guard);
-        drop(evicted);
     }
 
     /// Clear all pooled resources.
@@ -280,10 +302,11 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
     /// `recycle` or `take_at_least` either completes before the reset or starts
     /// after it, and cannot publish a resource behind zero counters.
     pub fn clear(&self) {
-        for (shard_idx, shard) in self.shards.iter().enumerate() {
+        let active_shards = active_shard_count(self.max_buffers, self.max_bytes);
+        for (shard_idx, shard) in self.shards.iter().take(active_shards).enumerate() {
             #[cfg(not(test))]
             let _ = shard_idx;
-            let mut guards: [Option<_>; 64] = std::array::from_fn(|_| None);
+            let mut guards: [Option<_>; BIN_COUNT] = std::array::from_fn(|_| None);
             for (bin_idx, bin) in shard.bins.iter().enumerate() {
                 #[cfg(test)]
                 self.test_hook.announce_clear(shard_idx, bin_idx);
@@ -311,6 +334,15 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
     ) -> test_support::HookGuard {
         self.test_hook
             .install(recycle_entered, clear_started, release)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn recycle_on_shard(&self, item: T, shard_idx: usize) {
+        assert!(
+            shard_idx < active_shard_count(self.max_buffers, self.max_bytes),
+            "invariant: test shard is active"
+        );
+        self.recycle_in_shard(item, shard_idx);
     }
 }
 
@@ -372,10 +404,10 @@ pub(crate) mod test_support {
                 let Some(hook) = hook.as_mut() else {
                     return;
                 };
-                assert!(
-                    hook.target.replace((shard_idx, bin_idx)).is_none(),
-                    "invariant: only one recycle interleaving is active"
-                );
+                if hook.target.is_some() {
+                    return;
+                }
+                hook.target = Some((shard_idx, bin_idx));
                 (hook.recycle_entered.clone(), Arc::clone(&hook.release))
             };
 
