@@ -461,6 +461,21 @@ fn test_par_partition_map_preserves_partition_order() {
     });
 }
 
+#[test]
+fn maximal_zero_sized_region_preserves_partition_geometry() {
+    use melinoe::MelinoeCell;
+
+    let mut values = vec![(); usize::MAX];
+    let cells = MelinoeCell::from_mut_slice(&mut values);
+
+    let partitions =
+        super::melinoe_ext::par_partition_map(cells, usize::MAX - 1, |start, shard| {
+            (start, shard.len())
+        });
+
+    assert_eq!(partitions, [(0, usize::MAX - 1), (usize::MAX - 1, 1)]);
+}
+
 /// `Adaptive` with a 10-element region resolves below
 /// `ADAPTIVE_PARALLEL_THRESHOLD`, so this compares sequential and parallel
 /// execution of the same independent per-shard mapping. Both paths must retain
