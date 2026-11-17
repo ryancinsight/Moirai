@@ -220,6 +220,7 @@ embedded_sources![
     "../moirai-iter/src/lib.rs",
     "../moirai-iter/src/parallel.rs",
     "../moirai-iter/src/parallel/output.rs",
+    "../moirai-iter/src/parallel/output/tests.rs",
     "../moirai-iter/src/parallel/adapters/blocks.rs",
     "../moirai-iter/src/parallel/adapters/chunks.rs",
     "../moirai-iter/src/parallel/adapters/filter.rs",

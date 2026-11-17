@@ -70,7 +70,11 @@ fn iter_ops_parallel_iter_uses_scoped_borrowed_chunks() {
 #[test]
 fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
     let source = read_benchmark("../moirai-iter/src/cache.rs");
-    let output = read_benchmark("../moirai-iter/src/parallel/output.rs");
+    let output = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-iter/src/parallel/output.rs"),
+        read_benchmark("../moirai-iter/src/parallel/output/tests.rs")
+    );
     let benchmark = read_benchmark("benches/cache_iterator_comparison.rs");
     let manifest = read_benchmark("Cargo.toml");
 
