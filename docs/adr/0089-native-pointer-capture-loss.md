@@ -1,6 +1,6 @@
 # 0089 — Report native pointer capture loss
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -25,7 +25,8 @@ synthetic button release can commit a gesture whose release never arrived.
 
 ## Migration
 
-`WindowEvent` is exhaustive. Consumers add a `PointerCaptureLost` match arm
+This is a [major] Rust API change because `WindowEvent` is exhaustive.
+Consumers add a `PointerCaptureLost` match arm
 that abandons the held pointer gesture. RITK translates it into its
 presentation event stream. The Metis Python adapter emits
 `pointer_capture_lost`.
