@@ -27,13 +27,11 @@ pub(super) fn mouse_button(message: u32, wparam: WPARAM) -> Option<MouseButton> 
         WM_LBUTTONDBLCLK | WM_LBUTTONDOWN | WM_LBUTTONUP => Some(MouseButton::Left),
         WM_RBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP => Some(MouseButton::Right),
         WM_MBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP => Some(MouseButton::Middle),
-        WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => {
-            match ((wparam.0 >> 16) & 0xffff) as u16 {
-                1 => Some(MouseButton::X1),
-                2 => Some(MouseButton::X2),
-                _ => None,
-            }
-        }
+        WM_XBUTTONDBLCLK | WM_XBUTTONDOWN | WM_XBUTTONUP => match (wparam.0 >> 16) & 0xffff {
+            1 => Some(MouseButton::X1),
+            2 => Some(MouseButton::X2),
+            _ => None,
+        },
         _ => None,
     }
 }
