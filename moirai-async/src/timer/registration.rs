@@ -1,11 +1,6 @@
-#![expect(
-    clippy::unwrap_used,
-    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
-)]
-
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::task::Waker;
 
 pub(super) struct TimerRegistration {
@@ -19,6 +14,11 @@ pub(super) struct TimerRegistration {
     in_heap: AtomicBool,
 }
 
+pub(super) enum WakerSlot {
+    Registered,
+    Consumed,
+}
+
 impl TimerRegistration {
     pub(super) fn new(waker: Waker) -> Arc<Self> {
         Arc::new(Self {
@@ -28,12 +28,54 @@ impl TimerRegistration {
         })
     }
 
-    pub(super) fn replace_waker(&self, waker: &Waker) {
-        let mut stored = self.waker.lock().unwrap();
-        match stored.as_ref() {
-            Some(current) if current.will_wake(waker) => {}
-            _ => *stored = Some(waker.clone()),
+    fn lock_waker(&self) -> MutexGuard<'_, Option<Waker>> {
+        // No user code runs while this guard is held, so a panic cannot leave
+        // a partially updated registration. Recover the completed state.
+        self.waker.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(super) fn replace_waker(&self, waker: &Waker) -> WakerSlot {
+        self.replace_waker_after_observation(waker, || {})
+    }
+
+    fn replace_waker_after_observation(
+        &self,
+        waker: &Waker,
+        after_observation: impl FnOnce(),
+    ) -> WakerSlot {
+        {
+            let stored = self.lock_waker();
+            match stored.as_ref() {
+                None => return WakerSlot::Consumed,
+                Some(current) if current.will_wake(waker) => return WakerSlot::Registered,
+                Some(_) => {}
+            }
         }
+
+        after_observation();
+
+        // RawWaker clone and drop callbacks are arbitrary user code. Clone
+        // before taking the mutex, then move the replaced waker out so neither
+        // callback can re-enter while the registration mutex is held.
+        let mut replacement = Some(waker.clone());
+        let (previous, slot) = {
+            let mut stored = self.lock_waker();
+            match stored.as_ref() {
+                None => (None, WakerSlot::Consumed),
+                Some(current) if current.will_wake(waker) => (None, WakerSlot::Registered),
+                Some(_) => (
+                    stored.replace(
+                        replacement
+                            .take()
+                            .expect("invariant: replacement waker remains available"),
+                    ),
+                    WakerSlot::Registered,
+                ),
+            }
+        };
+        drop(previous);
+        drop(replacement);
+        slot
     }
 
     /// Mark the registration cancelled. Returns `true` if this call performed
@@ -62,15 +104,96 @@ impl TimerRegistration {
         self.in_heap.load(Ordering::Relaxed)
     }
 
+    pub(super) fn take_waker(&self) -> Option<Waker> {
+        let mut guard = self.lock_waker();
+        let waker = guard.take();
+        drop(guard);
+        waker
+    }
+
     pub(super) fn wake(&self) {
-        // The guard is released before the waker runs. `if let Some(waker) =
-        // self.waker.lock().unwrap().take()` would satisfy that only through
-        // edition 2024's scrutinee rescoping (RFC 3606); binding the waker out
-        // first keeps the rule visible at the site and independent of the
-        // edition. Same discipline as `sync`'s primitives and `hybrid::notify`.
-        let waker = self.waker.lock().unwrap().take();
+        // `take_waker` releases the guard before this arbitrary call.
+        let waker = self.take_waker();
         if let Some(waker) = waker {
             waker.wake();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TimerRegistration, WakerSlot};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Barrier, Weak, mpsc::sync_channel};
+    use std::task::{Wake, Waker};
+
+    struct ReenteringDrop {
+        registration: Weak<TimerRegistration>,
+        completed: Arc<AtomicBool>,
+    }
+
+    impl Wake for ReenteringDrop {
+        fn wake(self: Arc<Self>) {
+            panic!("replacement test waker must not run");
+        }
+    }
+
+    impl Drop for ReenteringDrop {
+        fn drop(&mut self) {
+            if let Some(registration) = self.registration.upgrade() {
+                drop(registration.take_waker());
+            }
+            self.completed.store(true, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn replaced_waker_drops_after_registration_unlocks() {
+        let registration = TimerRegistration::new(Waker::noop().clone());
+        let completed = Arc::new(AtomicBool::new(false));
+        let reentering = Waker::from(Arc::new(ReenteringDrop {
+            registration: Arc::downgrade(&registration),
+            completed: Arc::clone(&completed),
+        }));
+        let slot = registration.replace_waker(&reentering);
+        assert!(matches!(slot, WakerSlot::Registered));
+        drop(reentering);
+
+        let slot = registration.replace_waker(Waker::noop());
+        assert!(matches!(slot, WakerSlot::Registered));
+
+        assert!(completed.load(Ordering::Acquire));
+        assert!(registration.take_waker().is_none());
+    }
+
+    #[test]
+    fn consumed_during_replacement_is_not_repopulated() {
+        let registration = Arc::new(TimerRegistration::new(Waker::noop().clone()));
+        let replacement = Waker::from(Arc::new(ReenteringDrop {
+            registration: Weak::new(),
+            completed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (observed_tx, observed_rx) = sync_channel(0);
+        let release = Arc::new(Barrier::new(2));
+        let worker_registration = Arc::clone(&registration);
+        let worker_release = Arc::clone(&release);
+        let worker = std::thread::spawn(move || {
+            worker_registration.replace_waker_after_observation(&replacement, || {
+                observed_tx
+                    .send(())
+                    .expect("invariant: observation receiver remains active");
+                worker_release.wait();
+            })
+        });
+
+        observed_rx
+            .recv()
+            .expect("replacement reaches the post-observation window");
+        drop(registration.take_waker());
+        release.wait();
+
+        let slot = worker.join().expect("replacement worker must not panic");
+        assert!(matches!(slot, WakerSlot::Consumed));
+        assert!(registration.take_waker().is_none());
     }
 }
