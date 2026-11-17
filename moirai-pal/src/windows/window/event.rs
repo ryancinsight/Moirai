@@ -155,6 +155,18 @@ pub enum WindowEvent {
         /// Pressed button.
         button: MouseButton,
     },
+    /// The native window reported the second press of a double-click.
+    ///
+    /// This marker follows the corresponding PointerDown in the event
+    /// queue. The operating system owns timing and hit-test policy.
+    PointerDoubleClick {
+        /// Horizontal client coordinate.
+        x: i32,
+        /// Vertical client coordinate.
+        y: i32,
+        /// Double-clicked button.
+        button: MouseButton,
+    },
     /// A mouse button was released in client coordinates.
     PointerUp {
         /// Horizontal client coordinate.

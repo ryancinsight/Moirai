@@ -24,9 +24,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, GWLP_USERDATA, GetWindowLongPtrW, SetWindowLongPtrW, WM_CANCELMODE,
     WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
     WM_HOTKEY, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT,
-    WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
+    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE,
+    WM_NCDESTROY, WM_PAINT, WM_PRINT, WM_PRINTCLIENT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
+    WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDBLCLK,
     WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
@@ -133,6 +134,17 @@ pub(super) unsafe extern "system" fn window_proc(
                     button,
                 });
                 push_button_event(hwnd, &state, message, wparam, event);
+            }
+            WM_LBUTTONDBLCLK | WM_RBUTTONDBLCLK | WM_MBUTTONDBLCLK | WM_XBUTTONDBLCLK => {
+                let (x, y) = point_from_lparam(lparam);
+                let button = mouse_button(message, wparam);
+                let event = button.map(|button| WindowEvent::PointerDown { x, y, button });
+                push_button_event(hwnd, &state, message, wparam, event);
+                if let Some(button) = button {
+                    state.with(|state| {
+                        state.push(WindowEvent::PointerDoubleClick { x, y, button });
+                    });
+                }
             }
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 let (x, y) = point_from_lparam(lparam);

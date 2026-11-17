@@ -12,8 +12,8 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRectEx, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DestroyWindow, DispatchMessageW,
-    GetClientRect, HMENU, IDC_ARROW, IsWindow, LoadCursorW, MWMO_INPUTAVAILABLE,
+    AdjustWindowRectEx, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DestroyWindow,
+    DispatchMessageW, GetClientRect, HMENU, IDC_ARROW, IsWindow, LoadCursorW, MWMO_INPUTAVAILABLE,
     MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT, RegisterClassW, SW_SHOW,
     SW_SHOWMAXIMIZED, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WNDCLASSW,
     WS_OVERLAPPEDWINDOW,
@@ -408,7 +408,7 @@ fn register_class() -> io::Result<windows::Win32::Foundation::HMODULE> {
     // `window_proc` has the system callback ABI required by WNDCLASSW.
     let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }.map_err(windows_error)?;
     let class = WNDCLASSW {
-        style: CS_HREDRAW | CS_VREDRAW,
+        style: CS_DBLCLKS | CS_HREDRAW | CS_VREDRAW,
         lpfnWndProc: Some(window_proc),
         hInstance: HINSTANCE::from(instance),
         hCursor: cursor,
