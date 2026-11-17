@@ -439,7 +439,11 @@ fn test_sharded_resource_pool_caches_size_before_locked_storage() {
     assert_eq!(first_size_calls.load(Ordering::SeqCst), 1);
     assert_eq!(second_size_calls.load(Ordering::SeqCst), 1);
     assert_eq!(completed_drops.load(Ordering::SeqCst), 1);
-    assert_eq!(pool.take_at_least(64).map(|resource| resource.id), Some(2));
+    // The nested recycle completes while the outer admission is between locks.
+    assert_eq!(
+        pool.take_at_least(64).map(|resource| resource.id),
+        Some(101)
+    );
     assert_eq!(pool.take_at_least(64).map(|resource| resource.id), None);
 }
 
