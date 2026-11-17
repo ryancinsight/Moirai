@@ -2,27 +2,35 @@
 
 Status: Accepted
 
-**Date**: 2026-05-24
-**Context**: `TimerWheel::cancel` ignored the timer id and always returned `false`, so the timer-wheel cancellation API did not perform the requested state transition.
+Revised 2026-11-16 in [PR 705](https://github.com/ryancinsight/Moirai/pull/705) to release cancelled wakers and bound retained heap entries.
+
+### Context
+
+A cancelled timer retained its waker and both membership entries until it
+reached the heap head. An earlier live deadline allowed repeated cancellation
+of later timers to accumulate entries and retain their wakers.
 
 ### Decision
 
-Move `TimerWheel` into `moirai-async/src/timer/wheel.rs` and implement cancellation with a lazy `HashSet<u64>` of canceled timer ids. Keep scheduled timer entries in a `BinaryHeap`, skip canceled entries during expiration polling, and expose `TimerWheel` through the existing `timer` module boundary.
+Store live wakers by timer ID and keep deadline and ID in the binary heap.
+Cancellation removes and drops the waker immediately. Discard stale entries
+when they reach the head, and rebuild the heap when stale entries outnumber
+live entries. Reclaim stale deadlines before invoking a waker so the bound
+holds if user code unwinds. Preserve deadline order and use timer ID to break ties.
 
 ### Rationale
 
-- Preserves heap-based deadline ordering without arbitrary heap removal on the scheduling path.
-- Makes cancellation value-sensitive: first cancel succeeds, duplicate or absent cancels fail.
-- Prevents canceled timer wakers from firing when their heap entry expires.
-- Keeps `timer.rs` below the 500-line structural target through a cohesive timer-wheel leaf module.
+Every cancellation adds at most one stale entry. A rebuild scans the heap
+in linear time when at least half its entries are stale, so its work can
+be charged to the cancellations that produced those entries. Heap length
+after cancellation or expiry polling is at most twice the live count.
+An indexed heap could remove stale deadlines eagerly, at the cost of
+maintaining a position index on every heap move. Reconsider eager deletion
+if a measured rebuild violates a caller's latency budget.
 
 ### Verification
 
-- `cargo test -p moirai-async timer_wheel -- --nocapture`
-- `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`
-- `cargo bench -p moirai-benchmarks --bench example_pattern_comparison -- example_tokio_fanout`
-- `cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- mixed_unified_schedule`
-
-### Residual Risk
-
-Lazy cancellation retains canceled entries until their deadline reaches the heap root. This preserves low scheduling-path cost but means long-deadline canceled timers can occupy heap storage until expiration; a future compaction policy should be benchmarked before adoption.
+The `timer_wheel_cancel_releases_wakers_behind_a_live_deadline` regression
+checks ownership and heap length while a live head prevents lazy draining.
+The expiry tests check wake counts, duplicate or expired cancellation, and
+the heap bound after a caller catches a waker panic.

@@ -42,7 +42,7 @@ This audit covers the active unified-scheduler comparison scope:
 - Batch quiescence: `Moirai::join` and `Moirai::has_work`.
 - Transport receive memory behavior: `ArchiveView` over transport-owned bytes.
 - Async timeout composition: `Timeout<F>` stores the concrete future inline.
-- Async timer cancellation: `TimerWheel` tracks cancelled timer IDs lazily and verifies that cancelled expired timers do not wake.
+- Async timer cancellation: `TimerWheel` releases cancelled wakers immediately and compacts stale deadlines when they outnumber live timers.
 - PAL platform timer future: `moirai-pal::timer::Timer` returns `Pending`
   before its deadline, stores a registered waker, and wakes from a single
   sleeper thread at completion instead of returning immediate-ready placeholder
@@ -201,7 +201,7 @@ do not apply to those standard methods.
 | Async executor queue avoids dynamic future dispatch | `ErasedTaskFuture` owns a heap-stable concrete future and stores monomorphized poll/drop functions | `async_executor_uses_monomorphized_erased_future_queue` |
 | Async executor handles avoid mutexed result storage | `AsyncResultSlot<T>` stores one result and one waker behind atomic single-producer/single-consumer states | `async_executor_handle_uses_inline_result_slot` |
 | Timeout composition avoids heap pinning | `Timeout<F>` stores `F` inline and projects it while pinned | `timeout_combinator_stores_future_inline` |
-| Timer cancellation avoids placeholder wake paths | `TimerWheel` keeps a real cancelled-ID set and removes cancelled entries lazily during expiration polling | `timer_wheel_cancellation_is_real_and_lazy` |
+| Timer cancellation releases wakers and bounds stale deadlines | `TimerWheel` removes cancelled wakers and prunes or compacts their deadline entries | `timer_wheel_cancellation_is_real_and_lazy`, `timer_wheel_cancel_releases_wakers_behind_a_live_deadline`, `timer_wheel_expiry_compacts_stale_deadlines_behind_a_live_deadline` |
 | Native I/O extension futures avoid allocation and type erasure | `ReadExact<'a, R>` stores `&'a mut R`, `&'a mut [u8]`, and an offset; `Shutdown<'a, W>` stores `&'a mut W`; the source contract rejects boxed/type-erased storage | `async_io_extension_futures_are_zero_copy_and_value_semantic` |
 | Tokio I/O compatibility wrappers are transparent | `TokioCompat<T>` and `MoiraiCompat<T>` use `#[repr(transparent)]` with a compile-time size and alignment assertion, `From<T>`, and feature-gated static trait implementations that forward the caller's task context, with no default Tokio runtime dependency | `async_io_extension_futures_are_zero_copy_and_value_semantic`, `chunked_transfer_is_byte_identical_on_native_and_wrapped_paths`, `async_io_compat_comparison` |
 | Async file facade avoids obsolete placeholder futures | `moirai-async::fs` exposes direct async facade functions and removes the unused `AsyncFileOp` wrapper | `async_file_facade_is_value_semantic_and_benchmarked_against_tokio` |

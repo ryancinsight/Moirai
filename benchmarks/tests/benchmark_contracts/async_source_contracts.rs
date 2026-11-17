@@ -52,11 +52,13 @@ fn timer_wheel_cancellation_is_real_and_lazy() {
     for required in [
         "mod wheel;",
         "pub use wheel::{TimerCommand, TimerWheel};",
-        "cancelled: HashSet<u64>",
-        "self.cancelled.insert(timer_id)",
-        "self.cancelled.remove(&expired.id)",
+        "active: HashMap<u64, Waker>",
+        "self.active.remove(&timer_id)",
+        "self.active.remove(&expired.id)",
         "fn timer_wheel_cancelled_timer_does_not_wake()",
         "fn timer_wheel_poll_wakes_only_uncancelled_expired_timers()",
+        "fn timer_wheel_cancel_releases_wakers_behind_a_live_deadline()",
+        "fn timer_wheel_expiry_compacts_stale_deadlines_behind_a_live_deadline()",
     ] {
         assert!(
             source.contains(required),
