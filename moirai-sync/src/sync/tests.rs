@@ -354,6 +354,53 @@ fn test_sharded_resource_pool_basic() {
 }
 
 #[test]
+fn test_sharded_resource_pool_zero_count_retains_nothing() {
+    let pool = ShardedResourcePool::<TestResource>::new(0, 1024);
+
+    pool.recycle(TestResource { id: 1, size: 1 });
+
+    assert_eq!(pool.take_at_least(1).map(|resource| resource.id), None);
+
+    let minimal_pool = ShardedResourcePool::<TestResource>::new(1, 1);
+    minimal_pool.recycle(TestResource { id: 2, size: 1 });
+    assert_eq!(
+        minimal_pool.take_at_least(1).map(|resource| resource.id),
+        Some(2)
+    );
+    assert_eq!(
+        minimal_pool.take_at_least(1).map(|resource| resource.id),
+        None
+    );
+}
+
+#[test]
+fn test_sharded_resource_pool_full_range_size_class() {
+    let pool = ShardedResourcePool::<TestResource>::new(1, u64::MAX);
+
+    pool.recycle(TestResource {
+        id: 1,
+        size: u64::MAX,
+    });
+
+    assert_eq!(
+        pool.take_at_least(u64::MAX).map(|resource| resource.id),
+        Some(1)
+    );
+    assert_eq!(
+        pool.take_at_least(u64::MAX).map(|resource| resource.id),
+        None
+    );
+
+    let bounded_pool = ShardedResourcePool::<TestResource>::new(1, 1024);
+    assert_eq!(
+        bounded_pool
+            .take_at_least(u64::MAX)
+            .map(|resource| resource.id),
+        None
+    );
+}
+
+#[test]
 fn test_sharded_resource_pool_steals_from_other_shards() {
     let pool = Arc::new(ShardedResourcePool::<TestResource>::new(16, 1024));
 
@@ -505,6 +552,67 @@ fn test_sharded_resource_pool_concurrent_recycle_respects_total_cap() {
         retained <= MAX_BUFFERS,
         "retained {retained} exceeds the aggregate cap of {MAX_BUFFERS}"
     );
+}
+
+#[test]
+fn test_sharded_resource_pool_cross_bin_admission_stays_bounded() {
+    use std::sync::{Barrier, mpsc::sync_channel};
+
+    fn run_case(max_buffers: usize, max_bytes: u64) -> Vec<TestResource> {
+        let (recycle_entered_tx, recycle_entered_rx) = sync_channel(0);
+        let (clear_started_tx, _clear_started_rx) = sync_channel(0);
+        let (second_done_tx, second_done_rx) = sync_channel(0);
+        let release = Arc::new(Barrier::new(2));
+        let pool = Arc::new(ShardedResourcePool::<TestResource>::new(
+            max_buffers,
+            max_bytes,
+        ));
+        let _hook =
+            pool.install_test_hook(recycle_entered_tx, clear_started_tx, Arc::clone(&release));
+
+        let first_pool = Arc::clone(&pool);
+        let first = thread::spawn(move || {
+            first_pool.recycle_on_shard(TestResource { id: 1, size: 64 }, 0);
+        });
+        recycle_entered_rx
+            .recv()
+            .expect("first recycle reaches its reserved publication bin");
+
+        let second_pool = Arc::clone(&pool);
+        let second = thread::spawn(move || {
+            second_pool.recycle_on_shard(TestResource { id: 2, size: 128 }, 0);
+            second_done_tx
+                .send(())
+                .expect("second recycle completion receiver remains active");
+        });
+        second_done_rx
+            .recv()
+            .expect("contended cross-bin admission completes without blocking");
+
+        release.wait();
+        first.join().expect("first recycler must not panic");
+        second.join().expect("second recycler must not panic");
+        drop(_hook);
+
+        let mut retained = Vec::new();
+        while let Some(resource) = pool.take_at_least(1) {
+            retained.push(resource);
+        }
+        retained
+    }
+
+    // One active shard has a one-item count quota.
+    let count_bounded = run_case(1, 1024);
+    assert_eq!(count_bounded.len(), 1);
+    assert_eq!(count_bounded[0].id, 1);
+    assert_eq!(count_bounded.iter().map(SizeBounded::size).sum::<u64>(), 64);
+
+    // Shard zero receives two item slots and a 128-byte quota, so the second
+    // item is rejected by bytes while the first publication bin is locked.
+    let byte_bounded = run_case(5, 512);
+    assert_eq!(byte_bounded.len(), 1);
+    assert_eq!(byte_bounded.iter().map(SizeBounded::size).sum::<u64>(), 64);
+    assert_eq!(byte_bounded[0].id, 1);
 }
 
 #[test]
