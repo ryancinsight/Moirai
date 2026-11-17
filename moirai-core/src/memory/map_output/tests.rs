@@ -109,8 +109,8 @@ fn mapper_panic_drops_current_prefix_and_completed_peers_once() {
     let payload =
         panic.expect_err("invariant: the simulated mapper panic must unwind through the writer");
     assert_eq!(
-        crate::test_support::panic_message(payload.as_ref()),
-        "simulated mapper panic"
+        payload.downcast_ref::<&str>().copied(),
+        Some("simulated mapper panic")
     );
     assert_eq!(drops.load(Ordering::Relaxed), 1);
     drop(output);
@@ -171,4 +171,34 @@ fn borrowed_chunks_transfer_the_original_allocation_in_order() {
     let values = output.into_vec();
     assert_eq!(values, [1, 2, 3, 4, 5]);
     assert_eq!(values.as_ptr(), address);
+}
+
+#[test]
+fn borrowed_chunks_reject_invalid_lengths_and_duplicate_writes() {
+    let drops = AtomicUsize::new(0);
+    let mut output = MapOutput::new(2, size(2));
+    let chunks = output.chunks();
+
+    for (len, expected) in [(1, 1), (3, 4)] {
+        let result = std::panic::catch_unwind(|| {
+            // SAFETY: these sequential calls have exclusive access to index zero.
+            unsafe { chunks.write_chunk(0, (0..len).map(|_| Tracked(&drops))) };
+        });
+        result.expect_err("invariant: the iterator yields the wrong chunk length");
+        assert_eq!(drops.load(Ordering::Relaxed), expected);
+    }
+
+    // SAFETY: this write owns the only index, with no concurrent jobs.
+    unsafe { chunks.write_chunk(0, [Tracked(&drops), Tracked(&drops)]) };
+    let result = std::panic::catch_unwind(|| {
+        // SAFETY: access is exclusive. Duplicate detection is part of the API.
+        unsafe { chunks.write_chunk(0, std::iter::empty()) };
+    });
+    let payload = result.expect_err("invariant: the chunk is already published");
+    let message = payload
+        .downcast_ref::<String>()
+        .expect("invariant: assert_eq formats its diagnostic");
+    assert!(message.contains("invariant: the chunk is unpublished"));
+    drop(output);
+    assert_eq!(drops.load(Ordering::Relaxed), 6);
 }

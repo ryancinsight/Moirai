@@ -536,24 +536,18 @@ jobs:
           --skip test_sharded_resource_pool_concurrent_recycle_respects_total_cap
           -Zunstable-options --report-time --test-threads=1
 
-      - name: Interpret the core channel, pool, and ring tests
+      - name: Interpret the core channel, pool, ring, and map output tests
         if: matrix.suite == 'foundation'
-        # About 115 s / 145 s in all (85 tests); slowest: hybrid
-        # recv_delivers_last_message_under_park_unpark_churn 22 / 27. The
-        # five mpmc tests take 49 s / 62 s together; the capacity-one stress
-        # tests run reduced counts under `cfg!(miri)`.
         run: >-
           cargo miri test --locked -p moirai-core --lib --
           --skip ipc::
           -Zunstable-options --report-time --test-threads=1
 
-      - name: Interpret the iterator slot and output tests
+      - name: Interpret the iterator slot, adapter, and sorting tests
         if: matrix.suite == 'foundation'
-        # About 12 s / 16 s in all (34 tests); slowest:
-        # ordered_outputs_cross_geometric_blocks_and_ragged_tail 1.8 / 2.9.
         run: >-
           cargo miri test --locked -p moirai-iter --lib --
-          stream::slots parallel::output parallel::adapters
+          stream::slots parallel::adapters
           parallel::sorting::tests::merge_interleaves_two_sorted_runs_stably
           -Zunstable-options --report-time --test-threads=1
 

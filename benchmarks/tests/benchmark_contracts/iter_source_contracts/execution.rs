@@ -72,8 +72,8 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
     let source = read_benchmark("../moirai-iter/src/cache.rs");
     let output = format!(
         "{}\n{}",
-        read_benchmark("../moirai-iter/src/parallel/output.rs"),
-        read_benchmark("../moirai-iter/src/parallel/output/tests.rs")
+        read_benchmark("../moirai-core/src/memory/map_output.rs"),
+        read_benchmark("../moirai-core/src/memory/map_output/tests.rs")
     );
     let benchmark = read_benchmark("benches/cache_iterator_comparison.rs");
     let manifest = read_benchmark("Cargo.toml");
@@ -108,7 +108,7 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
         ".checked_sub(start)",
         "let chunk_len = remaining.min(chunk_size);",
         ".checked_add(chunk_len)",
-        "pub(crate) struct MapOutput<T>",
+        "pub struct MapOutput<T>",
         "struct ChunkWriter<T>",
         "impl<T> Drop for ChunkWriter<T>",
         "ptr::drop_in_place",

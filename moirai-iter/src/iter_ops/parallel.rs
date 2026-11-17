@@ -26,7 +26,9 @@
 
 use std::num::NonZeroUsize;
 
-use crate::{base::SendPtr, parallel::output::MapOutput};
+use moirai_core::memory::MapOutput;
+
+use crate::base::SendPtr;
 
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;

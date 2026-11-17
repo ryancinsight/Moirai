@@ -8,6 +8,8 @@ use core::{
     ptr,
 };
 
+use crate::platform::Vec;
+
 /// Derive one in-bounds output range without overflowing at the slice limit.
 fn output_chunk_range(len: usize, chunk_size: usize, chunk_index: usize) -> Range<usize> {
     assert!(
@@ -28,7 +30,8 @@ fn output_chunk_range(len: usize, chunk_size: usize, chunk_index: usize) -> Rang
 }
 
 /// One final output allocation plus per-chunk completion ownership.
-pub(crate) struct MapOutput<T> {
+#[doc(hidden)]
+pub struct MapOutput<T> {
     values: Vec<MaybeUninit<T>>,
     completed: Vec<usize>,
     chunk_size: usize,
@@ -36,7 +39,7 @@ pub(crate) struct MapOutput<T> {
 
 impl<T> MapOutput<T> {
     /// Allocate the final output and initialized completion slots.
-    pub(crate) fn new(len: usize, chunk_size: NonZeroUsize) -> Self {
+    pub fn new(len: usize, chunk_size: NonZeroUsize) -> Self {
         let chunk_size = chunk_size.get();
         let mut values = Vec::with_capacity(len);
         // SAFETY: `MaybeUninit<T>` has no initialization validity requirement,
@@ -53,7 +56,7 @@ impl<T> MapOutput<T> {
     }
 
     /// Return the number of disjoint output chunks.
-    pub(crate) fn chunk_count(&self) -> usize {
+    pub fn chunk_count(&self) -> usize {
         self.completed.len()
     }
 
@@ -70,7 +73,7 @@ impl<T> MapOutput<T> {
     }
 
     /// Borrow the output and completion slots for indexed initialization.
-    pub(crate) fn chunks(&mut self) -> MapOutputChunks<'_, T> {
+    pub fn chunks(&mut self) -> MapOutputChunks<'_, T> {
         let len = self.values.len();
         MapOutputChunks {
             values: self.values.as_mut_ptr(),
@@ -87,7 +90,7 @@ impl<T> MapOutput<T> {
     ///
     /// Panics if any chunk has not completely initialized its slots.
     #[track_caller]
-    pub(crate) fn into_vec(mut self) -> Vec<T> {
+    pub fn into_vec(mut self) -> Vec<T> {
         let mut next_start = 0;
         for (chunk_index, &completed_end) in self.completed.iter().enumerate() {
             let range_start = chunk_index
@@ -147,7 +150,8 @@ impl<T> Drop for MapOutput<T> {
 }
 
 /// A borrowed view used by jobs that own disjoint output chunk indices.
-pub(crate) struct MapOutputChunks<'a, T> {
+#[doc(hidden)]
+pub struct MapOutputChunks<'a, T> {
     values: *mut MaybeUninit<T>,
     completed: *mut usize,
     len: usize,
@@ -164,7 +168,7 @@ unsafe impl<T: Send> Sync for MapOutputChunks<'_, T> {}
 
 impl<T> MapOutputChunks<'_, T> {
     /// Return the logical element range for an output chunk.
-    pub(crate) fn range(&self, index: usize) -> Option<Range<usize>> {
+    pub fn range(&self, index: usize) -> Option<Range<usize>> {
         (index < self.len.div_ceil(self.chunk_size))
             .then(|| output_chunk_range(self.len, self.chunk_size, index))
     }
@@ -182,7 +186,7 @@ impl<T> MapOutputChunks<'_, T> {
     /// yield count differs from the chunk length. A panicking iterator leaves
     /// no values owned by the chunk.
     #[track_caller]
-    pub(crate) unsafe fn write_chunk(&self, index: usize, values: impl IntoIterator<Item = T>) {
+    pub unsafe fn write_chunk(&self, index: usize, values: impl IntoIterator<Item = T>) {
         let range = self
             .range(index)
             .expect("invariant: indexed work is within the output layout");

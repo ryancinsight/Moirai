@@ -9,8 +9,10 @@
 
 use std::{mem, num::NonZeroUsize};
 
+use moirai_core::memory::MapOutput;
+
 use super::{CACHE_CHUNK_SIZE, CACHE_LINE_SIZE, prefetch_read_data};
-use crate::{base::SendPtr, parallel::output::MapOutput};
+use crate::base::SendPtr;
 
 /// Default scheduler batch capacity used by the cache fan-out gate.
 pub(super) const DEFAULT_RING_BUFFER_CAPACITY: usize = 1_024;
