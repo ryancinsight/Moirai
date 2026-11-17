@@ -10,6 +10,9 @@ const BIN_COUNT: usize = 64;
 /// A resource with a queryable byte size or capacity.
 pub trait SizeBounded {
     /// The size or capacity of the resource in bytes.
+    ///
+    /// [`ShardedResourcePool::recycle`] snapshots this value once during
+    /// admission and uses that snapshot until the resource is returned.
     fn size(&self) -> u64;
 }
 
@@ -36,11 +39,16 @@ fn active_shard_count(max_buffers: usize, max_bytes: u64) -> usize {
     max_buffers.clamp(1, SHARD_COUNT).min(byte_limited_shards)
 }
 
+struct Retained<T> {
+    item: T,
+    size: u64,
+}
+
 struct Shard<T> {
     // 64 bins representing power-of-two size classes. The final bin widens to
     // every size above 2^62 so the fixed layout covers the full u64 range.
     // SpinLock is cache-line aligned, preventing false sharing.
-    bins: [SpinLock<VecDeque<T>>; BIN_COUNT],
+    bins: [SpinLock<VecDeque<Retained<T>>>; BIN_COUNT],
     retained_bytes: AtomicU64,
     retained_count: AtomicUsize,
 }
@@ -169,23 +177,21 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
             // 1. Search the start_bin for a buffer >= size (since start_bin contains elements of varying sizes)
             {
                 let mut guard = local_shard.bins[start_bin].lock();
-                if let Some(pos) = guard.iter().rposition(|item| item.size() >= size) {
-                    let item = guard
+                if let Some(pos) = guard.iter().rposition(|retained| retained.size >= size) {
+                    let retained = guard
                         .remove(pos)
                         .expect("invariant: position came from the same guarded bin");
-                    let item_size = item.size();
-                    local_shard.release(item_size);
-                    return Some(item);
+                    local_shard.release(retained.size);
+                    return Some(retained.item);
                 }
             }
 
             // 2. Search larger bins (all elements in larger bins are guaranteed to be >= size)
             for b in (start_bin + 1)..BIN_COUNT {
                 let mut guard = local_shard.bins[b].lock();
-                if let Some(item) = guard.pop_back() {
-                    let item_size = item.size();
-                    local_shard.release(item_size);
-                    return Some(item);
+                if let Some(retained) = guard.pop_back() {
+                    local_shard.release(retained.size);
+                    return Some(retained.item);
                 }
             }
         }
@@ -205,24 +211,22 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
             // 1. Search start_bin of other shard
             if let Some(mut guard) = other_shard.bins[start_bin].try_lock()
-                && let Some(pos) = guard.iter().rposition(|item| item.size() >= size)
+                && let Some(pos) = guard.iter().rposition(|retained| retained.size >= size)
             {
-                let item = guard
+                let retained = guard
                     .remove(pos)
                     .expect("invariant: position came from the same guarded bin");
-                let item_size = item.size();
-                other_shard.release(item_size);
-                return Some(item);
+                other_shard.release(retained.size);
+                return Some(retained.item);
             }
 
             // 2. Search larger bins of other shard
             for b in (start_bin + 1)..BIN_COUNT {
                 if let Some(mut guard) = other_shard.bins[b].try_lock()
-                    && let Some(item) = guard.pop_back()
+                    && let Some(retained) = guard.pop_back()
                 {
-                    let item_size = item.size();
-                    other_shard.release(item_size);
-                    return Some(item);
+                    other_shard.release(retained.size);
+                    return Some(retained.item);
                 }
             }
         }
@@ -256,16 +260,13 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         // acquires every bin guard before draining or resetting counters, so it
         // cannot publish a zero-counter state between these two mutations.
         let mut target_guard = local_shard.bins[bin_idx].lock();
-
-        let mut evicted = Vec::new();
         loop {
             if local_shard.try_reserve(size, shard_max_buffers, shard_max_bytes) {
                 #[cfg(test)]
                 self.test_hook.pause_after_reservation(local_idx, bin_idx);
 
-                target_guard.push_back(item);
+                target_guard.push_back(Retained { item, size });
                 drop(target_guard);
-                drop(evicted);
                 return;
             }
 
@@ -286,12 +287,13 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
             let Some(removed) = removed else {
                 drop(target_guard);
-                drop(evicted);
                 drop(item);
                 return;
             };
-            local_shard.release(removed.size());
-            evicted.push(removed);
+            local_shard.release(removed.size);
+            drop(target_guard);
+            drop(removed);
+            target_guard = local_shard.bins[bin_idx].lock();
         }
     }
 
@@ -306,6 +308,8 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         for (shard_idx, shard) in self.shards.iter().take(active_shards).enumerate() {
             #[cfg(not(test))]
             let _ = shard_idx;
+            let mut drained: [Option<VecDeque<Retained<T>>>; BIN_COUNT] =
+                std::array::from_fn(|_| None);
             let mut guards: [Option<_>; BIN_COUNT] = std::array::from_fn(|_| None);
             for (bin_idx, bin) in shard.bins.iter().enumerate() {
                 #[cfg(test)]
@@ -313,15 +317,14 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                 guards[bin_idx] = Some(bin.lock());
             }
 
-            let mut evicted = Vec::new();
-            for guard in guards.iter_mut().flatten() {
-                evicted.extend(guard.drain(..));
+            for (bin_idx, guard) in guards.iter_mut().flatten().enumerate() {
+                drained[bin_idx] = Some(std::mem::take(&mut **guard));
             }
             shard.retained_bytes.store(0, Ordering::Release);
             shard.retained_count.store(0, Ordering::Release);
 
             drop(guards);
-            drop(evicted);
+            drop(drained);
         }
     }
 

@@ -332,6 +332,45 @@ impl SizeBounded for TestResource {
     }
 }
 
+struct ReentrantResource {
+    id: usize,
+    size: u64,
+    size_calls: Arc<std::sync::atomic::AtomicUsize>,
+    recycle_on_drop: Option<std::sync::Weak<ShardedResourcePool<Self>>>,
+    completed_drops: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl SizeBounded for ReentrantResource {
+    fn size(&self) -> u64 {
+        let previous = self
+            .size_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(previous, 0, "size is queried only at admission");
+        self.size
+    }
+}
+
+impl Drop for ReentrantResource {
+    fn drop(&mut self) {
+        let Some(pool) = self
+            .recycle_on_drop
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        else {
+            return;
+        };
+        pool.recycle(Self {
+            id: self.id + 100,
+            size: self.size,
+            size_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            recycle_on_drop: None,
+            completed_drops: Arc::clone(&self.completed_drops),
+        });
+        self.completed_drops
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[test]
 fn test_sharded_resource_pool_basic() {
     let pool = ShardedResourcePool::<TestResource>::new(16, 1024);
@@ -371,6 +410,37 @@ fn test_sharded_resource_pool_zero_count_retains_nothing() {
         minimal_pool.take_at_least(1).map(|resource| resource.id),
         None
     );
+}
+
+#[test]
+fn test_sharded_resource_pool_caches_size_before_locked_storage() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let pool = Arc::new(ShardedResourcePool::<ReentrantResource>::new(1, 1024));
+    let first_size_calls = Arc::new(AtomicUsize::new(0));
+    let second_size_calls = Arc::new(AtomicUsize::new(0));
+    let completed_drops = Arc::new(AtomicUsize::new(0));
+
+    pool.recycle(ReentrantResource {
+        id: 1,
+        size: 64,
+        size_calls: Arc::clone(&first_size_calls),
+        recycle_on_drop: Some(Arc::downgrade(&pool)),
+        completed_drops: Arc::clone(&completed_drops),
+    });
+    pool.recycle(ReentrantResource {
+        id: 2,
+        size: 64,
+        size_calls: Arc::clone(&second_size_calls),
+        recycle_on_drop: None,
+        completed_drops: Arc::clone(&completed_drops),
+    });
+
+    assert_eq!(first_size_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(second_size_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(completed_drops.load(Ordering::SeqCst), 1);
+    assert_eq!(pool.take_at_least(64).map(|resource| resource.id), Some(2));
+    assert_eq!(pool.take_at_least(64).map(|resource| resource.id), None);
 }
 
 #[test]

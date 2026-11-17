@@ -54,11 +54,12 @@ to a declared embedded/no-std executor; Glommio/io_uring mechanisms belong only
 at an optional Linux PAL completion-I/O boundary with typed buffer-lifetime and
 cancellation contracts. No production dependency was added.
 
-**Investigated and refuted.** `bin_index(u64::MAX) == 64` does not expose an
-out-of-bounds resource-pool path in the current design: recycle rejects any item
-larger than `max_bytes / 4`, and take checks a shard's retained-byte count before
-indexing the requested bin. A shard cannot retain enough bytes to enter that
-branch for bin 64. No bin-count change is justified.
+**Resolved (resource-pool size range, MOI-RESOURCE-POOL-BOUNDS-001).** The prior
+conclusion that `bin_index(u64::MAX) == 64` was unreachable depended on every
+shard receiving `max_bytes / 4`. Exact capacity partitioning can assign the full
+byte budget to one active shard. The fixed 64-bin layout therefore saturates the
+final index at 63 and retains exact cached sizes, so same-bin filtering covers
+the full `u64` range without an out-of-bounds index.
 
 ## Round 25 (2026-07-15) — FIXED: resource-pool clear linearizability
 
