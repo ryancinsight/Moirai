@@ -92,4 +92,5 @@
 | [0087](0087-task-lifecycle-release.md) | Task lifecycle release boundary | Accepted |
 | [0088](0088-release-scope-1-0.md) | Moirai release scope for 1.0 | Accepted |
 | [0089](0089-native-pointer-capture-loss.md) | Report native pointer capture loss | Accepted |
-| [0090](0090-native-double-click.md) | Report native pointer double-clicks | Accepted |
+| [0090](0090-ordered-map-output.md) | Ordered map output ownership | Accepted |
+| [0091](0091-native-double-click.md) | Report native pointer double-clicks | Accepted |

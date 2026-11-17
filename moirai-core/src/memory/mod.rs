@@ -1,6 +1,7 @@
 //! Advanced memory management for Moirai concurrency library.
 
 mod allocator;
+mod map_output;
 mod pool;
 
 #[cfg(test)]
@@ -14,4 +15,5 @@ mod tests;
 pub use moirai_utils::CACHE_LINE_SIZE;
 
 pub use allocator::CacheAlignedAllocator;
+pub use map_output::{MapOutput, MapOutputChunks};
 pub use pool::MemoryPool;

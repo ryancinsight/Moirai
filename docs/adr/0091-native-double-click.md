@@ -1,4 +1,4 @@
-# ADR 0090: Report native pointer double-clicks
+# ADR 0091: Report native pointer double-clicks
 
 Status: Accepted
 
