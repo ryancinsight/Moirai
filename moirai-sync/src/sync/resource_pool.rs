@@ -260,6 +260,7 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         // acquires every bin guard before draining or resetting counters, so it
         // cannot publish a zero-counter state between these two mutations.
         let mut target_guard = local_shard.bins[bin_idx].lock();
+        let mut remaining_evictions = local_shard.retained_count.load(Ordering::Acquire);
         loop {
             if local_shard.try_reserve(size, shard_max_buffers, shard_max_bytes) {
                 #[cfg(test)]
@@ -267,6 +268,12 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
                 target_guard.push_back(Retained { item, size });
                 drop(target_guard);
+                return;
+            }
+
+            if remaining_evictions == 0 {
+                drop(target_guard);
+                drop(item);
                 return;
             }
 
@@ -290,6 +297,7 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                 drop(item);
                 return;
             };
+            remaining_evictions -= 1;
             local_shard.release(removed.size);
             drop(target_guard);
             drop(removed);
