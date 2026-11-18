@@ -5,6 +5,7 @@
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -129,7 +130,7 @@ impl TimerDriver {
     /// rebuild therefore amortizes to O(1) per cancellation, while retained
     /// heap size stays bounded below 2x the live timer count instead of
     /// growing with the cancel-rate x timeout-horizon product.
-    pub(super) fn cancel(&self, registration: &TimerRegistration) {
+    pub(super) fn cancel(&self, registration: &TimerRegistration) -> Option<std::task::Waker> {
         let mut state = self.state.lock().unwrap();
         let mut wake_driver = false;
         // First cancellation of a still-resident entry: count it dead. Both
@@ -148,12 +149,18 @@ impl TimerDriver {
         }
         drop(state);
 
+        // Moving the waker out guarantees cancellation releases its captured
+        // task state promptly. The caller invokes or drops it after both the
+        // driver-state and registration mutexes have been released.
+        let waker = registration.take_waker();
+
         // Cancellation changes the driver's current wait only when it removes
         // the heap head or a compaction rebuilds the heap. The state mutex and
         // condition-variable wait prevent a notification from being lost.
         if wake_driver {
             self.notify_driver();
         }
+        waker
     }
 
     fn notify_driver(&self) {
@@ -209,7 +216,7 @@ impl TimerDriver {
                             .as_nanos(),
                         "timer driver wakes registration"
                     );
-                    timer.registration.wake();
+                    wake_registration(&timer.registration);
                 }
                 state = self.state.lock().unwrap();
                 continue;
@@ -220,6 +227,28 @@ impl TimerDriver {
             state = guard;
         }
     }
+}
+
+fn wake_registration(registration: &TimerRegistration) {
+    let Err(payload) = catch_unwind(AssertUnwindSafe(|| registration.wake())) else {
+        return;
+    };
+
+    // A panic payload may itself own arbitrary code in Drop. Keep that second
+    // unwind off the process-wide driver thread too. A recursively panicking
+    // replacement payload cannot be dropped safely, so retain that exceptional
+    // payload rather than terminating the timer service.
+    let payload_drop_panicked = match catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+        Ok(()) => false,
+        Err(payload) => {
+            std::mem::forget(payload);
+            true
+        }
+    };
+    tracing::error!(
+        payload_drop_panicked,
+        "timer waker panicked; process-wide timer driver continues"
+    );
 }
 
 /// The process-wide timer driver, started on first use.
@@ -242,9 +271,63 @@ mod tests {
     use crate::timer::registration::TimerRegistration;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Waker};
+    use std::sync::{Arc, mpsc::SyncSender, mpsc::sync_channel};
+    use std::task::{Context, Wake, Waker};
     use std::time::{Duration, Instant};
+
+    const TIMER_WORKER_TEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+    struct OwnerWake {
+        owner: Arc<()>,
+    }
+
+    impl Wake for OwnerWake {
+        fn wake(self: Arc<Self>) {
+            assert!(Arc::strong_count(&self.owner) > 0);
+            panic!("pending owner waker must not run");
+        }
+    }
+
+    struct PanicPayload {
+        dropping: SyncSender<()>,
+    }
+
+    impl Drop for PanicPayload {
+        fn drop(&mut self) {
+            self.dropping
+                .send(())
+                .expect("invariant: payload-drop receiver remains active");
+            panic!("panic payload destructor");
+        }
+    }
+
+    struct PanickingWake {
+        started: SyncSender<()>,
+        payload_dropping: SyncSender<()>,
+    }
+
+    impl Wake for PanickingWake {
+        fn wake(self: Arc<Self>) {
+            self.started
+                .send(())
+                .expect("invariant: panic-start receiver remains active");
+            std::panic::panic_any(PanicPayload {
+                dropping: self.payload_dropping.clone(),
+            });
+        }
+    }
+
+    struct ChannelWake {
+        woke: SyncSender<()>,
+    }
+
+    impl Wake for ChannelWake {
+        fn wake(self: Arc<Self>) {
+            self.woke
+                .send(())
+                .expect("invariant: later-timer receiver remains active");
+        }
+    }
 
     #[test]
     fn cancellation_notifies_only_for_effective_head_changes() {
@@ -257,15 +340,64 @@ mod tests {
         driver.schedule(now + Duration::from_secs(120), Arc::clone(&later));
         let scheduled_notifications = driver.notification_count();
 
-        driver.cancel(&later);
+        drop(driver.cancel(&later));
         assert_eq!(driver.notification_count(), scheduled_notifications);
 
-        driver.cancel(&head);
+        drop(driver.cancel(&head));
         assert_eq!(driver.notification_count(), scheduled_notifications + 1);
         assert_eq!(driver.scheduled_len(), 0);
 
-        driver.cancel(&head);
+        drop(driver.cancel(&head));
         assert_eq!(driver.notification_count(), scheduled_notifications + 1);
+    }
+
+    #[test]
+    fn cancelled_delay_registration_detaches_waker_behind_live_head() {
+        let driver = TimerDriver::new();
+        let now = Instant::now();
+        let head = TimerRegistration::new(Waker::noop().clone());
+        let owner = Arc::new(());
+        let later = TimerRegistration::new(Waker::from(Arc::new(OwnerWake {
+            owner: Arc::clone(&owner),
+        })));
+
+        driver.schedule(now + Duration::from_secs(60), Arc::clone(&head));
+        driver.schedule(now + Duration::from_secs(120), Arc::clone(&later));
+        assert_eq!(Arc::strong_count(&owner), 2);
+
+        drop(driver.cancel(&later));
+
+        assert_eq!(driver.scheduled_len(), 2);
+        assert!(later.is_cancelled());
+        assert_eq!(Arc::strong_count(&owner), 1);
+    }
+
+    #[test]
+    fn panicking_waker_does_not_stop_timer_driver() {
+        let (panic_started_tx, panic_started_rx) = sync_channel(0);
+        let (payload_dropping_tx, payload_dropping_rx) = sync_channel(0);
+        let (later_woke_tx, later_woke_rx) = sync_channel(0);
+        let now = Instant::now();
+        let panicking = TimerRegistration::new(Waker::from(Arc::new(PanickingWake {
+            started: panic_started_tx,
+            payload_dropping: payload_dropping_tx,
+        })));
+        let later = TimerRegistration::new(Waker::from(Arc::new(ChannelWake {
+            woke: later_woke_tx,
+        })));
+
+        timer_driver().schedule(now, panicking);
+        timer_driver().schedule(now + Duration::from_millis(1), later);
+
+        panic_started_rx
+            .recv_timeout(TIMER_WORKER_TEST_TIMEOUT)
+            .expect("panicking timer must begin within the test budget");
+        payload_dropping_rx
+            .recv_timeout(TIMER_WORKER_TEST_TIMEOUT)
+            .expect("panic payload destructor must run within the test budget");
+        later_woke_rx
+            .recv_timeout(TIMER_WORKER_TEST_TIMEOUT)
+            .expect("later timer must wake within the test budget");
     }
 
     #[test]
