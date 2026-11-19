@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 readme = "README.md"
 description = "Bounded authenticated QUIC multiplexing over Moirai scheduling and socket readiness"
+exclude = ["/measurements"]
 
 [target.'cfg(any(unix, windows))'.dependencies]
 moirai-core.workspace = true
