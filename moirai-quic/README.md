@@ -12,9 +12,9 @@ once at endpoint construction: CUBIC (the unchanged default), NewReno, or
 TLS, framing, flow-control, native buffer or deadline contract.
 [ADR 0079](../docs/adr/0079-congestion-policy-measurements.md) requires matched
 full-matrix and shared-queue evidence before a default change. The
-[complete comparison](measurements/recovery/2026-10-13/README.md) retains both
+[complete comparison][recovery-comparison] retains both
 studies and their failures; no production replacement is accepted.
-The [October 14 trace study](measurements/recovery/2026-10-14/README.md)
+The [October 14 trace study][recovery-trace-study]
 repeats all 108 cases per policy, all 30 competing experiments and the independent
 original CUBIC gate on Rustls 0.23.46. It separates six unestablished server
 handshakes from established congestion/pacing/flow-credit pressure. CUBIC/NewReno
@@ -31,6 +31,9 @@ diagnostic bounds. Instrumented observations do not replace the original gate.
 checksum-verified read-only engine observer for packet-space ACK/CRYPTO, actual
 flight, credit and timer state. It does not replace the canonical dependency;
 the full matched diagnostic study and independent pristine gate remain separate.
+
+[recovery-comparison]: https://github.com/ryancinsight/Moirai/blob/c909e4fa3e1548cb4c26869c20caea67dbcf8323/moirai-quic/measurements/recovery/2026-10-13/README.md
+[recovery-trace-study]: https://github.com/ryancinsight/Moirai/blob/c909e4fa3e1548cb4c26869c20caea67dbcf8323/moirai-quic/measurements/recovery/2026-10-14/README.md
 
 `QuicEndpoint` binds before advertising readiness. Clients supply trusted roots
 and the certificate's server name; servers supply their certificate chain/key
