@@ -20,7 +20,6 @@ moirai-async = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
 moirai-scheduler = { workspace = true }
 themis = { workspace = true }
-thiserror = "1.0"
 futures = "0.3"
 num_cpus = "1.0"
 
