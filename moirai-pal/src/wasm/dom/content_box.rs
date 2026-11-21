@@ -1,6 +1,6 @@
 //! Resolved CSS measurement for local content-box input coordinates.
 
-use crate::content_box::{Affine2d, ContentBoxGeometry, ContentBoxPoint};
+use crate::content_box::{Affine2d, ContentBoxGeometry};
 use std::io;
 use wasm_bindgen::JsCast;
 use web_sys::{CssStyleDeclaration, DomMatrixReadOnly, Element, ShadowRoot, Window};
@@ -15,11 +15,7 @@ struct BoxDimensions {
     border_height: f64,
 }
 
-pub(super) fn measure_point(
-    element: &Element,
-    client_x: f64,
-    client_y: f64,
-) -> io::Result<ContentBoxPoint> {
+pub(super) fn measure_geometry(element: &Element) -> io::Result<ContentBoxGeometry> {
     let window = browser_window()?;
     let dimensions = content_box_dimensions(&computed_style(&window, element)?)?;
     let mut transform = Affine2d::IDENTITY;
@@ -44,8 +40,7 @@ pub(super) fn measure_point(
         transform,
         bounds.left(),
         bounds.top(),
-    )?
-    .point(client_x, client_y)
+    )
 }
 
 fn browser_window() -> io::Result<Window> {

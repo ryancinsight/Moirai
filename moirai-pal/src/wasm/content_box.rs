@@ -63,8 +63,14 @@ impl Affine2d {
     }
 }
 
+/// An immutable mapping from viewport coordinates into a measured content box.
+///
+/// The snapshot contains owned CSS geometry. Reusing it preserves the same
+/// coordinate basis even when the element later moves, resizes or changes its
+/// two-dimensional transform.
+#[must_use = "retain the geometry while projecting captured input"]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct ContentBoxGeometry {
+pub struct ContentBoxGeometry {
     content_width: f64,
     content_height: f64,
     content_left: f64,
@@ -148,8 +154,26 @@ impl ContentBoxGeometry {
                 .b
                 .mul_add(border_width, transform.d * border_height),
         ];
+        if x_corners
+            .iter()
+            .chain(y_corners.iter())
+            .any(|value| !value.is_finite())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "browser content-box corners are not representable",
+            ));
+        }
         let min_x = x_corners.into_iter().fold(f64::INFINITY, f64::min);
         let min_y = y_corners.into_iter().fold(f64::INFINITY, f64::min);
+        let viewport_origin_x = rect_left - min_x;
+        let viewport_origin_y = rect_top - min_y;
+        if !viewport_origin_x.is_finite() || !viewport_origin_y.is_finite() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "browser content-box origin is not representable",
+            ));
+        }
 
         Ok(Self {
             content_width,
@@ -157,12 +181,22 @@ impl ContentBoxGeometry {
             content_left,
             content_top,
             transform,
-            viewport_origin_x: rect_left - min_x,
-            viewport_origin_y: rect_top - min_y,
+            viewport_origin_x,
+            viewport_origin_y,
         })
     }
 
-    pub(crate) fn point(self, client_x: f64, client_y: f64) -> io::Result<ContentBoxPoint> {
+    /// Projects a viewport point through this snapshot's captured affine map.
+    ///
+    /// Finite points outside the content box remain representable and are not
+    /// clamped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::ErrorKind::InvalidInput`] when either client coordinate
+    /// is not finite, or [`io::ErrorKind::InvalidData`] when finite arithmetic
+    /// cannot represent the projected point.
+    pub fn point(self, client_x: f64, client_y: f64) -> io::Result<ContentBoxPoint> {
         if !client_x.is_finite() || !client_y.is_finite() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -177,9 +211,20 @@ impl ContentBoxGeometry {
             .mul_add(self.transform.d, -(self.transform.b * self.transform.c));
         let border_x = self.transform.d.mul_add(x, -(self.transform.c * y)) / determinant;
         let border_y = (-self.transform.b).mul_add(x, self.transform.a * y) / determinant;
+        let content_x = border_x - self.content_left;
+        let content_y = border_y - self.content_top;
+        if [x, y, determinant, border_x, border_y, content_x, content_y]
+            .iter()
+            .any(|value| !value.is_finite())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "browser content-box projection is not representable",
+            ));
+        }
         Ok(ContentBoxPoint {
-            x: border_x - self.content_left,
-            y: border_y - self.content_top,
+            x: content_x,
+            y: content_y,
             width: self.content_width,
             height: self.content_height,
         })
@@ -190,6 +235,142 @@ impl ContentBoxGeometry {
 mod tests {
     use super::{Affine2d, ContentBoxGeometry};
     use std::io;
+
+    fn affine(a: f64, b: f64, c: f64, d: f64) -> Affine2d {
+        Affine2d { a, b, c, d }
+    }
+
+    fn identity_geometry(width: f64, height: f64, left: f64, top: f64) -> ContentBoxGeometry {
+        ContentBoxGeometry::from_measurement(
+            width,
+            height,
+            0.0,
+            0.0,
+            width,
+            height,
+            Affine2d::IDENTITY,
+            left,
+            top,
+        )
+        .expect("identity geometry is valid")
+    }
+
+    #[test]
+    fn affine_maps_preserve_literal_content_coordinates() {
+        let cases = [
+            (Affine2d::IDENTITY, 60.0, 90.0),
+            (affine(2.0, 0.0, 0.0, 0.5), 80.0, 75.0),
+            (affine(0.0, 1.0, -1.0, 0.0), 90.0, 80.0),
+            (affine(1.0, 0.0, 0.5, 1.0), 75.0, 90.0),
+        ];
+
+        for (transform, client_x, client_y) in cases {
+            let point = ContentBoxGeometry::from_measurement(
+                100.0, 80.0, 0.0, 0.0, 100.0, 80.0, transform, 40.0, 60.0,
+            )
+            .expect("affine geometry is representable")
+            .point(client_x, client_y)
+            .expect("affine point is representable");
+            assert_eq!((point.x(), point.y()), (20.0, 30.0));
+            assert_eq!((point.width(), point.height()), (100.0, 80.0));
+        }
+    }
+
+    #[test]
+    fn copied_snapshot_keeps_its_press_coordinate_basis() {
+        let captured = identity_geometry(100.0, 80.0, 40.0, 60.0);
+        let frozen = captured;
+        let moved = identity_geometry(200.0, 80.0, 60.0, 60.0);
+
+        let captured_press = captured.point(60.0, 90.0).expect("press is finite");
+        let captured_move = frozen.point(70.0, 90.0).expect("move is finite");
+        let moved_point = moved.point(70.0, 90.0).expect("fresh point is finite");
+
+        assert_eq!((captured_press.x(), captured_press.y()), (20.0, 30.0));
+        assert_eq!((captured_move.x(), captured_move.y()), (30.0, 30.0));
+        assert_eq!((moved_point.x(), moved_point.y()), (10.0, 30.0));
+        assert_eq!(captured_move.x() - captured_press.x(), 10.0);
+        assert_eq!(
+            (captured_move.width(), captured_move.height()),
+            (100.0, 80.0)
+        );
+        assert_eq!((moved_point.width(), moved_point.height()), (200.0, 80.0));
+    }
+
+    #[test]
+    fn invalid_client_coordinates_are_rejected_by_axis() {
+        let geometry = identity_geometry(100.0, 80.0, 40.0, 60.0);
+        for (client_x, client_y) in [
+            (f64::NAN, 0.0),
+            (f64::INFINITY, 0.0),
+            (f64::NEG_INFINITY, 0.0),
+            (0.0, f64::NAN),
+            (0.0, f64::INFINITY),
+            (0.0, f64::NEG_INFINITY),
+        ] {
+            let error = geometry
+                .point(client_x, client_y)
+                .expect_err("non-finite client coordinate must be rejected");
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        }
+    }
+
+    #[test]
+    fn finite_projection_overflow_is_rejected() {
+        let geometry = identity_geometry(1.0, 1.0, -f64::MAX, 0.0);
+        let error = geometry
+            .point(f64::MAX, 0.0)
+            .expect_err("finite subtraction overflow must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn unrepresentable_corners_and_origins_are_rejected() {
+        let corner_error = ContentBoxGeometry::from_measurement(
+            1.0,
+            1.0,
+            0.0,
+            0.0,
+            f64::MAX,
+            1.0,
+            Affine2d {
+                a: 2.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+            },
+            0.0,
+            0.0,
+        )
+        .expect_err("overflowing transformed corner must be rejected");
+        assert_eq!(corner_error.kind(), io::ErrorKind::InvalidData);
+
+        let origin_error = ContentBoxGeometry::from_measurement(
+            1.0,
+            1.0,
+            0.0,
+            0.0,
+            f64::MAX,
+            1.0,
+            Affine2d {
+                a: -1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+            },
+            f64::MAX,
+            0.0,
+        )
+        .expect_err("overflowing viewport origin must be rejected");
+        assert_eq!(origin_error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn finite_points_outside_the_box_are_not_clamped() {
+        let geometry = identity_geometry(100.0, 80.0, 40.0, 60.0);
+        let point = geometry.point(30.0, 50.0).expect("finite point is valid");
+        assert_eq!((point.x(), point.y()), (-10.0, -10.0));
+    }
 
     #[test]
     fn border_and_padding_are_excluded_from_identity_coordinates() {
