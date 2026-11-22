@@ -1,5 +1,15 @@
 # Moirai backlog
 
+<a id="moirai-stable-qualification"></a>
+## MOIRAI-STABLE-QUALIFICATION — moirai stable-release qualification [patch] — todo
+- priority: verification; milestone: M-async-io-transport; basis: `11c5ffded3cd`.
+- Outcome: Finish the controlled transport evidence and reconcile the public WebView package. Follow the [release scope](docs/adr/0088-release-scope-1-0.md) and [milestone exits](backlog/milestones.md).
+- Representative manifest `moirai-runtime 0.12.0`. Target 1.0.0. Index coverage at review: 18/19 publish-enabled workspace versions.
+- [ ] [patch] Follow the existing QUIC evidence work ([#716](https://github.com/ryancinsight/moirai/pull/716) and [#703](https://github.com/ryancinsight/moirai/pull/703)). Replay loss, cancellation, bounded buffering and shutdown tests under the declared native hosts. Record the measured recovery and fairness results.
+- [ ] [patch] Establish the distribution plan for moirai-webview 0.12.0. Verify the normalized published dependency graph or document its owner-approved disposition before counting the public cohort.
+- [ ] [major] Close the core execution and async transport exits against the actual runtime, with network and process tests in Metis and a clean independent consumer.
+- [ ] [patch] Attach exact-revision evidence for the local exits and this member’s [Atlas qualification criteria](https://github.com/ryancinsight/atlas/blob/17b0124a7548ad81e817284afc5cb115c1d1bc78/docs/parity/repositories.json).
+
 This is the single source of truth for active Moirai work. Items are ordered by
 priority (`correctness`, `architecture`, `verification`, `tightening`, then
 `feature`) and dependency. Hosting records claims and review state; this file
