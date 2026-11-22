@@ -68,7 +68,7 @@ belong in [gap_audit.md](gap_audit.md).
 
 <a id="MOI-SEC-077"></a>
 ## MOI-SEC-077 — Qualify the patched RSA provider [patch]
-- status: in-progress
+- status: todo
 - priority: correctness
 - outcome: TLS signing and verification use an upstream version outside the affected range for RUSTSEC-2023-0071.
 - acceptance: Both Cargo locks resolve RSA 0.10.0. The locked policy passes without an RSA exception. The provider authenticates the original message and rejects a changed message across six signature schemes and both supported RSA key formats.
