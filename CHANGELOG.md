@@ -5,11 +5,12 @@ All notable changes to the Moirai concurrency library will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## moirai-crypto 0.12.1 — Unreleased
+## moirai-crypto 0.12.1 — 2026-11-22
 
 ### Fixed
 
 - [patch] Use RustCrypto RSA 0.10 for TLS signing and verification and remove the exception for RUSTSEC-2023-0071. Existing PKCS#1 and PKCS#8 keys and signature schemes remain supported.
+- The [registry archive](https://crates.io/crates/moirai-crypto/0.12.1) has SHA-256 `8076eda92c6a7303c6044db7fbb6cb2206d7390dac5c3becf5d73960be9444f5` and was built from [the security fix](https://github.com/ryancinsight/Moirai/commit/f83eb68635c6d948ab4750cb4a10e8c7eb353a24).
 
 ## [0.12.0] - Unreleased
 
