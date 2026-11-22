@@ -5,7 +5,7 @@
 - priority: verification; milestone: M-async-io-transport; basis: `11c5ffded3cd`.
 - Outcome: Finish the controlled transport evidence and reconcile the public WebView package. Follow the [release scope](docs/adr/0088-release-scope-1-0.md) and [milestone exits](backlog/milestones.md).
 - Representative manifest `moirai-runtime 0.12.0`. Target 1.0.0. Index coverage at review: 18/19 publish-enabled workspace versions.
-- [ ] [patch] Integrate the [patched TLS provider](https://github.com/ryancinsight/Moirai/pull/721), verify the integrated locks and qualify moirai-crypto 0.12.1 before refreshing downstream Metis and RITK. The source candidate passes the unwaived audit and the six RSA scheme checks.
+- [x] [patch] Release [moirai-crypto 0.12.1](https://crates.io/crates/moirai-crypto/0.12.1) and verify the unwaived dependency audit, archive provenance, six RSA signature schemes and independent TLS consumer at the supported Rust floor. Downstream adoption is tracked in [Metis #589](https://github.com/ryancinsight/metis/pull/589) and [RITK #1107](https://github.com/ryancinsight/ritk/pull/1107).
 - [ ] [patch] Follow the existing QUIC evidence work ([#716](https://github.com/ryancinsight/moirai/pull/716) and [#703](https://github.com/ryancinsight/moirai/pull/703)). Replay loss, cancellation, bounded buffering and shutdown tests under the declared native hosts. Record the measured recovery and fairness results.
 - [ ] [patch] Establish the distribution plan for moirai-webview 0.12.0. Verify the normalized published dependency graph or document its owner-approved disposition before counting the public cohort.
 - [ ] [major] Close the core execution and async transport exits against the actual runtime, with network and process tests in Metis and a clean independent consumer.
@@ -76,16 +76,6 @@ belong in [gap_audit.md](gap_audit.md).
 - re-open trigger: A fence-free A/B on isolated cores (affinity, lowered contender priority) or under a host bench lease resolves the 4/8-producer rows, or the oracle is rewritten to a simplification judged by a terminating Loom model plus the multiset regression.
 - next step: Re-run the paired benchmark on isolated cores; if a gain resolves, extend `DrainRing` with a second producer and prove the receiver-head condition before changing production ordering.
 - basis: `cd3c569e791acbe21527b4cc88a1cc562ddae6c4`
-
-<a id="MOI-SEC-077"></a>
-## MOI-SEC-077 — Qualify the patched RSA provider [patch]
-- status: todo
-- priority: correctness
-- outcome: TLS signing and verification use an upstream version outside the affected range for RUSTSEC-2023-0071.
-- acceptance: Both Cargo locks resolve RSA 0.10.0. The locked policy passes without an RSA exception. The provider authenticates the original message and rejects a changed message across six signature schemes and both supported RSA key formats.
-- [x] [patch] Replay the unwaived advisory on the original lock, upgrade the provider and exercise its real TLS handshake and application-data exchange.
-- [ ] [patch] Verify the integrated candidate and qualify the 0.12.1 archive. After authorized publication, verify independent consumption and refresh downstream locks in Metis and RITK.
-- basis: `11c5ffde`, the published moirai-crypto 0.12.0 and the [RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2023-0071.html).
 
 <a id="MOI-RESOURCE-POOL-BOUNDS-001"></a>
 ## MOI-RESOURCE-POOL-BOUNDS-001 — Enforce resource pool retention limits
