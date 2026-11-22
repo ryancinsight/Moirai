@@ -5,6 +5,7 @@
 - priority: verification; milestone: M-async-io-transport; basis: `11c5ffded3cd`.
 - Outcome: Finish the controlled transport evidence and reconcile the public WebView package. Follow the [release scope](docs/adr/0088-release-scope-1-0.md) and [milestone exits](backlog/milestones.md).
 - Representative manifest `moirai-runtime 0.12.0`. Target 1.0.0. Index coverage at review: 18/19 publish-enabled workspace versions.
+- [ ] [patch] Integrate the [patched TLS provider](https://github.com/ryancinsight/Moirai/pull/721), verify the integrated locks and qualify moirai-crypto 0.12.1 before refreshing downstream Metis and RITK. The source candidate passes the unwaived audit and the six RSA scheme checks.
 - [ ] [patch] Follow the existing QUIC evidence work ([#716](https://github.com/ryancinsight/moirai/pull/716) and [#703](https://github.com/ryancinsight/moirai/pull/703)). Replay loss, cancellation, bounded buffering and shutdown tests under the declared native hosts. Record the measured recovery and fairness results.
 - [ ] [patch] Establish the distribution plan for moirai-webview 0.12.0. Verify the normalized published dependency graph or document its owner-approved disposition before counting the public cohort.
 - [ ] [major] Close the core execution and async transport exits against the actual runtime, with network and process tests in Metis and a clean independent consumer.
