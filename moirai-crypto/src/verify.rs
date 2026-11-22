@@ -7,9 +7,8 @@ use rustls::pki_types::{
     AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm, alg_id,
 };
 
-use p256::ecdsa::signature::Verifier as _;
 use rsa::pkcs1::DecodeRsaPublicKey;
-use signature::Verifier;
+use rsa::signature::Verifier as _;
 
 /// The set of signature verification algorithms supported by this provider,
 /// together with their mapping to TLS [`SignatureScheme`]s.
@@ -99,8 +98,8 @@ impl SignatureVerificationAlgorithm for RsaPkcs1Sha256 {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), InvalidSignature> {
-        let key = rsa::RsaPublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
-        let vk = rsa::pkcs1v15::VerifyingKey::<sha2::Sha256>::new(key);
+        let key = rsa::PublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
+        let vk = rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(key);
         let sig = rsa::pkcs1v15::Signature::try_from(signature).map_err(|_| InvalidSignature)?;
         vk.verify(message, &sig).map_err(|_| InvalidSignature)
     }
@@ -124,8 +123,8 @@ impl SignatureVerificationAlgorithm for RsaPkcs1Sha384 {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), InvalidSignature> {
-        let key = rsa::RsaPublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
-        let vk = rsa::pkcs1v15::VerifyingKey::<sha2::Sha384>::new(key);
+        let key = rsa::PublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
+        let vk = rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha384>::new(key);
         let sig = rsa::pkcs1v15::Signature::try_from(signature).map_err(|_| InvalidSignature)?;
         vk.verify(message, &sig).map_err(|_| InvalidSignature)
     }
@@ -149,8 +148,8 @@ impl SignatureVerificationAlgorithm for RsaPssSha256 {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), InvalidSignature> {
-        let key = rsa::RsaPublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
-        let vk = rsa::pss::VerifyingKey::<sha2::Sha256>::new(key);
+        let key = rsa::PublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
+        let vk = rsa::pss::VerifyingKey::<rsa::sha2::Sha256>::new(key);
         let sig = rsa::pss::Signature::try_from(signature).map_err(|_| InvalidSignature)?;
         vk.verify(message, &sig).map_err(|_| InvalidSignature)
     }
@@ -174,8 +173,8 @@ impl SignatureVerificationAlgorithm for RsaPssSha384 {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), InvalidSignature> {
-        let key = rsa::RsaPublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
-        let vk = rsa::pss::VerifyingKey::<sha2::Sha384>::new(key);
+        let key = rsa::PublicKey::from_pkcs1_der(public_key).map_err(|_| InvalidSignature)?;
+        let vk = rsa::pss::VerifyingKey::<rsa::sha2::Sha384>::new(key);
         let sig = rsa::pss::Signature::try_from(signature).map_err(|_| InvalidSignature)?;
         vk.verify(message, &sig).map_err(|_| InvalidSignature)
     }
