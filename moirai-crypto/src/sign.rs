@@ -10,11 +10,9 @@ use rustls::pki_types::PrivateKeyDer;
 use rustls::sign::{Signer, SigningKey};
 use rustls::{Error, SignatureAlgorithm, SignatureScheme};
 
-use p256::ecdsa::signature::Signer as _;
 use p256::pkcs8::DecodePrivateKey as _;
 use rsa::pkcs1::DecodeRsaPrivateKey as _;
-use rsa::pkcs8::DecodePrivateKey as _;
-use signature::{RandomizedSigner, SignatureEncoding, Signer as _};
+use rsa::signature::{SignatureEncoding, Signer as _};
 
 /// Parse any supported private key (ECDSA P-256/P-384 or RSA) from DER.
 pub fn any_supported_type(der: &PrivateKeyDer<'static>) -> Result<Arc<dyn SigningKey>, Error> {
@@ -145,16 +143,16 @@ const RSA_SCHEMES: &[SignatureScheme] = &[
 ];
 
 #[derive(Debug)]
-struct RsaSigningKey(Arc<rsa::RsaPrivateKey>);
+struct RsaSigningKey(Arc<rsa::PrivateKey>);
 
 impl RsaSigningKey {
     fn from_der(der: &PrivateKeyDer<'static>) -> Result<Self, ()> {
         let key = match der {
             PrivateKeyDer::Pkcs8(k) => {
-                rsa::RsaPrivateKey::from_pkcs8_der(k.secret_pkcs8_der()).map_err(|_| ())?
+                rsa::PrivateKey::from_pkcs8_der(k.secret_pkcs8_der()).map_err(|_| ())?
             }
             PrivateKeyDer::Pkcs1(k) => {
-                rsa::RsaPrivateKey::from_pkcs1_der(k.secret_pkcs1_der()).map_err(|_| ())?
+                rsa::PrivateKey::from_pkcs1_der(k.secret_pkcs1_der()).map_err(|_| ())?
             }
             _ => return Err(()),
         };
@@ -182,7 +180,7 @@ impl SigningKey for RsaSigningKey {
 
 #[derive(Debug)]
 struct RsaSigner {
-    key: Arc<rsa::RsaPrivateKey>,
+    key: Arc<rsa::PrivateKey>,
     scheme: SignatureScheme,
 }
 
@@ -191,29 +189,29 @@ impl Signer for RsaSigner {
         let key = (*self.key).clone();
         let sig = match self.scheme {
             SignatureScheme::RSA_PKCS1_SHA256 => {
-                rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(key)
+                rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha256>::new(key)
                     .try_sign(message)
                     .map(|s| s.to_vec())
             }
             SignatureScheme::RSA_PKCS1_SHA384 => {
-                rsa::pkcs1v15::SigningKey::<sha2::Sha384>::new(key)
+                rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha384>::new(key)
                     .try_sign(message)
                     .map(|s| s.to_vec())
             }
             SignatureScheme::RSA_PKCS1_SHA512 => {
-                rsa::pkcs1v15::SigningKey::<sha2::Sha512>::new(key)
+                rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha512>::new(key)
                     .try_sign(message)
                     .map(|s| s.to_vec())
             }
-            SignatureScheme::RSA_PSS_SHA256 => Ok(rsa::pss::SigningKey::<sha2::Sha256>::new(key)
-                .sign_with_rng(&mut rand_core::OsRng, message)
-                .to_vec()),
-            SignatureScheme::RSA_PSS_SHA384 => Ok(rsa::pss::SigningKey::<sha2::Sha384>::new(key)
-                .sign_with_rng(&mut rand_core::OsRng, message)
-                .to_vec()),
-            SignatureScheme::RSA_PSS_SHA512 => Ok(rsa::pss::SigningKey::<sha2::Sha512>::new(key)
-                .sign_with_rng(&mut rand_core::OsRng, message)
-                .to_vec()),
+            SignatureScheme::RSA_PSS_SHA256 => rsa::pss::SigningKey::<rsa::sha2::Sha256>::new(key)
+                .try_sign(message)
+                .map(|s| s.to_vec()),
+            SignatureScheme::RSA_PSS_SHA384 => rsa::pss::SigningKey::<rsa::sha2::Sha384>::new(key)
+                .try_sign(message)
+                .map(|s| s.to_vec()),
+            SignatureScheme::RSA_PSS_SHA512 => rsa::pss::SigningKey::<rsa::sha2::Sha512>::new(key)
+                .try_sign(message)
+                .map(|s| s.to_vec()),
             other => {
                 return Err(Error::General(format!(
                     "moirai-crypto: unsupported RSA scheme {other:?}"

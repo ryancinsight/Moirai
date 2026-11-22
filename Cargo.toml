@@ -50,7 +50,7 @@ moirai-pal = { path = "moirai-pal", version = "0.12.0" }
 moirai-iter = { path = "moirai-iter", version = "0.12.0" }
 moirai-parallel = { path = "moirai-parallel", version = "0.12.0" }
 moirai-tls = { path = "moirai-tls", version = "0.12.0" }
-moirai-crypto = { path = "moirai-crypto", version = "0.12.0" }
+moirai-crypto = { path = "moirai-crypto", version = "0.12.1" }
 moirai-http = { path = "moirai-http", version = "0.12.0" }
 moirai-quic = { path = "moirai-quic", version = "0.12.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.12.0" }

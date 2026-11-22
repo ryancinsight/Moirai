@@ -78,15 +78,14 @@ belong in [gap_audit.md](gap_audit.md).
 - basis: `cd3c569e791acbe21527b4cc88a1cc562ddae6c4`
 
 <a id="MOI-SEC-077"></a>
-## MOI-SEC-077 — Remove the unresolved RSA advisory
-- status: blocked
+## MOI-SEC-077 — Qualify the patched RSA provider [patch]
+- status: todo
 - priority: correctness
-- outcome: No attacker-observable service depends on `rsa 0.9.10` while `RUSTSEC-2023-0071` remains unresolved upstream.
-- acceptance: Replace or remove RSA signing and verification, remove the cargo-deny exception, and pass the locked advisory, license, ban, and source checks.
-- scope: RSA-dependent signing/verification and supply-chain policy; no hidden advisory suppression.
-- blocker: The current upstream RSA release has no safe replacement release.
-- re-open trigger: A maintained safe implementation is available or the dependent protocol is removed.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
+- outcome: TLS signing and verification use an upstream version outside the affected range for RUSTSEC-2023-0071.
+- acceptance: Both Cargo locks resolve RSA 0.10.0. The locked policy passes without an RSA exception. The provider authenticates the original message and rejects a changed message across six signature schemes and both supported RSA key formats.
+- [x] [patch] Replay the unwaived advisory on the original lock, upgrade the provider and exercise its real TLS handshake and application-data exchange.
+- [ ] [patch] Verify the integrated candidate and qualify the 0.12.1 archive. After authorized publication, verify independent consumption and refresh downstream locks in Metis and RITK.
+- basis: `11c5ffde`, the published moirai-crypto 0.12.0 and the [RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2023-0071.html).
 
 <a id="MOI-RESOURCE-POOL-BOUNDS-001"></a>
 ## MOI-RESOURCE-POOL-BOUNDS-001 — Enforce resource pool retention limits

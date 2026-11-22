@@ -3,6 +3,10 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## RSA provider distribution — 2026-11-22 [patch]
+
+The 0.12.0 registry archive and downstream source locks still select an affected RSA version. [MOI-SEC-077](backlog.md#MOI-SEC-077) owns the 0.12.1 source candidate. Its two Cargo locks use RSA 0.10.0. Release review, a registry receipt, and a fresh Metis/RITK resolution are outstanding.
+
 ## Native QUIC transport — 2026-10-13 [minor]
 
 ADR 0082 adds a separate read-only diagnostic engine build for per-space

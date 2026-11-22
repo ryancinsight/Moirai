@@ -98,4 +98,5 @@ jobs:
     with:
       rust-toolchain: "1.97.0"
       semver-baseline-source: locked-registry
-      cohort-json: '{"moirai-crypto":"0.12.0","moirai-tls":"0.12.0","moirai-http":"0.12.0"}'
+      # The three approved 0.12.0 archives are indexed. A new cohort needs release review.
+      cohort-json: '{}'
