@@ -1,5 +1,11 @@
 # Moirai gap audit
 
+## Incremental release baseline
+
+Reviewed [moirai-runtime 0.12.0](moirai/Cargo.toml) at [c24b7ad3e2c1](https://github.com/ryancinsight/moirai/tree/c24b7ad3e2c1a91918e7fb620c87be1947f67530). The exact version appears in the [registry](https://crates.io/crates/moirai-runtime/0.12.0).
+
+The next [patch] checkpoint uses [loss](moirai-quic/src/tests/loss.rs). [Target version and acceptance criteria](backlog.md#moirai-stable-qualification).
+
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
