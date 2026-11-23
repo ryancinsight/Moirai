@@ -81,6 +81,7 @@ fn facade_runtime_drives_quic_without_a_second_scheduler() {
             .await
             .expect("message")
             .expect("bytes");
+        assert_eq!(stream.recv_message().await.expect("client FIN"), None);
         stream.send_message(&message).await.expect("echo");
         stream.finish_and_wait().await.expect("acknowledged output");
         message
