@@ -3,6 +3,10 @@
 This register contains unresolved risks with no active implementation. A risk
 moves to [backlog.md](backlog.md) when its re-open trigger fires.
 
+## RSA provider distribution — 2026-11-22 [patch]
+
+The [moirai-crypto 0.12.1](https://crates.io/crates/moirai-crypto/0.12.1) archive matches the sparse-index checksum and release commit. A fresh registry-only Rust 1.95 consumer passed the TLS handshake and RSA signature contracts. Earlier 0.12.0 consumers retain the affected RSA dependency until they refresh their locks. [Metis #589](https://github.com/ryancinsight/metis/pull/589) and [RITK #1107](https://github.com/ryancinsight/ritk/pull/1107) own that change in the viewer graph.
+
 ## Native QUIC transport — 2026-10-13 [minor]
 
 ADR 0082 adds a separate read-only diagnostic engine build for per-space

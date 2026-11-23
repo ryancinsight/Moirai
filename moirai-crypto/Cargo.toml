@@ -1,6 +1,6 @@
 [package]
 name = "moirai-crypto"
-version.workspace = true
+version = "0.12.1"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -30,7 +30,6 @@ provider = [
     "dep:hkdf",
     "dep:rsa",
     "dep:ed25519-dalek",
-    "dep:signature",
     "dep:zeroize",
     "dep:rand_core",
     "dep:getrandom",
@@ -57,11 +56,10 @@ sha2            = { version = "0.10", default-features = false }
 hkdf            = { version = "0.12", default-features = false, optional = true }
 
 # Certificate signature verification
-rsa             = { version = "0.9", default-features = false, features = ["sha2"], optional = true }
+rsa             = { version = "0.10", default-features = false, features = ["encoding", "getrandom", "pkcs1v15"], optional = true }
 ed25519-dalek   = { version = "2", default-features = false, features = ["alloc"], optional = true }
 
 # Generic interfaces
-signature       = { version = "2", default-features = false, optional = true }
 zeroize         = { version = "1", default-features = false, features = ["alloc"], optional = true }
 rand_core       = { version = "0.6", default-features = false, features = ["getrandom"], optional = true }
 getrandom       = { version = "0.2", optional = true }
@@ -71,3 +69,7 @@ elliptic-curve  = { version = "0.14", default-features = false, features = ["all
 
 # pki-types re-exported by rustls; must match version in lockfile
 pki-types       = { package = "rustls-pki-types", version = "1", optional = true }
+
+[dev-dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
