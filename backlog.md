@@ -2,14 +2,16 @@
 
 <a id="moirai-stable-qualification"></a>
 ## MOIRAI-STABLE-QUALIFICATION — moirai stable-release qualification [patch] — todo
-- priority: verification; milestone: M-async-io-transport; basis: `11c5ffded3cd`.
-- Outcome: Finish the controlled transport evidence and reconcile the public WebView package. Follow the [release scope](docs/adr/0088-release-scope-1-0.md) and [milestone exits](backlog/milestones.md).
+- priority: verification; milestone: M-async-io-transport; basis: `c24b7ad3e2c1`.
+- Outcome: Finish the controlled transport evidence and reconcile the public WebView package. Follow the [release scope](docs/adr/0088-release-scope-1-0.md) and [milestone exits](backlog/milestones.md). Planning targets for `moirai-runtime` are 0.12.1 if Runtime requires a compatible fix, then 0.13.0, then 1.0.0. Verification alone can advance the current version.
 - Representative manifest `moirai-runtime 0.12.0`. Target 1.0.0. Index coverage at review: 18/19 publish-enabled workspace versions.
 - [x] [patch] Release [moirai-crypto 0.12.1](https://crates.io/crates/moirai-crypto/0.12.1) and verify the unwaived dependency audit, archive provenance, six RSA signature schemes and independent TLS consumer at the supported Rust floor. Downstream adoption is tracked in [Metis #589](https://github.com/ryancinsight/metis/pull/589) and [RITK #1107](https://github.com/ryancinsight/ritk/pull/1107).
 - [ ] [patch] Follow the existing QUIC evidence work ([#716](https://github.com/ryancinsight/moirai/pull/716) and [#703](https://github.com/ryancinsight/moirai/pull/703)). Replay loss, cancellation, bounded buffering and shutdown tests under the declared native hosts. Record the measured recovery and fairness results.
 - [ ] [patch] Establish the distribution plan for moirai-webview 0.12.0. Verify the normalized published dependency graph or document its owner-approved disposition before counting the public cohort.
 - [ ] [major] Close the core execution and async transport exits against the actual runtime, with network and process tests in Metis and a clean independent consumer.
-- [ ] [patch] Attach exact-revision evidence for the local exits and this member’s [Atlas qualification criteria](https://github.com/ryancinsight/atlas/blob/17b0124a7548ad81e817284afc5cb115c1d1bc78/docs/parity/repositories.json).
+- [ ] [patch] **0.12.1 if Runtime requires a compatible fix.** Qualify runtime cancellation and shutdown on the existing runtime line. Record outstanding handles and verify joined tasks finish or return the documented cancellation outcome. Crypto 0.12.1 has its own receipt. [Source and baseline](gap_audit.md#incremental-release-baseline).
+- [ ] [minor] **0.13.0.** Exercise QUIC loss recovery with a bounded send buffer on declared native hosts. Check ordered payload bytes, cancellation, fairness and shutdown. Resolve WebView distribution separately from the runtime cohort.
+- [ ] [major] **1.0.0-beta.1 → 1.0.0-rc.1 → 1.0.0.** Freeze the supported surface at beta. A clean transport caller reproduces the controlled recovery and drains outstanding work on the candidate graph. Repeat the applicable exits on the exact RC before stable promotion. Attach exact-revision evidence for the local exits and this member’s [Atlas qualification criteria](https://github.com/ryancinsight/atlas/blob/17b0124a7548ad81e817284afc5cb115c1d1bc78/docs/parity/repositories.json).
 
 This is the single source of truth for active Moirai work. Items are ordered by
 priority (`correctness`, `architecture`, `verification`, `tightening`, then
