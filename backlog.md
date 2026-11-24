@@ -47,6 +47,7 @@ belong in [gap_audit.md](gap_audit.md).
 - [patch] Focused handshake evidence: all six early Linux competing failures retain 634 queued client Handshake CRYPTO bytes, zero Handshake flight and Data PTOs; the server consumes 2246/2880 bytes. A real maximum-workload single-datagram-loss experiment completes 17/27 baseline versus 27/27 with a focused experimental recovery patch; all 23 native QUIC tests pass against the isolated candidate. The patch remains an artifact, not the canonical dependency. Its full Linux policy/fairness/latency/queue matrix and a reviewed supported production path remain required. Established throughput remains separate.
 - next step: measure the focused handshake candidate across the full Linux domain and competing flows and establish a supported reviewed production path before adoption. Continue the distinct established-session throughput investigation using the archived flight/flow-credit/pacing timelines. Retain all complete, unsuccessful and canceled studies; preserve original deadlines and the independent full CUBIC promotion gate. No tolerance, window enlargement or unreviewed upstream fix establishes acceptance.
 - [patch] Security prerequisite verified: required CI reports four Rustls 0.23.45 advisories (RUSTSEC-2026-0346/0347/0348/0349). The shared dependency and independently consumed QUIC provider require released 0.23.46; both locks update only Rustls's external identity. The fresh complete policy/shared-queue study and independent original CUBIC gate retain separate source inventories. Every applicable non-performance CI job passes, including Linux/Windows, workspace, supply-chain and lockfile integrity; the original CUBIC performance gate still fails.
+
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
 - status: todo
@@ -235,6 +236,72 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Run `cargo nextest list -p moirai-pal --lib --no-default-features --features webview2` on Windows, classify which modules need a serial test group, then widen the filter expression.
 - basis: `8050f2daa157911d3f033e2e0f35403bd741b8cd`
 
+<a id="MOI-JUDGE-STATUS-WORKFLOW-001"></a>
+## MOI-JUDGE-STATUS-WORKFLOW-001 — Post and require the `judge` status on main
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- needs: none
+- outcome: A pull-request workflow posts `judge` `success` on each head of a ready unlabeled PR, nothing on a `judge-required` head, and `failure` on the `labeled` event, reading the live labels from the API; then `judge` is a required context on `main` beside `Verification result`, so a head with a failed or missing `judge` status cannot merge.
+- acceptance: The workflow file exists and `actionlint` passes; a ready unlabeled test PR shows a `judge` `success` status created by `github-actions[bot]`; a `judge-required` one shows none until a non-bot status is posted; `gh api repos/ryancinsight/Moirai/branches/main/protection` lists both `Verification result` and `judge` in `required_status_checks.contexts`.
+- evidence: PR 700 merged over a `judge` `failure` at its head because the protection requires only `Verification result` (gap entry MOI-GAP-JUDGE-MERGE-GATE-001 in PR 729; judge verdict on PR 729, F3). At the basis `git grep -n -i judge -- .github` prints nothing while `git grep -n -i verification -- .github` prints 3 lines; atlas at `6dfc83ae596a686d84f899b8a6b79cb6e6ace067` ships no such workflow: `git grep -n -i -E 'context=judge|statuses: write|judge-required' -- .github scripts docs` prints nothing there while `git grep -n -E 'github.event.pull_request' -- .github` prints 17 lines.
+- scope: a new PR workflow under `.github/workflows/` with `statuses: write`; the `main` branch protection.
+- next step: Write the workflow and land it first, since a required context nobody posts blocks every PR. Requiring `judge` is a repository merge-mechanics setting: ask the user, then set it and confirm with the protection API.
+- basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
+
+<a id="MOI-WEBVIEW-WAIT-SPAN-TESTS-001"></a>
+## MOI-WEBVIEW-WAIT-SPAN-TESTS-001 — Test every WebView2 wait span, the report drop and the wait bound
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- needs: none
+- outcome: Each production `webview2_*_wait` span, the `Report` drop path and the `wait_for` timeout bound have a test that fails when the behavior changes.
+- acceptance: (a) A test asserts a recorded `(host, name)` for `webview2_frame_wait`, `webview2_diagnostics_wait` and `webview2_browser_exit_wait`, the three of seven span names that `tests/preview.rs:47-51` does not list, and `each_host_thread_records_under_its_own_index` asserts distinct per-host names; renaming any `debug_span!` fails a test. (b) A test drops `Report` over two waits and asserts the `slowest wait` events by value, and once inside `catch_unwind` of a panicking host under a writer that returns `Err`, asserting the original panic propagates (`.log_internal_errors(false)`, `waits.rs:168`). (c) `wait_for` rejects a timeout above `MAX_WEBVIEW_WAIT_MILLISECONDS` including a sub-millisecond excess, or `pump.rs:26-27` says whole milliseconds (`as_millis`, `pump.rs:36`).
+- scope: `moirai-pal/src/windows/webview/pump.rs`, `moirai-pal/src/windows/webview/tests/preview/waits.rs`, `moirai-pal/src/windows/webview/tests/preview.rs`.
+- next step: Add the three recorded-name assertions to the installed-runtime tests, then the `Report` drop and unwind unit tests.
+- links: judge verdicts on PR 726 (N2, N4, N6, F8).
+- basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
+
+<a id="MOI-PAL-TEST-SUBSCRIBER-001"></a>
+## MOI-PAL-TEST-SUBSCRIBER-001 — Replace the per-module test subscribers with one helper
+- status: todo
+- priority: tightening
+- milestone: M-core-execution
+- needs: none
+- outcome: One test-subscriber helper in `moirai-pal` replaces the module-local copies; clock-less output is a parameter, not a second copy.
+- acceptance: `git grep -c with_test_writer -- moirai-pal/src` totals 1 (16 sites in 15 files at the basis); `git grep -c 'subscriber::set_default' -- moirai-pal/src` lists only the helper, the wait recorder and `stderr_trace` in `waits.rs`, and `wasm/test_trace.rs` (20 sites in 18 files at the basis); the test names `cargo nextest list -p moirai-pal` prints are unchanged.
+- scope: the 15 files `git grep -l with_test_writer -- moirai-pal/src` lists and `moirai-pal/src/wasm/test_trace.rs`.
+- next step: Enumerate the variation the 16 sites show (`without_time` at 5, span events on or off), put one parameterized `#[cfg(test)]` helper at the crate root and migrate every caller in one commit.
+- links: judge verdict on PR 726 (F3).
+- basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
+
+<a id="MOI-PR-METADATA-GATE-001"></a>
+## MOI-PR-METADATA-GATE-001 — Enforce the PR title and Item rules in the aggregate
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- needs: none
+- outcome: A PR whose title is not a conventional-commit subject of at most 50 characters, or whose body names neither an `Item:` line nor an ADR (sweep, compaction and dependency-update PRs excepted), fails `Verification result`.
+- acceptance: A test PR with a 51-character title and one whose body has neither reference each fail the aggregate with a message naming the rule; a conforming PR passes; a draft stays refused.
+- evidence: `Verification result` (`rust-ci.yml`, job `verdict`) reads only the draft flag and `needs`. At the basis `git grep -n -i -E 'pull_request\.(title|body)|commitlint|Item:' -- .github` prints nothing while `git grep -n 'github.event.pull_request' -- .github` prints 13 lines; atlas at `6dfc83ae596a686d84f899b8a6b79cb6e6ace067` has no title check either (same pattern over `.github scripts`).
+- scope: `.github/workflows/rust-ci.yml` (job `verdict`) or a new PR workflow it needs.
+- next step: Fix the exemption signal for the three excepted PR classes before enforcing, then add the check.
+- links: judge verdict on PR 729 (F4).
+- basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
+
+<a id="MOI-BOARD-PRIORITY-ORDER-001"></a>
+## MOI-BOARD-PRIORITY-ORDER-001 — Order the backlog blocks by priority
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- needs: none
+- outcome: The item blocks of `backlog.md` run in the order the file header states: `correctness`, `architecture`, `verification`, `tightening`, then `feature`.
+- acceptance: `awk '/^- priority: [a-z]+$/{r=($3=="correctness")?0:($3=="architecture")?1:($3=="verification")?2:($3=="tightening")?3:4; if(r<p)d++; p=r} END{print d+0}' backlog.md` prints 0 (6 at the basis); a block stays after its `needs:` prerequisites.
+- scope: `backlog.md` block order only; no block text changes.
+- next step: Move whole blocks in one commit built from the fetched default branch, after any open PR that edits the same blocks has landed; compare the sorted block texts before and after to show none changed.
+- links: judge verdict on PR 727 (F12).
+- basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
+
 <a id="MOI-FORK-JOIN-LATENCY-2026-09-10"></a>
 ## MOI-FORK-JOIN-LATENCY-2026-09-10 — Attribute fork-join tail latency
 - status: todo
@@ -360,7 +427,7 @@ belong in [gap_audit.md](gap_audit.md).
 - milestone: M-core-execution
 - needs: none
 - outcome: No tracked blob is an ELF core file, and none ships in the moirai-runtime package.
-- acceptance: `git grep -l -a -P '\A\x7fELF[\x01\x02][\x01\x02]\x01.{9}\x04\x00' HEAD` (ELF header with `e_type` 4) prints no path, where it prints `moirai/core` and `tests/core` at the basis, so a rename cannot pass; `cargo package --list -p moirai-runtime` prints no line equal to `core`; the same scan runs as a CI or pre-push check. History rewrite is out of scope.
+- acceptance: `git grep -l -a -P '\A\x7fELF[\x01\x02][\x01\x02]\x01.{9}\x04\x00' HEAD` (ELF header with `e_type` 4) prints no path, where it prints `moirai/core` and `tests/core` at the basis, so a rename cannot pass; `cargo package --list -p moirai-runtime` prints no line equal to `core`; the same scan runs as a CI or pre-push check that exits nonzero when it prints a path. History rewrite is out of scope.
 - evidence: `git ls-tree -r -l origin/main` lists `moirai/core` (64,999,424 bytes) in the `moirai-runtime` package root (`moirai/Cargo.toml` has no `exclude` or `include`) and `tests/core` (46,981,120 bytes) in the unpublished `moirai-tests` package. Both blobs name a Linux x86_64 test binary under `/workspace/target/debug/deps/` (`moirai-1b224ad9dc0761da`, `moirai_tests-c9f92fd14581cdaf`) and were added in `fdfeeed6` and `cadd5dd8`. `.gitignore` has no core-dump entry.
 - scope: `moirai/core`, `tests/core`, `.gitignore`, and the CI or pre-push check that runs the scan.
 - next step: `git rm moirai/core tests/core`; add the scan as the regrowth guard. Hypothesis: the kernel `core_pattern` default wrote each file into the working directory of a crashed test binary; confirm on the build image. An ignore entry is optional, anchored (`/moirai/core`, `/tests/core`) with its writer annotation; a bare `core` would ignore new files named `core` under `moirai-pal/src/reactor/core/` (gitignore never affects the 6 files already tracked there).
