@@ -365,6 +365,7 @@ belong in [gap_audit.md](gap_audit.md).
 - evidence: `git ls-tree -r -l origin/main` lists `moirai/core` (64,999,424 bytes) in the `moirai-runtime` package root (`moirai/Cargo.toml` has no `exclude` or `include`) and `tests/core` (46,981,120 bytes) in the unpublished `moirai-tests` package. Both blobs name a Linux x86_64 test binary under `/workspace/target/debug/deps/` (`moirai-1b224ad9dc0761da`, `moirai_tests-c9f92fd14581cdaf`) and were added in `fdfeeed6` and `cadd5dd8`. `.gitignore` has no core-dump entry.
 - scope: `moirai/core`, `tests/core`, `.gitignore`, and the CI or pre-push check that runs the scan.
 - next step: `git rm moirai/core tests/core`; add the scan as the regrowth guard. Hypothesis: the kernel `core_pattern` default wrote each file into the working directory of a crashed test binary; confirm on the build image. An ignore entry is optional, anchored (`/moirai/core`, `/tests/core`) with its writer annotation; a bare `core` would ignore new files named `core` under `moirai-pal/src/reactor/core/` (gitignore never affects the 6 files already tracked there).
+- basis: `fb4abdb6af2f0b23e26948178dab1bd301f8fe84`
 
 <a id="MOI-QUIC-HISTORICAL-AUDIT-001"></a>
 ## MOI-QUIC-HISTORICAL-AUDIT-001 — Audit archived QUIC measurements as historical-only provenance
