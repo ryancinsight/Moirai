@@ -243,10 +243,10 @@ belong in [gap_audit.md](gap_audit.md).
 - milestone: M-core-execution
 - needs: none
 - outcome: A pull-request workflow posts `judge` `success` on each head of a ready unlabeled PR, nothing on a `judge-required` head, and `failure` on the `labeled` event, reading the live labels from the API; then `judge` is a required context on `main` beside `Verification result`, so a head with a failed or missing `judge` status cannot merge.
-- acceptance: The workflow file exists and `actionlint` passes; a ready unlabeled test PR shows a `judge` `success` status created by `github-actions[bot]`; a `judge-required` one shows none until a non-bot status is posted; `gh api repos/ryancinsight/Moirai/branches/main/protection` lists both `Verification result` and `judge` in `required_status_checks.contexts`.
-- evidence: PR 700 merged over a `judge` `failure` at its head because the protection requires only `Verification result` (gap entry MOI-GAP-JUDGE-MERGE-GATE-001 in PR 729; judge verdict on PR 729, F3). At the basis `git grep -n -i judge -- .github` prints nothing while `git grep -n -i verification -- .github` prints 3 lines; atlas at `6dfc83ae596a686d84f899b8a6b79cb6e6ace067` ships no such workflow: `git grep -n -i -E 'context=judge|statuses: write|judge-required' -- .github scripts docs` prints nothing there while `git grep -n -E 'github.event.pull_request' -- .github` prints 17 lines.
+- acceptance: The workflow file exists and `actionlint` passes; each case reads the latest `judge` entry of `gh api repos/ryancinsight/Moirai/commits/<sha>/statuses`: a ready unlabeled test PR shows `success` created by `github-actions[bot]`; the same PR after the `judge-required` label is added shows `failure` at that head (a workflow that posts only `success` on unlabeled heads fails this case); a PR opened with the label shows no bot `success` until a non-bot status is posted. Order: `judge` is added to `required_status_checks.contexts` beside `Verification result` (`gh api repos/ryancinsight/Moirai/branches/main/protection`) only after the merged workflow has posted on every open PR head, and that setting change is raised as the batched user question.
+- evidence: PR 700 merged over a `judge` `failure` at its head because the protection requires only `Verification result` (`gap_audit.md#MOI-GAP-JUDGE-MERGE-GATE-001`; judge verdict on PR 729, F3). At the basis `git grep -n -i judge -- .github` prints nothing while `git grep -n -i verification -- .github` prints 3 lines; atlas at `6dfc83ae596a686d84f899b8a6b79cb6e6ace067` ships no such workflow: `git grep -n -i -E 'context=judge|statuses: write|judge-required' -- .github scripts docs` prints nothing there while `git grep -n -E 'github.event.pull_request' -- .github` prints 17 lines.
 - scope: a new PR workflow under `.github/workflows/` with `statuses: write`; the `main` branch protection.
-- next step: Write the workflow and land it first, since a required context nobody posts blocks every PR. Requiring `judge` is a repository merge-mechanics setting: ask the user, then set it and confirm with the protection API.
+- next step: Write the workflow and land it first, since a required context nobody posts blocks every PR; then post `success` on each open ready unlabeled head and `failure` on each labeled head. Requiring `judge` is a repository setting: raise it as the batched user question once the workflow has posted, then set it and confirm with the protection API.
 - basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
 
 <a id="MOI-WEBVIEW-WAIT-SPAN-TESTS-001"></a>
@@ -255,24 +255,11 @@ belong in [gap_audit.md](gap_audit.md).
 - priority: verification
 - milestone: M-core-execution
 - needs: none
-- outcome: Each production `webview2_*_wait` span, the `Report` drop path and the `wait_for` timeout bound have a test that fails when the behavior changes.
-- acceptance: (a) A test asserts a recorded `(host, name)` for `webview2_frame_wait`, `webview2_diagnostics_wait` and `webview2_browser_exit_wait`, the three of seven span names that `tests/preview.rs:47-51` does not list, and `each_host_thread_records_under_its_own_index` asserts distinct per-host names; renaming any `debug_span!` fails a test. (b) A test drops `Report` over two waits and asserts the `slowest wait` events by value, and once inside `catch_unwind` of a panicking host under a writer that returns `Err`, asserting the original panic propagates (`.log_internal_errors(false)`, `waits.rs:168`). (c) `wait_for` rejects a timeout above `MAX_WEBVIEW_WAIT_MILLISECONDS` including a sub-millisecond excess, or `pump.rs:26-27` says whole milliseconds (`as_millis`, `pump.rs:36`).
-- scope: `moirai-pal/src/windows/webview/pump.rs`, `moirai-pal/src/windows/webview/tests/preview/waits.rs`, `moirai-pal/src/windows/webview/tests/preview.rs`.
+- outcome: Each production `webview2_*_wait` span, the `Report` drop path and the `wait_for` timeout bound have a test that fails when the behavior changes; (b) settles whether `waits.rs:168` is one.
+- acceptance: (a) In a run with the ignored installed-runtime tests enabled (`tests/preview.rs:24, 57, 77` carry `#[ignore = "requires an installed WebView2 runtime"]`), a test asserts a recorded `(host, name)` for `webview2_frame_wait`, `webview2_diagnostics_wait` and `webview2_browser_exit_wait`, the three of seven span names that `tests/preview.rs:47-51` does not list, and `each_host_thread_records_under_its_own_index` asserts distinct per-host names; renaming any `debug_span!` fails a test in that run. (b) A test drops `Report` over two waits and asserts the `slowest wait` events by value, and a child-process test (the test binary re-invoked with `--nocapture`, stderr a pipe whose reader is closed) panics a host while `Report` drops during unwind and asserts the child ends through the original panic, not an abort. Deleting `.log_internal_errors(false)` (`waits.rs:168`) must fail that test, the deletion run and recorded in the PR: with the flag at its default `true` a writer `Err` goes to `eprintln!` (tracing-subscriber 0.3.23 `fmt_layer.rs:1049-1055`, read), which panics on a stderr write error (std 1.97.0 `io/stdio.rs:1156-1167`, read), and a panic during unwinding aborts (hypothesis, not run; the commit that added the line states this purpose). An in-process `Err` writer does not satisfy it: its `eprintln!` succeeds and the test passes with the line deleted. If no closed-pipe probe fails on the deletion, the clause is dropped from this acceptance and `waits.rs:168` stays a reading check, the probe result recorded. (c) `wait_for` rejects a timeout above `MAX_WEBVIEW_WAIT_MILLISECONDS` including a sub-millisecond excess, or `pump.rs:26-27` says whole milliseconds (`as_millis`, `pump.rs:36`).
+- scope: `moirai-pal/src/windows/webview/pump.rs`, `moirai-pal/src/windows/webview/tests/preview/waits.rs`, `moirai-pal/src/windows/webview/tests/preview.rs`, and the files holding the three untested spans: `moirai-pal/src/windows/webview/host/frame.rs:36`, `host/diagnostics/session.rs:56`, `host/shutdown/observer.rs:106`.
 - next step: Add the three recorded-name assertions to the installed-runtime tests, then the `Report` drop and unwind unit tests.
 - links: judge verdicts on PR 726 (N2, N4, N6, F8).
-- basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
-
-<a id="MOI-PAL-TEST-SUBSCRIBER-001"></a>
-## MOI-PAL-TEST-SUBSCRIBER-001 — Replace the per-module test subscribers with one helper
-- status: todo
-- priority: tightening
-- milestone: M-core-execution
-- needs: none
-- outcome: One test-subscriber helper in `moirai-pal` replaces the module-local copies; clock-less output is a parameter, not a second copy.
-- acceptance: `git grep -c with_test_writer -- moirai-pal/src` totals 1 (16 sites in 15 files at the basis); `git grep -c 'subscriber::set_default' -- moirai-pal/src` lists only the helper, the wait recorder and `stderr_trace` in `waits.rs`, and `wasm/test_trace.rs` (20 sites in 18 files at the basis); the test names `cargo nextest list -p moirai-pal` prints are unchanged.
-- scope: the 15 files `git grep -l with_test_writer -- moirai-pal/src` lists and `moirai-pal/src/wasm/test_trace.rs`.
-- next step: Enumerate the variation the 16 sites show (`without_time` at 5, span events on or off), put one parameterized `#[cfg(test)]` helper at the crate root and migrate every caller in one commit.
-- links: judge verdict on PR 726 (F3).
 - basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
 
 <a id="MOI-PR-METADATA-GATE-001"></a>
@@ -282,8 +269,8 @@ belong in [gap_audit.md](gap_audit.md).
 - milestone: M-core-execution
 - needs: none
 - outcome: A PR whose title is not a conventional-commit subject of at most 50 characters, or whose body names neither an `Item:` line nor an ADR (sweep, compaction and dependency-update PRs excepted), fails `Verification result`.
-- acceptance: A test PR with a 51-character title and one whose body has neither reference each fail the aggregate with a message naming the rule; a conforming PR passes; a draft stays refused.
-- evidence: `Verification result` (`rust-ci.yml`, job `verdict`) reads only the draft flag and `needs`. At the basis `git grep -n -i -E 'pull_request\.(title|body)|commitlint|Item:' -- .github` prints nothing while `git grep -n 'github.event.pull_request' -- .github` prints 13 lines; atlas at `6dfc83ae596a686d84f899b8a6b79cb6e6ace067` has no title check either (same pattern over `.github scripts`).
+- acceptance: A test PR with a 51-character title and one whose body has neither reference each fail the aggregate with a message naming the rule; a short non-conventional title (`update stuff and more`) fails; a sweep PR (conventional `docs(board):` title, body without `Item:`) passes; editing a failing title to a conforming one re-runs the check and turns the aggregate green (`edited` is absent from `on.pull_request.types` at `rust-ci.yml:5`); a conforming PR passes; a draft stays refused.
+- evidence: `Verification result` (`rust-ci.yml`, job `verdict`) reads only the draft flag and `needs`. At the basis `git grep -n -E 'pull_request\.(title|body)|commitlint' -- .github` prints nothing while `git grep -n 'github.event.pull_request' -- .github` prints 13 lines; atlas at `6dfc83ae596a686d84f899b8a6b79cb6e6ace067` has no title check either (same pattern over `.github scripts`).
 - scope: `.github/workflows/rust-ci.yml` (job `verdict`) or a new PR workflow it needs.
 - next step: Fix the exemption signal for the three excepted PR classes before enforcing, then add the check.
 - links: judge verdict on PR 729 (F4).
@@ -296,10 +283,23 @@ belong in [gap_audit.md](gap_audit.md).
 - milestone: M-core-execution
 - needs: none
 - outcome: The item blocks of `backlog.md` run in the order the file header states: `correctness`, `architecture`, `verification`, `tightening`, then `feature`.
-- acceptance: `awk '/^- priority: [a-z]+$/{r=($3=="correctness")?0:($3=="architecture")?1:($3=="verification")?2:($3=="tightening")?3:4; if(r<p)d++; p=r} END{print d+0}' backlog.md` prints 0 (6 at the basis); a block stays after its `needs:` prerequisites.
+- acceptance: `awk '/^- priority: [a-z]+$/{r=($3=="correctness")?0:($3=="architecture")?1:($3=="verification")?2:($3=="tightening")?3:4; if(r<p)d++; p=r} END{print d+0}' backlog.md` prints 0 (6 at the basis); the sorted block texts before and after compare equal (no text changed), and the `- priority:` lines stay bare `- priority: <word>` lines (rewriting them to the `; ...` form that line 5 uses empties the awk without moving a block and does not satisfy this); a block stays after its `needs:` prerequisites.
 - scope: `backlog.md` block order only; no block text changes.
 - next step: Move whole blocks in one commit built from the fetched default branch, after any open PR that edits the same blocks has landed; compare the sorted block texts before and after to show none changed.
 - links: judge verdict on PR 727 (F12).
+- basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
+
+<a id="MOI-PAL-TEST-SUBSCRIBER-001"></a>
+## MOI-PAL-TEST-SUBSCRIBER-001 — Replace the per-module test subscribers with one helper
+- status: todo
+- priority: tightening
+- milestone: M-core-execution
+- needs: none
+- outcome: One test-subscriber helper in `moirai-pal` replaces the module-local copies; clock-less output is a parameter, not a second copy.
+- acceptance: `git grep -l -E 'tracing_subscriber|tracing::(subscriber|dispatcher)|with_test_writer|TestWriter' -- moirai-pal/src` lists only the helper file and the three role-specific files `wasm/test_trace.rs` (browser sink), `windows/webview/tests/preview/waits.rs` (wait recorder at `:99`, `stderr_trace` at `:164`) and `windows/webview/tests/startup.rs` (JSON capture registry, `:393`); at the basis it lists 18 files, none in production code, with 20 `set_default` sites and 16 `with_test_writer` sites in 15 files. Respelling (`with_writer(TestWriter::default())`, `tracing::dispatcher::set_default`) names `tracing_subscriber` or `tracing::dispatcher`, is a hit of that scan and does not satisfy it. Each of the other 15 files holds a resolved reference to the helper (rust-analyzer references of the helper, or `git grep -l` of its unique name); the test names `cargo nextest list -p moirai-pal` prints are unchanged.
+- scope: the 15 files `git grep -l with_test_writer -- moirai-pal/src` lists; `moirai-pal/src/wasm/test_trace.rs`, `windows/webview/tests/preview/waits.rs` and `windows/webview/tests/startup.rs` are read as the three allowed files and edited only if the helper takes their extra layer.
+- next step: Enumerate the variation the 16 sites show (`without_time` at 3 of the 16 `with_test_writer` sites, plus `wasm/test_trace.rs:37` and `windows/webview/tests/startup.rs:381`; span events on or off), put one parameterized `#[cfg(test)]` helper at the crate root and migrate every caller in one commit.
+- links: judge verdict on PR 726 (F3).
 - basis: `69bb7822f5d96e0e9f83f00c99a6b820b5539d15`
 
 <a id="MOI-FORK-JOIN-LATENCY-2026-09-10"></a>
