@@ -79,19 +79,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Re-run the paired benchmark on isolated cores; if a gain resolves, extend `DrainRing` with a second producer and prove the receiver-head condition before changing production ordering.
 - basis: `cd3c569e791acbe21527b4cc88a1cc562ddae6c4`
 
-<a id="MOI-RESOURCE-POOL-BOUNDS-001"></a>
-## MOI-RESOURCE-POOL-BOUNDS-001 — Enforce resource pool retention limits
-- status: todo
-- priority: correctness
-- milestone: M-core-execution
-- needs: none
-- outcome: Recycle respects the configured count and byte limits across capacity boundaries and concurrent bin admissions.
-- acceptance: A zero-count pool retains no items. Force two recyclers in different bins of one shard to contend at its count and byte limits and assert the drained item count and sizes stay within both bounds.
-- evidence: `ShardedResourcePool::new` forces every shard count to at least one. `recycle` publishes after an over-budget eviction scan makes no progress, including when a pending recycler holds the only eviction bin.
-- scope: `moirai-sync/src/sync/resource_pool.rs`, pool interleaving tests and the existing recycle/take benchmark.
-- next step: Reproduce zero capacity and a cross-bin admission conflict before changing reservations.
-- basis: `b0e0dd95daf8f6982dea3f60b6ef3c6016bc6e0c`
-
 <a id="MOI-PAL-TIMER-FANOUT-001"></a>
 ## MOI-PAL-TIMER-FANOUT-001 — Share native timer workers
 - status: todo
@@ -353,6 +340,31 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: decide rebind or regenerate. Rebinding the hash asserts measurements that the current lock never produced, so regenerate against the current lock unless the measured dependency set is shown identical. Also decide whether `Cargo.lock` joins the workflow `paths:` so the next lock change fails in its own PR.
 - links: [PR 695](https://github.com/ryancinsight/Moirai/pull/695) judge finding F9 (merged as `5422acbc` with this step red).
 - basis: `5422acbcf7ff66a8efbaee6258aa9fbad8e24a4e`
+
+<a id="MOI-QUIC-PACKAGE-FIXTURES-001"></a>
+## MOI-QUIC-PACKAGE-FIXTURES-001 — Package the test fixtures and README links of the QUIC-reading crates
+- status: todo
+- priority: verification
+- milestone: M-async-io-transport
+- needs: none
+- outcome: The published archives of `moirai-quic`, `moirai-crypto`, `moirai-tls` and `moirai-runtime` compile their tests and load example, and the `moirai-quic` README links resolve from the packaged file.
+- acceptance: For each of the four packages, `cargo package -p <name>` followed by `cargo test --no-run --all-targets` in the unpacked `.crate` succeeds, and every relative `moirai-quic/README.md` link resolves from the archive root. Each package holds its own copy of the PEM files it reads, and a test fails when the copies of one file differ byte for byte.
+- evidence: `include_bytes!` reads the four root `tests/fixtures/*.pem` at 15 sites, outside each reading package (the root `tests/` is the unpublished `moirai-tests` package): `moirai-quic` 6 (`src/tests.rs:34,42`, `src/tests/rejection.rs:287,295`, `examples/load/material.rs:10,11`), `moirai-crypto/tests` 3 (`handshake.rs:46,56`, `rsa_signatures.rs:22`), `moirai-tls/tests/handshake.rs` 4 (93,94,102,103), `moirai/tests/quic.rs` 2 (17,25). `cargo package --list` of `moirai-quic`, `moirai-crypto` and `moirai-tls` lists no fixture file; none carries `publish = false`. `moirai-quic/README.md` links `../docs/adr/` at lines 13, 28, 30, 59 and 78.
+- scope: `moirai-quic/{Cargo.toml,README.md,src/tests.rs,src/tests/rejection.rs,examples/load/material.rs}`, the readers in `moirai-crypto/tests`, `moirai-tls/tests` and `moirai/tests`, root `tests/fixtures/`, and a new `package` job in `.github/workflows/rust-ci.yml` added to the `verdict` job's `needs`.
+- next step: copy, not move, the PEM files and `tests/fixtures/README.md` into each reading crate's `tests/fixtures/` (a package cannot read another package's files), repoint the 15 sites, delete root `tests/fixtures/` once no reader remains, replace the ADR links with absolute repository URLs, and run the package step once on a branch: hypothesis that the unpacked manifest resolves `moirai-core`, `moirai-async` and `moirai-pal` from the registry, so the result depends on published versions.
+- basis: `fb4abdb6af2f0b23e26948178dab1bd301f8fe84`
+
+<a id="MOI-RUNTIME-CORE-DUMP-001"></a>
+## MOI-RUNTIME-CORE-DUMP-001 — Remove tracked core dumps from the tree
+- status: todo
+- priority: verification
+- milestone: M-core-execution
+- needs: none
+- outcome: No tracked blob is an ELF core file, and none ships in the moirai-runtime package.
+- acceptance: `git grep -l -a -P '\A\x7fELF[\x01\x02][\x01\x02]\x01.{9}\x04\x00' HEAD` (ELF header with `e_type` 4) prints no path, where it prints `moirai/core` and `tests/core` at the basis, so a rename cannot pass; `cargo package --list -p moirai-runtime` prints no line equal to `core`; the same scan runs as a CI or pre-push check. History rewrite is out of scope.
+- evidence: `git ls-tree -r -l origin/main` lists `moirai/core` (64,999,424 bytes) in the `moirai-runtime` package root (`moirai/Cargo.toml` has no `exclude` or `include`) and `tests/core` (46,981,120 bytes) in the unpublished `moirai-tests` package. Both blobs name a Linux x86_64 test binary under `/workspace/target/debug/deps/` (`moirai-1b224ad9dc0761da`, `moirai_tests-c9f92fd14581cdaf`) and were added in `fdfeeed6` and `cadd5dd8`. `.gitignore` has no core-dump entry.
+- scope: `moirai/core`, `tests/core`, `.gitignore`, and the CI or pre-push check that runs the scan.
+- next step: `git rm moirai/core tests/core`; add the scan as the regrowth guard. Hypothesis: the kernel `core_pattern` default wrote each file into the working directory of a crashed test binary; confirm on the build image. An ignore entry is optional, anchored (`/moirai/core`, `/tests/core`) with its writer annotation; a bare `core` would ignore new files named `core` under `moirai-pal/src/reactor/core/` (gitignore never affects the 6 files already tracked there).
 
 <a id="MOI-QUIC-HISTORICAL-AUDIT-001"></a>
 ## MOI-QUIC-HISTORICAL-AUDIT-001 — Audit archived QUIC measurements as historical-only provenance
