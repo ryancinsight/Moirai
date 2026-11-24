@@ -32,7 +32,8 @@ pub(super) fn wait_for_presented_frame(
     // SAFETY: inputs outlive the call; WebView2 retains the handler.
     unsafe { webview.CallDevToolsProtocolMethod(&method, &parameters, &handler) }
         .map_err(windows_error)?;
-    let response = wait_for(receiver, timeout)?;
+    let response =
+        tracing::debug_span!("webview2_frame_wait").in_scope(|| wait_for(receiver, timeout))?;
     validate_presented_frame(&response)?;
     Ok(())
 }

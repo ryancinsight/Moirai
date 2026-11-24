@@ -103,7 +103,8 @@ impl BrowserExit {
     }
 
     pub(super) fn wait(self, timeout: Duration) -> io::Result<()> {
-        let result = wait_for(self.receiver, timeout)
+        let result = tracing::debug_span!("webview2_browser_exit_wait")
+            .in_scope(|| wait_for(self.receiver, timeout))
             .and_then(|observation| match observation {
                 ExitObservation::Exited(pid) => {
                     tracing::info!(

@@ -93,7 +93,8 @@ impl WebViewHost {
         let remaining = deadline.map_or(self.config.wait(), |deadline| {
             deadline.saturating_duration_since(Instant::now())
         });
-        let result = wait_for(receiver, remaining);
+        let result = tracing::debug_span!("webview2_navigation_wait")
+            .in_scope(|| wait_for(receiver, remaining));
         let removal = unsafe { webview.remove_NavigationCompleted(token) }.map_err(windows_error);
         let starting_removal =
             unsafe { webview.remove_NavigationStarting(starting_token) }.map_err(windows_error);
