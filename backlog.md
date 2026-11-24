@@ -79,19 +79,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Re-run the paired benchmark on isolated cores; if a gain resolves, extend `DrainRing` with a second producer and prove the receiver-head condition before changing production ordering.
 - basis: `cd3c569e791acbe21527b4cc88a1cc562ddae6c4`
 
-<a id="MOI-RESOURCE-POOL-BOUNDS-001"></a>
-## MOI-RESOURCE-POOL-BOUNDS-001 — Enforce resource pool retention limits
-- status: todo
-- priority: correctness
-- milestone: M-core-execution
-- needs: none
-- outcome: Recycle respects the configured count and byte limits across capacity boundaries and concurrent bin admissions.
-- acceptance: A zero-count pool retains no items. Force two recyclers in different bins of one shard to contend at its count and byte limits and assert the drained item count and sizes stay within both bounds.
-- evidence: `ShardedResourcePool::new` forces every shard count to at least one. `recycle` publishes after an over-budget eviction scan makes no progress, including when a pending recycler holds the only eviction bin.
-- scope: `moirai-sync/src/sync/resource_pool.rs`, pool interleaving tests and the existing recycle/take benchmark.
-- next step: Reproduce zero capacity and a cross-bin admission conflict before changing reservations.
-- basis: `b0e0dd95daf8f6982dea3f60b6ef3c6016bc6e0c`
-
 <a id="MOI-PAL-TIMER-FANOUT-001"></a>
 ## MOI-PAL-TIMER-FANOUT-001 — Share native timer workers
 - status: todo
@@ -353,6 +340,47 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: decide rebind or regenerate. Rebinding the hash asserts measurements that the current lock never produced, so regenerate against the current lock unless the measured dependency set is shown identical. Also decide whether `Cargo.lock` joins the workflow `paths:` so the next lock change fails in its own PR.
 - links: [PR 695](https://github.com/ryancinsight/Moirai/pull/695) judge finding F9 (merged as `5422acbc` with this step red).
 - basis: `5422acbcf7ff66a8efbaee6258aa9fbad8e24a4e`
+
+<a id="MOI-QUIC-HISTORICAL-AUDIT-001"></a>
+## MOI-QUIC-HISTORICAL-AUDIT-001 — Audit archived QUIC measurements as historical-only provenance
+- status: blocked
+- priority: verification
+- milestone: M-core-execution
+- needs: MOI-QUIC-EVIDENCE-LOCK-001
+- outcome: An explicit utility verifies the immutable provenance of the archived QUIC measurement directories and labels them historical-only, so an archive recorded against a superseded lock is never read as current-lock evidence.
+- acceptance: `python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'` passes on an export of the head commit, including the historical-audit and observation-portability tests.
+- scope: `scripts/quic_observation/historical.py`, `scripts/quic_observation/prepare.py`, `scripts/tests/test_quic_historical.py`, `scripts/tests/test_quic_observation_portability.py`.
+- evidence: [PR 703](https://github.com/ryancinsight/Moirai/pull/703) (`refs/pull/703/head`, 4 files, +199 -3) was released on 2026-11-24 with the `judge` status failure "Required QUIC recovery checks failed at this head".
+- blocker: the QUIC recovery workflow fails on the current lock independent of this change; [MOI-QUIC-EVIDENCE-LOCK-001](#MOI-QUIC-EVIDENCE-LOCK-001) records the `canonical_lock_sha256` mismatch.
+- re-open trigger: MOI-QUIC-EVIDENCE-LOCK-001 lands.
+- next step: restore the branch from the pull ref (`git fetch origin pull/703/head:<branch>`), merge main into it, and rerun the `test_quic*.py` suite and the recovery checks.
+- basis: `7ca10156516f474dc54bd4d6c1e0503b0c56e069`
+
+<a id="MOI-QUIC-PACKAGE-FIXTURES-001"></a>
+## MOI-QUIC-PACKAGE-FIXTURES-001 — Package the moirai-quic test fixtures and README links
+- status: todo
+- priority: verification
+- milestone: M-async-io-transport
+- needs: none
+- outcome: The published moirai-quic archive compiles its tests and load example, and its README links resolve from the packaged file.
+- acceptance: In CI, `cargo package -p moirai-quic` followed by building the tests and examples from the unpacked archive succeeds, and every relative README link resolves from the archive root.
+- evidence: `include_bytes!` reads repository-root `tests/fixtures/*.pem` outside the package at `moirai-quic/src/tests.rs:34,42`, `moirai-quic/src/tests/rejection.rs:287,295` and `moirai-quic/examples/load/material.rs:10-11`. `moirai-quic/README.md` links `../docs/adr/` at lines 13, 28, 30, 56 and 75.
+- scope: `moirai-quic/{Cargo.toml,README.md,src/tests.rs,src/tests/rejection.rs,examples/load/material.rs}`, the fixture files and the package CI job.
+- next step: move the four PEM fixtures into the package, repoint the five `include_bytes!` sites, and replace the ADR links with absolute repository URLs.
+- basis: `7ca10156516f474dc54bd4d6c1e0503b0c56e069`
+
+<a id="MOI-RUNTIME-CORE-DUMP-001"></a>
+## MOI-RUNTIME-CORE-DUMP-001 — Remove tracked core dumps from the tree
+- status: todo
+- priority: tightening
+- milestone: M-core-execution
+- needs: none
+- outcome: No ELF core dump is tracked, and none ships in the moirai-runtime package.
+- acceptance: `moirai/core` and `tests/core` are removed from the tree (history rewrite is out of scope); `.gitignore` carries an entry for core dumps with a `# writer:` comment, or a CI artifact-budget check rejects a tracked file over the budget; `cargo package --list -p moirai-runtime` in CI lists no file over the repository artifact budget.
+- evidence: `git ls-tree -r -l origin/main` lists `moirai/core` (64,999,424 bytes, ELF magic `7f45 4c46`) in the `moirai-runtime` package root (`moirai/Cargo.toml` has no `exclude` or `include`) and `tests/core` (46,981,120 bytes, ELF) in the unpublished `moirai-tests` crate. `.gitignore` has no core-dump entry.
+- scope: `moirai/core`, `tests/core`, `.gitignore`, the package CI job.
+- next step: delete both files, add the ignore entry, and add the package-list size check to CI.
+- basis: `7ca10156516f474dc54bd4d6c1e0503b0c56e069`
 
 <a id="MOI-ASYNC-SEEK-001"></a>
 ## MOI-ASYNC-SEEK-001 — Define an async seek trait for Moirai I/O
