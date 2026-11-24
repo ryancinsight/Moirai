@@ -54,7 +54,7 @@ to a declared embedded/no-std executor; Glommio/io_uring mechanisms belong only
 at an optional Linux PAL completion-I/O boundary with typed buffer-lifetime and
 cancellation contracts. No production dependency was added.
 
-**Resolved (resource-pool size range, MOI-RESOURCE-POOL-BOUNDS-001).** The prior
+**Resolved (resource-pool size range, Moirai#708 at `e47aafa99b7a`).** The prior
 conclusion that `bin_index(u64::MAX) == 64` was unreachable depended on every
 shard receiving `max_bytes / 4`. Exact capacity partitioning can assign the full
 byte budget to one active shard. The fixed 64-bin layout therefore saturates the
@@ -181,7 +181,7 @@ node-assignment injection seam on the scheduler constructor — owned by the NUM
 author; filed as ISSUE-209 rather than added here to avoid editing that hot file
 under concurrent authorship.
 
-**Resolution (2026-09-01).** `MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01` adds the
+**Resolution (2026-09-01).** Moirai#233 at `42f895638ac3` adds the
 test-only assignment seam and a synchronized three-worker regression. The sole
 free worker first misses an empty same-node peer, then executes a target queued
 behind an occupied cross-node victim. This closes ISSUE-209 without sleep or a

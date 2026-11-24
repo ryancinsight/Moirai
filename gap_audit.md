@@ -449,3 +449,9 @@ equivalence; broader networking and permission acceptance remains open.
 - risk: Reported residual of [PR 697](https://github.com/ryancinsight/Moirai/pull/697), not reproduced in this filing: with `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` naming a missing folder, the base WebView2 test binary aborts with 0xC0000409 after the first panics and reports no per-test failures. Moirai source does not read the variable; the WebView2 loader does.
 - evidence: none retained in the repository; the PR text carries no record of the run. Impact if true: a misconfigured host reads as a crash, not as failing tests.
 - re-open trigger: A run with the variable set to a missing folder reproduces the abort, then the host-creation path surfaces a typed error instead of panicking, or the claim is retracted.
+
+<a id="MOI-GAP-JUDGE-MERGE-GATE-001"></a>
+## MOI-GAP-JUDGE-MERGE-GATE-001 — A failed `judge` status does not block merge on `main`
+- risk: [PR 700](https://github.com/ryancinsight/Moirai/pull/700) merged at 2026-11-17T19:06:17Z as `207bebe618c5ed7ce5e137d27cb0ce68ac505b28` (+3/-2, `backlog.md` only) with the `judge` commit status `failure` at its head `077c0a2e47ffbc4a3f43d43771cb8720a11c1e76`. The PR was merged with a failed judge status at its head; the missing check is a required `judge` context.
+- evidence: `commits/077c0a2e.../statuses` holds one status, `judge` `failure` ("Acceptance bypass and wall-time summary error", 2026-11-17T03:22:08Z); check run 134291741833 `Verification result` is `success` at that head; `branches/main/protection` lists the required contexts `["Verification result"]`; `rules/branches/main` returns `[]`; no `.github` file mentions `judge`; PR 700 carried the `judge-required` label and was not a draft.
+- re-open trigger: `judge` becomes a required status context on `main` (a repository merge-mechanics setting), or a later merge lands over a failed `judge` status.
