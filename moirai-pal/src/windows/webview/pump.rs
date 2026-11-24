@@ -16,6 +16,15 @@ use windows::Win32::{
 
 use crate::webview_limits::MAX_WEBVIEW_WAIT_MILLISECONDS;
 
+/// Pumps the owner thread's messages until `receiver` completes or `timeout`
+/// ends.
+///
+/// Each caller wraps the wait in a `webview2_<name>_wait` debug span, so a
+/// subscriber reads the wait's duration per host from the span's lifetime.
+///
+/// # Errors
+/// Returns `TimedOut` at the deadline, `BrokenPipe` when the callback side is
+/// dropped, and the callback's own error otherwise.
 pub(super) fn wait_for<T>(
     receiver: Receiver<windows::core::Result<T>>,
     timeout: Duration,

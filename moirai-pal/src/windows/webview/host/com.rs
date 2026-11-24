@@ -71,7 +71,8 @@ pub(super) fn create_environment(
         CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), profile_path, None, &handler)
     }
     .map_err(windows_error)?;
-    let environment = wait_for(receiver, wait)?;
+    let environment =
+        tracing::debug_span!("webview2_environment_wait").in_scope(|| wait_for(receiver, wait))?;
     if let Some(expected) = profile {
         let properties = environment
             .cast::<ICoreWebView2Environment7>()
@@ -110,5 +111,5 @@ pub(super) fn create_controller(
             .CreateCoreWebView2Controller(parent, &handler)
             .map_err(windows_error)?;
     }
-    wait_for(receiver, wait)
+    tracing::debug_span!("webview2_controller_wait").in_scope(|| wait_for(receiver, wait))
 }

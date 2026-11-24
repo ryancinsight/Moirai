@@ -299,7 +299,8 @@ impl WebViewHost {
                 )
                 .map_err(windows_error)?;
         }
-        wait_for(receiver, self.config.wait())?;
+        tracing::debug_span!("webview2_capture_wait")
+            .in_scope(|| wait_for(receiver, self.config.wait()))?;
 
         let mut stat = STATSTG::default();
         // SAFETY: `stat` is writable storage and `stream` is a live COM

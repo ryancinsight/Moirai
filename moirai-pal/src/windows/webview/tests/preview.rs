@@ -12,8 +12,10 @@ use super::{
 };
 
 mod start_line;
+mod waits;
 
 use start_line::run_from_common_start;
+use waits::WaitLog;
 
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
@@ -22,6 +24,8 @@ const HEIGHT: u32 = 240;
 #[ignore = "requires an installed WebView2 runtime"]
 fn installed_runtime_captures_rendered_preview() {
     let package = TestPackage::create_with_script(&marker_page("preview", [0x12, 0x34, 0x56]));
+    let log = WaitLog::default();
+    let recording = log.recording(0);
     let host = preview_host(
         &package,
         "Moirai WebView2 preview test",
@@ -31,6 +35,22 @@ fn installed_runtime_captures_rendered_preview() {
         .capture_preview_png()
         .expect("WebView2 preview capture");
     assert_rendered_page(&png, [0x12, 0x34, 0x56]);
+    drop(recording);
+    // Creation completes its three finite waits, in this order, before the
+    // host exists; the capture's own wait follows.
+    assert_eq!(
+        log.waits()
+            .iter()
+            .map(|wait| (wait.host, wait.name))
+            .collect::<Vec<_>>(),
+        [
+            (0, "webview2_environment_wait"),
+            (0, "webview2_controller_wait"),
+            (0, "webview2_navigation_wait"),
+            (0, "host_creation"),
+            (0, "webview2_capture_wait"),
+        ]
+    );
 }
 
 #[test]
@@ -72,7 +92,11 @@ enum NavigationTiming {
 }
 
 fn run_concurrent_reshow_capture(navigation_timing: NavigationTiming) {
+    let _trace = waits::stderr_trace();
+    let log = WaitLog::default();
+    let _report = log.report_on_drop();
     run_from_common_start(100, |host_index, start| {
+        let _recording = log.recording(host_index);
         let initial = marker_color(host_index, 0);
         let expected = marker_color(host_index, 1);
         let package = TestPackage::create_with_script(&marker_page(
@@ -96,7 +120,9 @@ fn run_concurrent_reshow_capture(navigation_timing: NavigationTiming) {
                 .expect("navigate before hide");
             wait_for_navigation(&mut host);
         }
-        start.arrive().expect("every host reached the start line");
+        tracing::debug_span!("start_line_wait")
+            .in_scope(|| start.arrive())
+            .expect("every host reached the start line");
         host.set_visible(false).expect("hide controller");
         if matches!(navigation_timing, NavigationTiming::WhileHidden) {
             host.navigate(reshown_uri).expect("navigate while hidden");
@@ -115,7 +141,9 @@ fn preview_host(package: &TestPackage, title: &str, visibility: WindowVisibility
     let window_config = WindowConfig::with_visibility(title, WIDTH, HEIGHT, visibility)
         .expect("window configuration");
     let window = NativeWindow::new(&window_config).expect("native window");
-    WebViewHost::new(window, config).expect("installed WebView2 host")
+    tracing::debug_span!("host_creation")
+        .in_scope(|| WebViewHost::new(window, config))
+        .expect("installed WebView2 host")
 }
 
 fn marker_page(label: &str, color: [u8; 3]) -> Vec<u8> {
@@ -139,6 +167,7 @@ fn write_page(package: &TestPackage, name: &str, contents: &[u8]) -> String {
 }
 
 fn wait_for_navigation(host: &mut WebViewHost) {
+    let _wait = tracing::debug_span!("navigation_event_wait").entered();
     let deadline = Instant::now() + Duration::from_secs(1);
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
