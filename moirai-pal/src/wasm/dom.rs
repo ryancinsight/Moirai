@@ -27,7 +27,7 @@ pub use self::text::{
 
 use std::io;
 
-pub use crate::content_box::ContentBoxPoint;
+pub use crate::content_box::{ContentBoxGeometry, ContentBoxPoint};
 use wasm_bindgen::JsCast;
 use web_sys::{
     Document, Element, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
@@ -132,7 +132,23 @@ impl WebElement {
         }
     }
 
-    /// Maps a viewport client point into the untransformed local content box.
+    /// Captures this element's current content-box coordinate mapping.
+    ///
+    /// The returned value owns its measured dimensions and affine mapping.
+    /// Later layout or transform changes do not alter it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unavailable or invalid CSS geometry,
+    /// three-dimensional or singular transforms, motion paths, or CSS zoom.
+    /// Closed shadow roots cannot expose their composed transform ancestry;
+    /// callers embedding a canvas there must keep transforming wrappers inside
+    /// the inspectable root.
+    pub fn content_box_geometry(&self) -> io::Result<ContentBoxGeometry> {
+        content_box::measure_geometry(&self.element)
+    }
+
+    /// Maps a viewport client point into the current untransformed content box.
     ///
     /// The returned point carries the content extent measured in the same
     /// layout read as the coordinate. Borders and padding are excluded. The
@@ -142,13 +158,16 @@ impl WebElement {
     /// a local content size.
     ///
     /// # Errors
-    /// Returns a typed error for unavailable or invalid CSS geometry,
-    /// three-dimensional or singular transforms, motion paths, or CSS zoom.
+    ///
+    /// Returns a typed error for non-finite client coordinates,
+    /// unrepresentable projection arithmetic, unavailable or invalid CSS
+    /// geometry, three-dimensional or singular transforms, motion paths, or
+    /// CSS zoom.
     /// Closed shadow roots cannot expose their composed transform ancestry;
     /// callers embedding a canvas there must keep transforming wrappers inside
     /// the inspectable root.
     pub fn content_box_point(&self, client_x: f64, client_y: f64) -> io::Result<ContentBoxPoint> {
-        content_box::measure_point(&self.element, client_x, client_y)
+        self.content_box_geometry()?.point(client_x, client_y)
     }
 
     /// Returns the disabled state of a button, input, or select control.
