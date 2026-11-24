@@ -13,6 +13,7 @@ use std::{
 use tracing::{Subscriber, span};
 use tracing_subscriber::{
     Layer, Registry,
+    filter::filter_fn,
     layer::{Context, SubscriberExt},
     registry::LookupSpan,
 };
@@ -25,11 +26,11 @@ pub(super) struct Wait {
     pub(super) elapsed: Duration,
 }
 
-/// The longest `name` wait among `waits` spans of every host.
+/// The longest `name` wait among the `spans` closed on every host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Slowest {
     pub(super) name: &'static str,
-    pub(super) waits: usize,
+    pub(super) spans: usize,
     pub(super) host: usize,
     pub(super) elapsed: Duration,
 }
@@ -86,11 +87,16 @@ impl WaitLog {
 
     /// Records every span the calling thread closes for `host` until the
     /// returned guard drops.
+    ///
+    /// The recorder enables spans only, so an event-level check such as
+    /// `tracing::enabled!` on the thread keeps the answer it had without it.
     pub(super) fn recording(&self, host: usize) -> tracing::subscriber::DefaultGuard {
-        tracing::subscriber::set_default(Registry::default().with(Recorder {
+        let recorder = Recorder {
             host,
             log: self.clone(),
-        }))
+        }
+        .with_filter(filter_fn(|metadata| metadata.is_span()));
+        tracing::subscriber::set_default(Registry::default().with(recorder))
     }
 
     /// The recorded waits in the order their spans closed.
@@ -116,7 +122,7 @@ impl Drop for Report<'_> {
         for slowest in slowest_by_name(&self.0.waits()) {
             tracing::info!(
                 wait = slowest.name,
-                hosts = slowest.waits,
+                spans = slowest.spans,
                 slowest_host = slowest.host,
                 slowest_seconds = slowest.elapsed.as_secs_f64(),
                 "slowest wait"
@@ -134,7 +140,7 @@ pub(super) fn slowest_by_name(waits: &[Wait]) -> Vec<Slowest> {
     for wait in ordered {
         match slowest.last_mut() {
             Some(current) if current.name == wait.name => {
-                current.waits += 1;
+                current.spans += 1;
                 if wait.elapsed > current.elapsed {
                     current.host = wait.host;
                     current.elapsed = wait.elapsed;
@@ -142,7 +148,7 @@ pub(super) fn slowest_by_name(waits: &[Wait]) -> Vec<Slowest> {
             }
             _ => slowest.push(Slowest {
                 name: wait.name,
-                waits: 1,
+                spans: 1,
                 host: wait.host,
                 elapsed: wait.elapsed,
             }),
@@ -159,6 +165,7 @@ pub(super) fn stderr_trace() -> tracing::subscriber::DefaultGuard {
         tracing_subscriber::fmt()
             .with_writer(io::stderr)
             .with_ansi(false)
+            .log_internal_errors(false)
             .finish(),
     )
 }
@@ -200,6 +207,14 @@ mod tests {
     }
 
     #[test]
+    fn the_recorder_leaves_event_level_checks_unchanged() {
+        let log = WaitLog::default();
+        assert!(!tracing::enabled!(target: "moirai_wait_recorder", tracing::Level::DEBUG));
+        let _recording = log.recording(0);
+        assert!(!tracing::enabled!(target: "moirai_wait_recorder", tracing::Level::DEBUG));
+    }
+
+    #[test]
     fn each_host_thread_records_under_its_own_index() {
         let log = WaitLog::default();
         std::thread::scope(|scope| {
@@ -231,19 +246,19 @@ mod tests {
             [
                 Slowest {
                     name: "capture",
-                    waits: 1,
+                    spans: 1,
                     host: 4,
                     elapsed: Duration::from_millis(1),
                 },
                 Slowest {
                     name: "environment",
-                    waits: 2,
+                    spans: 2,
                     host: 0,
                     elapsed: Duration::from_millis(9),
                 },
                 Slowest {
                     name: "frame",
-                    waits: 3,
+                    spans: 3,
                     host: 2,
                     elapsed: Duration::from_millis(55),
                 },

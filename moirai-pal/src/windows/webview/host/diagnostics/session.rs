@@ -53,7 +53,9 @@ impl Startup {
                 return Err(io::Error::other(error));
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
-            if let Err(error) = wait_for(receiver, remaining) {
+            let wait = tracing::debug_span!("webview2_diagnostics_wait")
+                .in_scope(|| wait_for(receiver, remaining));
+            if let Err(error) = wait {
                 self.state
                     .borrow_mut()
                     .record(&json!({"kind":"activation_incomplete","operation":method,
