@@ -348,39 +348,39 @@ belong in [gap_audit.md](gap_audit.md).
 - milestone: M-core-execution
 - needs: MOI-QUIC-EVIDENCE-LOCK-001
 - outcome: An explicit utility verifies the immutable provenance of the archived QUIC measurement directories and labels them historical-only, so an archive recorded against a superseded lock is never read as current-lock evidence.
-- acceptance: `python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'` passes on an export of the head commit, including the historical-audit and observation-portability tests.
+- acceptance: `python3 -m unittest discover -s scripts/tests -p 'test_quic*.py'` passes on an export of the head commit and `scripts/tests/test_quic_historical.py` holds these tests, each of which fails when the behavior it asserts is removed: `test_full_historical_report_reproduces_without_mutation` (returns `{'scope': 'historical-only', 'revision': <sha>}` and leaves the report unchanged); `test_existing_archive_still_rejected_by_current_verifier` (`verify_provenance` raises `ValueError` matching `diagnostic build provenance differs` for `state-native.json.gz`); `test_moving_refs_and_revision_expressions_are_rejected` (`main`, `HEAD`, an 8-character prefix, `<sha>^`, `--help` and `None` each raise `ValueError`); `test_replacement_missing_and_noncommit_objects` (a `git replace` is ignored, a missing object raises `CalledProcessError`, a blob raises `not a commit`); `test_changed_observed_file_and_extra_field_fail` (a changed observed-file hash or an added `current_qualification` field raises `ValueError`); `test_changed_lock_patch_inventory_and_observed_hashes_fail` (each of five hash fields set to zeros, and a removed `changed_files` entry, raises `ValueError`). `test_quic_observation_portability.py` holds `test_patch_inventory_uses_posix_paths_on_both_platforms` and `test_real_patch_bytes_ignore_inherited_autocrlf`.
 - scope: `scripts/quic_observation/historical.py`, `scripts/quic_observation/prepare.py`, `scripts/tests/test_quic_historical.py`, `scripts/tests/test_quic_observation_portability.py`.
-- evidence: [PR 703](https://github.com/ryancinsight/Moirai/pull/703) (`refs/pull/703/head`, 4 files, +199 -3) was released on 2026-11-24 with the `judge` status failure "Required QUIC recovery checks failed at this head".
+- evidence: the work lives at `refs/pull/703/head` (4 files, +199 -3 against main) and its six historical tests pass there. With `verify_historical_provenance` replaced by `return {'scope': 'historical-only', 'revision': revision}`, `test_changed_lock_patch_inventory_and_observed_hashes_fail`, `test_changed_observed_file_and_extra_field_fail`, `test_moving_refs_and_revision_expressions_are_rejected` and `test_replacement_missing_and_noncommit_objects` fail.
 - blocker: the QUIC recovery workflow fails on the current lock independent of this change; [MOI-QUIC-EVIDENCE-LOCK-001](#MOI-QUIC-EVIDENCE-LOCK-001) records the `canonical_lock_sha256` mismatch.
 - re-open trigger: MOI-QUIC-EVIDENCE-LOCK-001 lands.
 - next step: restore the branch from the pull ref (`git fetch origin pull/703/head:<branch>`), merge main into it, and rerun the `test_quic*.py` suite and the recovery checks.
-- basis: `7ca10156516f474dc54bd4d6c1e0503b0c56e069`
+- basis: `fb4abdb6af2f0b23e26948178dab1bd301f8fe84`
 
 <a id="MOI-QUIC-PACKAGE-FIXTURES-001"></a>
-## MOI-QUIC-PACKAGE-FIXTURES-001 — Package the moirai-quic test fixtures and README links
+## MOI-QUIC-PACKAGE-FIXTURES-001 — Package the test fixtures and README links of the QUIC-reading crates
 - status: todo
 - priority: verification
 - milestone: M-async-io-transport
 - needs: none
-- outcome: The published moirai-quic archive compiles its tests and load example, and its README links resolve from the packaged file.
-- acceptance: In CI, `cargo package -p moirai-quic` followed by building the tests and examples from the unpacked archive succeeds, and every relative README link resolves from the archive root.
-- evidence: `include_bytes!` reads repository-root `tests/fixtures/*.pem` outside the package at `moirai-quic/src/tests.rs:34,42`, `moirai-quic/src/tests/rejection.rs:287,295` and `moirai-quic/examples/load/material.rs:10-11`. `moirai-quic/README.md` links `../docs/adr/` at lines 13, 28, 30, 56 and 75.
-- scope: `moirai-quic/{Cargo.toml,README.md,src/tests.rs,src/tests/rejection.rs,examples/load/material.rs}`, the fixture files and the package CI job.
-- next step: move the four PEM fixtures into the package, repoint the five `include_bytes!` sites, and replace the ADR links with absolute repository URLs.
-- basis: `7ca10156516f474dc54bd4d6c1e0503b0c56e069`
+- outcome: The published archives of `moirai-quic`, `moirai-crypto`, `moirai-tls` and `moirai-runtime` compile their tests and load example, and the `moirai-quic` README links resolve from the packaged file.
+- acceptance: For each of the four packages, `cargo package -p <name>` followed by `cargo test --no-run --all-targets` in the unpacked `.crate` succeeds, and every relative `moirai-quic/README.md` link resolves from the archive root. Each package holds its own copy of the PEM files it reads, and a test fails when the copies of one file differ byte for byte.
+- evidence: `include_bytes!` reads the four repository-root `tests/fixtures/*.pem` outside every package at 15 sites: `moirai-quic` 6 (`src/tests.rs:34,42`, `src/tests/rejection.rs:287,295`, `examples/load/material.rs:10,11`), `moirai-crypto/tests` 3 (`handshake.rs:46,56`, `rsa_signatures.rs:22`), `moirai-tls/tests/handshake.rs` 4 (93,94,102,103), `moirai/tests/quic.rs` 2 (17,25). `cargo package --list` of `moirai-quic`, `moirai-crypto` and `moirai-tls` lists no fixture file; none carries `publish = false`. `moirai-quic/README.md` links `../docs/adr/` at lines 13, 28, 30, 56 and 75.
+- scope: `moirai-quic/{Cargo.toml,README.md,src/tests.rs,src/tests/rejection.rs,examples/load/material.rs}`, the readers in `moirai-crypto/tests`, `moirai-tls/tests` and `moirai/tests`, root `tests/fixtures/`, and a new `package` job in `.github/workflows/rust-ci.yml` added to the `verdict` job's `needs`.
+- next step: copy, not move, the PEM files and `tests/fixtures/README.md` into each reading crate's `tests/fixtures/` (a package cannot read another package's files), repoint the 15 sites, delete root `tests/fixtures/` once no reader remains, replace the ADR links with absolute repository URLs, and run the package step once on a branch: hypothesis that the unpacked manifest resolves `moirai-core`, `moirai-async` and `moirai-pal` from the registry, so the result depends on published versions.
+- basis: `fb4abdb6af2f0b23e26948178dab1bd301f8fe84`
 
 <a id="MOI-RUNTIME-CORE-DUMP-001"></a>
 ## MOI-RUNTIME-CORE-DUMP-001 — Remove tracked core dumps from the tree
 - status: todo
-- priority: tightening
+- priority: verification
 - milestone: M-core-execution
 - needs: none
 - outcome: No ELF core dump is tracked, and none ships in the moirai-runtime package.
-- acceptance: `moirai/core` and `tests/core` are removed from the tree (history rewrite is out of scope); `.gitignore` carries an entry for core dumps with a `# writer:` comment, or a CI artifact-budget check rejects a tracked file over the budget; `cargo package --list -p moirai-runtime` in CI lists no file over the repository artifact budget.
-- evidence: `git ls-tree -r -l origin/main` lists `moirai/core` (64,999,424 bytes, ELF magic `7f45 4c46`) in the `moirai-runtime` package root (`moirai/Cargo.toml` has no `exclude` or `include`) and `tests/core` (46,981,120 bytes, ELF) in the unpublished `moirai-tests` crate. `.gitignore` has no core-dump entry.
-- scope: `moirai/core`, `tests/core`, `.gitignore`, the package CI job.
-- next step: delete both files, add the ignore entry, and add the package-list size check to CI.
-- basis: `7ca10156516f474dc54bd4d6c1e0503b0c56e069`
+- acceptance: `moirai/core` and `tests/core` are removed from the tree (history rewrite is out of scope); `git ls-files moirai/core tests/core` prints nothing; `cargo package --list -p moirai-runtime` prints no line equal to `core`. An ignore entry is optional; if added it is anchored (`/moirai/core`, `/tests/core`) with its writer annotation, never a bare `core`, which would also ignore the 6 tracked files under `moirai-pal/src/reactor/core/`.
+- evidence: `git ls-tree -r -l origin/main` lists `moirai/core` (64,999,424 bytes, magic `7f 45 4c 46`) in the `moirai-runtime` package root (`moirai/Cargo.toml` has no `exclude` or `include`) and `tests/core` (46,981,120 bytes, ELF magic) in the unpublished `moirai-tests` crate (`publish = false`). `cargo package --list -p moirai-runtime` on an export of origin/main prints `core`. `.gitignore` has no core-dump entry.
+- scope: `moirai/core`, `tests/core`, `.gitignore`.
+- next step: `git rm moirai/core tests/core`, then rerun the two acceptance commands.
+- basis: `fb4abdb6af2f0b23e26948178dab1bd301f8fe84`
 
 <a id="MOI-ASYNC-SEEK-001"></a>
 ## MOI-ASYNC-SEEK-001 — Define an async seek trait for Moirai I/O
