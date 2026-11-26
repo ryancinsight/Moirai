@@ -37,10 +37,13 @@ added here; `ExecutionPolicy` owns that decision.
 
 ## Verification
 
-`moirai-executor/tests/melinoe_registration.rs` clears the Melinoe slot, calls
-`moirai_executor::initialize`, then invokes a direct four-shard partition and
-checks every returned shard and element. The Melinoe extension tests cover the
-parallel, sequential, adaptive, ragged, and empty-region paths. The focused
+`moirai-executor/tests/melinoe_registration.rs` warms the global pool before
+clearing the Melinoe slot inside a Moirai indexed region. The test verifies that
+a direct four-shard partition uses scoped threads when the slot is empty, then
+that it stays on the outer lane after `moirai_executor::initialize` restores
+the bridge. Both paths check all shard lengths and values. The Melinoe extension
+tests cover the parallel, sequential, adaptive, ragged, and empty-region paths.
+The focused
 nextest, Clippy, formatting, doctest, and rustdoc gates run against the same
 source revision.
 
