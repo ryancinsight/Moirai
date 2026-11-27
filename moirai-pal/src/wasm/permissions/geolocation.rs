@@ -18,8 +18,11 @@ use super::{
 };
 use crate::permission_state::{Token, callback_key::CallbackKey};
 use std::{cell::Cell, rc::Rc, time::Duration};
-use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 use web_sys::{Geolocation, PositionOptions, Window};
+
+#[cfg(test)]
+mod tests;
 
 struct Registration {
     geolocation: Geolocation,
@@ -52,18 +55,22 @@ pub(super) fn dispatcher_count() -> usize {
     callbacks::dispatcher_count()
 }
 
+/// Acquires the navigator's WebIDL geolocation handle without applying an
+/// `instanceof` check. Browsers do not expose a `Geolocation` constructor, so
+/// web-sys deliberately defines its runtime type test to return false. The
+/// typed Navigator getter is the generated binding for this WebIDL attribute.
+fn interface(window: &Window) -> Result<Option<Geolocation>, super::WebPermissionError> {
+    let geolocation = window
+        .navigator()
+        .geolocation()
+        .map_err(|value| error::native(&value))?;
+    let value: &JsValue = geolocation.as_ref();
+    Ok((!value.is_null() && !value.is_undefined()).then_some(geolocation))
+}
+
 pub(super) fn start(window: &Window, completion: &Rc<Completion>, wait: Duration) -> Option<Watch> {
-    let navigator = window.navigator();
-    let geolocation = match error::interface(navigator.as_ref(), "geolocation") {
-        Ok(Some(value)) => match value.dyn_into::<Geolocation>() {
-            Ok(geolocation) => geolocation,
-            Err(_) => {
-                completion.finish(Err(malformed(
-                    "Browser geolocation has an invalid interface",
-                )));
-                return None;
-            }
-        },
+    let geolocation = match interface(window) {
+        Ok(Some(geolocation)) => geolocation,
         Ok(None) => {
             completion.unavailable();
             return None;
@@ -73,15 +80,17 @@ pub(super) fn start(window: &Window, completion: &Rc<Completion>, wait: Duration
             return None;
         }
     };
-    match error::method(geolocation.as_ref(), "watchPosition") {
-        Ok(true) => (),
-        Ok(false) => {
-            completion.unavailable();
-            return None;
-        }
-        Err(error) => {
-            completion.reject(error);
-            return None;
+    for method in ["watchPosition", "clearWatch"] {
+        match error::method(geolocation.as_ref(), method) {
+            Ok(true) => (),
+            Ok(false) => {
+                completion.unavailable();
+                return None;
+            }
+            Err(error) => {
+                completion.reject(error);
+                return None;
+            }
         }
     }
     let milliseconds = match u32::try_from(wait.as_millis()) {

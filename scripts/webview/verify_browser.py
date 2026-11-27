@@ -28,7 +28,12 @@ DOWNLOAD_LIMIT = 64 * 1024 * 1024
 EVIDENCE_LIMIT = 1024 * 1024
 TEST_TIMEOUT = 60
 VERSION = re.compile(r"\b\d+\.\d+\.\d+\.\d+\b")
-REQUIRED_DOMAINS = ("wasm::webview::tests::", "wasm::dom::event::listener::tests::", "wasm::number::tests::")
+REQUIRED_DOMAINS = (
+    "wasm::webview::tests::",
+    "wasm::dom::event::listener::tests::",
+    "wasm::number::tests::",
+    "wasm::permissions::geolocation::tests::",
+)
 
 
 def text_command(command, cwd, timeout=10):
