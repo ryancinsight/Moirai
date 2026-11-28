@@ -21,7 +21,7 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 [target.'cfg(any(unix, windows))'.dependencies]
 # Non-blocking socket creation for `AsyncTcpStream::connect`: std offers only
 # the blocking `TcpStream::connect`.
-socket2 = "0.6"
+socket2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
